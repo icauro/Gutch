@@ -149,11 +149,11 @@ pub fn visit_installation_plan(
             source.as_ref().map(|source| source.source()),
         )?;
         let mut artifacts: Vec<_> = plan.required_artifacts.iter().collect();
-        artifacts.sort_by(|left, right| left.id().cmp(right.id()));
+        artifacts.sort_by_cached_key(|artifact| artifact.id().into_owned());
         for artifact in artifacts {
             request.control.checkpoint()?;
             visitor(InstallationPlanEvent::Artifact {
-                id: artifact.id().to_owned(),
+                id: artifact.id().into_owned(),
                 available_locally: existing_artifacts.contains(artifact),
             })?;
         }

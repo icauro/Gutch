@@ -1,5 +1,6 @@
 mod module_boundaries;
 
+use crate::artifact::hash::ChunkHash;
 use crate::capture::build::pipeline::build_directory;
 use crate::capture::build::types::BuildConfig;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
@@ -201,7 +202,7 @@ fn test_verify_directory_missing_file() {
         size: 10,
         executable: false,
         read_only: false,
-        full_file_hash: "abc".to_string(),
+        full_file_hash: ChunkHash::of(b"abc"),
         chunks: vec![],
     };
 

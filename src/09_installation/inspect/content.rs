@@ -5,7 +5,6 @@ use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::integrity::verify_full_file_integrity;
 use crate::manifest;
-use crate::manifest::typed::typed_file_manifest;
 use crate::profiling::ProfileInstant;
 use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
@@ -125,11 +124,10 @@ fn verify_file_fast(
     timings: &mut VerifyTimings,
     control: &OperationControl,
 ) -> Result<Vec<RepairIssue>> {
-    let expected_full_hash = ChunkHash::parse_hex(&prepared_file.manifest.full_file_hash)?;
     let integrity = verify_full_file_integrity(
         &prepared_file.path,
         prepared_file.manifest.size,
-        expected_full_hash,
+        prepared_file.manifest.full_file_hash,
         concurrent_file_count,
         control,
     )?;
@@ -147,8 +145,6 @@ fn verify_file_streaming(
     timings: &mut VerifyTimings,
     control: &OperationControl,
 ) -> Result<Vec<RepairIssue>> {
-    let typed_file =
-        typed_file_manifest(file_manifest).map_err(|err| io::Error::other(err.to_string()))?;
     let file = File::open(file_path)?;
     let mut reader = BufReader::new(file);
     let mut issues = Vec::new();
@@ -156,7 +152,7 @@ fn verify_file_streaming(
     let mut chunk_buffer = Vec::new();
     let mut chunk_offset = 0u64;
 
-    for chunk_ref in typed_file.chunks {
+    for chunk_ref in &file_manifest.chunks {
         let raw_size = u64::from(chunk_ref.raw_size);
         control.checkpoint()?;
         let chunk_size = chunk_ref.raw_size as usize;
@@ -219,14 +215,12 @@ fn verify_file_streaming(
     let file_hash_finalize_started = ProfileInstant::detailed(control.profiler());
     let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
     timings.file_hash += file_hash_finalize_started.elapsed();
-    if actual_hash != typed_file.full_file_hash {
+    if actual_hash != file_manifest.full_file_hash {
         issues.push(RepairIssue::corrupt(
             &file_manifest.path,
             format!(
                 "hash mismatch for {}: expected {}, got {}",
-                file_manifest.path,
-                file_manifest.full_file_hash,
-                actual_hash.to_hex()
+                file_manifest.path, file_manifest.full_file_hash, actual_hash
             ),
         ));
     }

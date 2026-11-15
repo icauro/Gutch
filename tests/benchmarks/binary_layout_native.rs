@@ -37,7 +37,7 @@ fn native_corpus_layout_comparison() {
             });
             let lookup_us = median_us(repetitions, || {
                 for key in index.entries.keys() {
-                    assert!(std::hint::black_box(index.entries.get_hash(key)).is_some());
+                    assert!(std::hint::black_box(index.entries.get(key)).is_some());
                 }
             });
             let artifacts: std::collections::HashSet<_> = index

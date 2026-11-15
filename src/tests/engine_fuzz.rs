@@ -130,7 +130,7 @@ fn fuzz_blueprint_roundtrip() {
                 size: bytes.len() as u64,
                 executable: properties & 2 != 0,
                 read_only: properties & 4 != 0,
-                full_file_hash: blake3::hash(bytes).to_hex().to_string(),
+                full_file_hash: ChunkHash::of(bytes),
                 chunks,
             }),
             SnapshotEntry::Symlink(SymlinkManifest {

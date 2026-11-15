@@ -206,7 +206,7 @@ impl<'a> PipelinePlanBuilder<'a> {
         self.files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
-            full_file_hash: ChunkHash::parse_hex(&file_manifest.full_file_hash)?,
+            full_file_hash: file_manifest.full_file_hash,
         });
         Ok(())
     }
@@ -320,7 +320,7 @@ impl<'a> PipelinePlanBuilder<'a> {
             Entry::Occupied(position) => return Ok(*position.get()),
             Entry::Vacant(position_entry) => position_entry,
         };
-        let entry = self.chunk_index.entries.get_hash(&hash).ok_or_else(|| {
+        let entry = self.chunk_index.entries.get(&hash).ok_or_else(|| {
             Error::manifest(format!(
                 "missing chunk index entry for required chunk '{hash}'"
             ))
@@ -547,7 +547,7 @@ pub(crate) fn resolve_metadata_updates(
                     match verify_full_file_integrity(
                         &path,
                         file.size,
-                        ChunkHash::parse_hex(&file.full_file_hash)?,
+                        file.full_file_hash,
                         1,
                         control,
                     ) {

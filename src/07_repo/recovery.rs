@@ -45,7 +45,7 @@ pub fn rebuild_index(
 ) -> Result<IndexRebuildResult> {
     let work = || {
         let (paths, _) = load_gutch_repo_manifest(root)?;
-        let mut entries: BTreeMap<String, ChunkIndexEntry> = BTreeMap::new();
+        let mut entries: BTreeMap<ChunkHash, ChunkIndexEntry> = BTreeMap::new();
         let mut result = IndexRebuildResult {
             complete: false,
             published: false,
@@ -77,7 +77,7 @@ pub fn rebuild_index(
             let mut affected = false;
             for chunk in manifest.files().flat_map(|file| &file.chunks) {
                 if !entries
-                    .get(&chunk.chunk_hash.to_hex())
+                    .get(&chunk.chunk_hash)
                     .is_some_and(|entry| entry.raw_size == chunk.raw_size)
                 {
                     affected = true;
@@ -101,10 +101,7 @@ pub fn rebuild_index(
                 &ChunkIndex {
                     format_version: FORMAT_VERSION.into(),
 
-                    entries: entries
-                        .into_iter()
-                        .map(|(hash, entry)| Ok((ChunkHash::parse_hex(&hash)?, entry)))
-                        .collect::<Result<_>>()?,
+                    entries: entries.into_iter().collect(),
                 },
             )?;
             result.published = true;
@@ -123,7 +120,7 @@ pub fn rebuild_index(
 fn recover_artifact_chunks(
     artifact: &ArtifactRef,
     path: &Path,
-) -> Result<Vec<(String, ChunkIndexEntry)>> {
+) -> Result<Vec<(ChunkHash, ChunkIndexEntry)>> {
     let size = size_u32(fs::metadata(path)?.len())?;
     match artifact {
         ArtifactRef::Bundle { id } => {
@@ -136,7 +133,7 @@ fn recover_artifact_chunks(
                 .enumerate()
                 .map(|(ordinal, chunk)| {
                     (
-                        chunk.chunk_hash.to_hex(),
+                        chunk.chunk_hash,
                         ChunkIndexEntry::new(
                             size,
                             ordinal as u32,
@@ -150,18 +147,18 @@ fn recover_artifact_chunks(
         }
         ArtifactRef::LooseChunk { hash } => {
             let (declared, raw, _) = read_loose_header(&mut File::open(path)?)?;
-            if declared.to_hex() != *hash {
+            if declared != *hash {
                 return Err(Error::repository(
                     "loose artifact filename disagrees with header",
                 ));
             }
-            read_loose_chunk(path, hash, u64::from(raw), None)?;
+            read_loose_chunk(path, *hash, u64::from(raw), None)?;
             Ok(vec![(
-                hash.clone(),
+                *hash,
                 ChunkIndexEntry::new(
                     size,
                     0,
-                    hash.as_str().into(),
+                    hash.to_hex().into(),
                     raw,
                     ArtifactStorageMode::LooseChunks,
                 ),
@@ -173,9 +170,9 @@ fn recover_artifact_chunks(
 /// Adds a recovered chunk location. When several artifacts hold the chunk,
 /// the lowest artifact ID and ordinal wins regardless of enumeration order.
 fn add_recovered_chunk(
-    entries: &mut BTreeMap<String, ChunkIndexEntry>,
+    entries: &mut BTreeMap<ChunkHash, ChunkIndexEntry>,
     result: &mut IndexRebuildResult,
-    hash: String,
+    hash: ChunkHash,
     entry: ChunkIndexEntry,
 ) {
     if let Some(previous) = entries.get(&hash) {

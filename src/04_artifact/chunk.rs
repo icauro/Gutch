@@ -12,7 +12,7 @@ use fastcdc::v2020::Normalization;
 use std::io::Read;
 use std::time::Duration;
 
-use crate::artifact::hash::hash_hex;
+use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ChunkSizingProfile;
 use crate::artifact::profiles::Chunker;
 use crate::error::Result;
@@ -23,13 +23,13 @@ use std::path::Path;
 pub(crate) struct ChunkResult {
     pub(crate) size: u64,
     pub(crate) offset: u64,
-    pub(crate) hash: blake3::Hash,
+    pub(crate) hash: ChunkHash,
 }
 
 pub(crate) struct ChunkFileScan {
     pub(crate) chunks: Vec<ChunkResult>,
     pub(crate) file_size: u64,
-    pub(crate) full_file_hash: String,
+    pub(crate) full_file_hash: ChunkHash,
     pub(crate) full_file_hash_duration: Duration,
 }
 
@@ -56,7 +56,7 @@ pub(crate) fn chunk_bytes(data: &[u8], profile: &ChunkSizingProfile) -> Vec<Chun
         .map(|chunk| ChunkResult {
             size: chunk.len as u64,
             offset: chunk.offset,
-            hash: chunk.hash,
+            hash: ChunkHash::from_blake3(chunk.hash),
         })
         .collect()
 }
@@ -181,7 +181,7 @@ fn scan_with_boundary<C: ChunkBoundary>(
         file_size += chunk.data.len() as u64;
         boundary_scan_bytes += chunk.data.len() as u64;
         let started_at = ProfileInstant::detailed(control.profiler());
-        let hash = blake3::hash(chunk.data);
+        let hash = ChunkHash::of(chunk.data);
         hash_judgment += started_at.elapsed();
         chunk_results.push(ChunkResult {
             offset: chunk.offset,
@@ -200,7 +200,7 @@ fn scan_with_boundary<C: ChunkBoundary>(
         ChunkFileScan {
             chunks: chunk_results,
             file_size,
-            full_file_hash: hash_hex(&full_file_hash.finalize()),
+            full_file_hash: ChunkHash::from_blake3(full_file_hash.finalize()),
             full_file_hash_duration,
         },
         ChunkScanTimings {
@@ -243,11 +243,11 @@ fn scan_small_file<C: ChunkBoundary>(
         let length = boundary.cut(&bytes[offset..]);
         boundary_scan += started.elapsed();
         let started = ProfileInstant::detailed(control.profiler());
-        let hash = if length == bytes.len() {
+        let hash = ChunkHash::from_blake3(if length == bytes.len() {
             full_hash
         } else {
             blake3::hash(&bytes[offset..offset + length])
-        };
+        });
         hash_judgment += started.elapsed();
         chunks.push(ChunkResult {
             offset: offset as u64,
@@ -260,7 +260,7 @@ fn scan_small_file<C: ChunkBoundary>(
         ChunkFileScan {
             chunks,
             file_size: inventory_size,
-            full_file_hash: hash_hex(&full_hash),
+            full_file_hash: ChunkHash::from_blake3(full_hash),
             full_file_hash_duration,
         },
         ChunkScanTimings {

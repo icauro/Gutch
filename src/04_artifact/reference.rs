@@ -1,5 +1,8 @@
 //! Repository-independent identity of one stored artifact.
 
+use crate::artifact::hash::ChunkHash;
+use std::borrow::Cow;
+
 /// A persisted artifact that can satisfy one or more logical chunks.
 ///
 /// Bundles and loose chunks differ only at this boundary. Snapshot planning,
@@ -9,14 +12,15 @@
 pub(crate) enum ArtifactRef {
     // Many chunks share a bundle, so retain the index's shared identifier storage.
     Bundle { id: smol_str::SmolStr },
-    LooseChunk { hash: String },
+    LooseChunk { hash: ChunkHash },
 }
 
 impl ArtifactRef {
-    pub(crate) fn id(&self) -> &str {
+    /// File name of the artifact: the bundle id or the chunk hash in hex.
+    pub(crate) fn id(&self) -> Cow<'_, str> {
         match self {
-            Self::Bundle { id } => id,
-            Self::LooseChunk { hash } => hash,
+            Self::Bundle { id } => Cow::Borrowed(id),
+            Self::LooseChunk { hash } => Cow::Owned(hash.to_hex()),
         }
     }
 }

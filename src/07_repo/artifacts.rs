@@ -24,16 +24,14 @@ impl ArtifactRef {
             ArtifactStorageMode::Bundled => Self::Bundle {
                 id: entry.bundle_id.clone(),
             },
-            ArtifactStorageMode::LooseChunks => Self::LooseChunk {
-                hash: chunk_hash.to_hex(),
-            },
+            ArtifactStorageMode::LooseChunks => Self::LooseChunk { hash: *chunk_hash },
         }
     }
 
     pub(crate) fn local_path(&self, repo_paths: &RepoPaths) -> Result<PathBuf> {
         match self {
             Self::Bundle { id } => bundle_path(repo_paths, id),
-            Self::LooseChunk { hash } => chunk_path(repo_paths, hash),
+            Self::LooseChunk { hash } => Ok(chunk_path(repo_paths, *hash)),
         }
     }
 }
@@ -71,7 +69,7 @@ pub(crate) fn classify_required_artifacts(
         .files()
         .flat_map(|file| file.chunks.iter())
     {
-        let Some(entry) = chunk_index.entries.get_hash(&chunk_ref.chunk_hash) else {
+        let Some(entry) = chunk_index.entries.get(&chunk_ref.chunk_hash) else {
             unindexed_chunks.insert(chunk_ref.chunk_hash.to_string());
             continue;
         };

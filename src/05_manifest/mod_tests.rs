@@ -8,7 +8,7 @@ fn test_file_manifest_serialization() {
         size: 12345,
         executable: true,
         read_only: false,
-        full_file_hash: "01".repeat(32),
+        full_file_hash: ChunkHash::from_bytes([1; 32]),
         chunks: vec![
             ChunkRef {
                 chunk_hash: ChunkHash::from_bytes([2; 32]),

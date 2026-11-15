@@ -38,7 +38,7 @@ pub(crate) fn preserve_local_chunk_locations(
     for (hash, entry) in load_chunk_index(paths)?.entries {
         let artifact = ArtifactRef::from_chunk_entry(&hash, &entry);
         let artifact_is_cached = artifact.local_path(paths)?.is_file();
-        let preserve_local_entry = artifact_is_cached || incoming.entries.get_hash(&hash).is_none();
+        let preserve_local_entry = artifact_is_cached || incoming.entries.get(&hash).is_none();
         if preserve_local_entry {
             incoming.entries.insert(hash, entry);
         }
@@ -208,17 +208,11 @@ mod cache_merge_tests {
                 } else {
                     &remote_entry
                 };
-                assert_eq!(incoming.entries.get_hash(&chunk_hash), Some(expected));
-                assert_eq!(
-                    incoming.entries.get_hash(&remote_only_hash),
-                    Some(&remote_entry)
-                );
+                assert_eq!(incoming.entries.get(&chunk_hash), Some(expected));
+                assert_eq!(incoming.entries.get(&remote_only_hash), Some(&remote_entry));
                 // Planning merges only in memory; the persisted local index remains usable.
                 assert_eq!(
-                    load_chunk_index(&paths)
-                        .unwrap()
-                        .entries
-                        .get_hash(&chunk_hash),
+                    load_chunk_index(&paths).unwrap().entries.get(&chunk_hash),
                     Some(&local_entry)
                 );
             }

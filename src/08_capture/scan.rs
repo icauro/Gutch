@@ -114,7 +114,7 @@ pub(crate) fn collect_scanned_chunks(
         accumulate_entry_timings(timings, &entry);
         total_logical_size += entry.size;
         if !entry.new_chunk_offsets.is_empty() {
-            let file_content_hash = ChunkHash::parse_hex(&entry.manifest.full_file_hash)?;
+            let file_content_hash = entry.manifest.full_file_hash;
             for (chunk_hash, file_offset) in entry.new_chunk_offsets.iter().copied() {
                 let candidate = ChunkPlacementKey {
                     file_content_hash,
@@ -427,7 +427,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
                 && candidate.chunks.len() == chunk_scan.chunks.len()
                 && candidate.chunks.iter().zip(&chunk_scan.chunks).all(|(old, new)| {
                     u64::from(old.raw_size) == new.size
-                        && old.chunk_hash == ChunkHash::from_blake3(new.hash)
+                        && old.chunk_hash == new.hash
                         && options.available_chunk_sizes.contains_key(&old.chunk_hash)
                 })
         })
@@ -458,7 +458,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
         let source = Arc::new(path.to_path_buf());
         for cr in chunk_scan.chunks {
             control.checkpoint()?;
-            let chunk_hash = ChunkHash::from_blake3(cr.hash);
+            let chunk_hash = cr.hash;
             let raw_size = cr.size;
             chunk_refs.push(ChunkRef {
                 chunk_hash,

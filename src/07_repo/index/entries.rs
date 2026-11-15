@@ -46,16 +46,13 @@ impl ChunkIndexEntries {
     pub fn clear(&mut self) {
         self.0.clear();
     }
-    pub fn get(&self, hash: &str) -> Option<&ChunkIndexEntry> {
-        self.get_hash(&ChunkHash::parse_hex(hash).ok()?)
-    }
-    pub fn get_hash(&self, hash: &ChunkHash) -> Option<&ChunkIndexEntry> {
+    pub fn get(&self, hash: &ChunkHash) -> Option<&ChunkIndexEntry> {
         self.0
             .binary_search_by_key(hash, |row| row.0)
             .ok()
             .map(|row| &self.0[row].1)
     }
-    pub fn contains_key(&self, hash: &str) -> bool {
+    pub fn contains_key(&self, hash: &ChunkHash) -> bool {
         self.get(hash).is_some()
     }
     pub fn insert(&mut self, hash: ChunkHash, entry: ChunkIndexEntry) -> Option<ChunkIndexEntry> {

@@ -163,9 +163,7 @@ pub(crate) fn available_chunk_sizes(
                     ArtifactStorageMode::Bundled => {
                         available_bundle_ids.contains(entry.bundle_id.as_str())
                     }
-                    ArtifactStorageMode::LooseChunks => {
-                        chunk_path(paths, &chunk_hash.to_hex())?.is_file()
-                    }
+                    ArtifactStorageMode::LooseChunks => chunk_path(paths, *chunk_hash).is_file(),
                 };
                 Ok(path_exists.then(|| {
                     let encoded_size_estimate = match entry.storage_mode {
@@ -246,7 +244,7 @@ mod tests {
         let encoded = crate::test_util::loose_bytes(bytes, &Default::default());
         let loose_size = encoded.len() as u32;
         let loose_id = loose_hash.to_hex().into();
-        let loose_path = chunk_path(&paths, &loose_hash.to_hex()).unwrap();
+        let loose_path = chunk_path(&paths, loose_hash);
         std::fs::create_dir_all(loose_path.parent().unwrap()).unwrap();
         std::fs::write(&loose_path, encoded).unwrap();
         let bundle_a = smol_str::SmolStr::new("a1".repeat(32));

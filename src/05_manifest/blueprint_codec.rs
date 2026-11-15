@@ -28,6 +28,7 @@ pub(crate) fn read_snapshot_blueprint_bytes(bytes: &[u8]) -> Result<Vec<manifest
 #[cfg(test)]
 mod snapshot_blueprint_tests {
     use super::*;
+    use crate::artifact::hash::ChunkHash;
     use crate::repo::index::binary_codec::*;
 
     #[test]
@@ -66,7 +67,7 @@ mod snapshot_blueprint_tests {
         )
         .unwrap();
         let index = load_chunk_index_binary_from_bytes(&bytes).unwrap();
-        let entry = index.entries.get(&"09".repeat(32)).unwrap();
+        let entry = index.entries.get(&ChunkHash::from_bytes([9; 32])).unwrap();
         assert_eq!(entry.bundle_id.as_str(), "07".repeat(32));
         assert_eq!(entry.artifact_size, 200);
         assert_eq!(entry.raw_size, 128);
@@ -94,7 +95,7 @@ mod snapshot_blueprint_tests {
                     size,
                     executable: false,
                     read_only: false,
-                    full_file_hash: "01".repeat(32),
+                    full_file_hash: ChunkHash::from_bytes([1; 32]),
                     chunks: vec![
                         manifest::ChunkRef {
                             chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(
@@ -126,7 +127,7 @@ mod snapshot_blueprint_tests {
                 size: 0,
                 executable: true,
                 read_only: true,
-                full_file_hash: blake3::hash(b"").to_hex().to_string(),
+                full_file_hash: ChunkHash::of(b""),
                 chunks: Vec::new(),
             }),
             manifest::SnapshotEntry::Symlink(manifest::SymlinkManifest {

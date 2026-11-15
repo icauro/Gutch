@@ -294,7 +294,9 @@ mod sizing_tests {
                 assert!(chunk.size > 0 && chunk.size <= u64::from(profile.max_chunk_bytes));
                 assert_eq!(
                     chunk.hash,
-                    blake3::hash(&data[offset as usize..(offset + chunk.size) as usize])
+                    crate::artifact::hash::ChunkHash::of(
+                        &data[offset as usize..(offset + chunk.size) as usize]
+                    )
                 );
                 offset += chunk.size;
             }

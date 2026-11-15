@@ -29,7 +29,7 @@ fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
             let expected = chunk_bytes(&data, &profile);
             let (actual, _) =
                 scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
-            assert_eq!(actual.full_file_hash, hash_hex(&blake3::hash(&data)));
+            assert_eq!(actual.full_file_hash, ChunkHash::of(&data));
             assert_eq!(expected.len(), actual.chunks.len());
             for (left, right) in expected.iter().zip(&actual.chunks) {
                 assert_eq!(
@@ -88,14 +88,6 @@ fn test_chunk_bytes_small_data() {
     let results = chunk_bytes(data, &profile);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].size, 5);
-}
-
-#[test]
-fn test_hash_hex() {
-    let hash = blake3::hash(b"test");
-    let hex = hash_hex(&hash);
-    assert_eq!(hex.len(), 64);
-    assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
 }
 
 #[test]
@@ -158,10 +150,7 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
     .unwrap();
 
     assert_eq!(scan.file_size, data.len() as u64);
-    assert_eq!(
-        scan.full_file_hash,
-        hash_hex(&blake3::hash(data.as_slice()))
-    );
+    assert_eq!(scan.full_file_hash, ChunkHash::of(&data));
     assert_eq!(timings.boundary_scan_bytes, data.len() as u64);
     assert_eq!(timings.hash_judgment_bytes, data.len() as u64);
     assert!(!scan.chunks.is_empty());
@@ -235,12 +224,12 @@ fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
             );
             let (scan, _) =
                 scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
-            assert_eq!(scan.full_file_hash, hash_hex(&blake3::hash(bytes)));
+            assert_eq!(scan.full_file_hash, ChunkHash::of(bytes));
             let mut offset = 0;
             for chunk in scan.chunks {
                 let length = boundary.cut(&bytes[offset..]);
                 assert_eq!((chunk.offset, chunk.size), (offset as u64, length as u64));
-                assert_eq!(chunk.hash, blake3::hash(&bytes[offset..offset + length]));
+                assert_eq!(chunk.hash, ChunkHash::of(&bytes[offset..offset + length]));
                 offset += length;
             }
             assert_eq!(offset, size);

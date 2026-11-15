@@ -150,13 +150,13 @@ pub(crate) fn bundle_path(paths: &RepoPaths, bundle_id: &str) -> Result<PathBuf>
     bundle_path_in_root(&paths.bundles_root, bundle_id)
 }
 
-pub(crate) fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> Result<PathBuf> {
-    validate_path_component(chunk_hash, "chunk hash")?;
-    let prefix = chunk_hash.get(0..2).unwrap_or("xx");
-    Ok(chunks_root.join(prefix).join(chunk_hash))
+/// Loose chunks are sharded by the first two hex digits of their hash.
+pub(crate) fn chunk_path_in_root(chunks_root: &Path, chunk_hash: ChunkHash) -> PathBuf {
+    let hex = chunk_hash.to_hex();
+    chunks_root.join(&hex[..2]).join(hex)
 }
 
-pub(crate) fn chunk_path(paths: &RepoPaths, chunk_hash: &str) -> Result<PathBuf> {
+pub(crate) fn chunk_path(paths: &RepoPaths, chunk_hash: ChunkHash) -> PathBuf {
     chunk_path_in_root(&paths.chunks_root, chunk_hash)
 }
 
@@ -175,7 +175,6 @@ mod tests {
         let store_root = Path::new("store");
         assert!(RepoPaths::from_store_root(store_root, "../escape").is_err());
         assert!(bundle_path_in_root(store_root, "..\\escape").is_err());
-        assert!(chunk_path_in_root(store_root, "nested/hash").is_err());
         assert!(validate_path_component("C:\\escape", "component").is_err());
     }
 
@@ -184,7 +183,6 @@ mod tests {
         let paths = RepoPaths::from_store_root(Path::new("store"), "repo-1").unwrap();
         assert!(paths.repo_root().ends_with(Path::new("v1/repos/repo-1")));
         assert!(bundle_path(&paths, "bundle-1").is_ok());
-        assert!(chunk_path(&paths, "ab123").is_ok());
     }
 
     #[test]

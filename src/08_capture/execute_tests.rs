@@ -57,7 +57,9 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
         size: 11,
         executable: false,
         read_only: false,
-        full_file_hash: hash_hex(&hash_file(new_source.join("game.exe").as_path()).unwrap()),
+        full_file_hash: ChunkHash::from_blake3(
+            hash_file(new_source.join("game.exe").as_path()).unwrap(),
+        ),
         chunks: vec![ChunkRef {
             chunk_hash: ChunkHash::parse_hex(&hash_hex(
                 &hash_file(new_source.join("game.exe").as_path()).unwrap(),

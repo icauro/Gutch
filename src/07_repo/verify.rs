@@ -185,7 +185,7 @@ fn verify_snapshot_artifacts_cached(
                         ))
                     });
                     entry.and_then(|entry| {
-                        read_loose_chunk(&path, hash, u64::from(entry.raw_size), None).map(|_| ())
+                        read_loose_chunk(&path, *hash, u64::from(entry.raw_size), None).map(|_| ())
                     })
                 }
             };
@@ -232,6 +232,7 @@ fn verify_bundle_file(path: &Path, bundle_id: &str, mode: RepoArtifactVerificati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact::hash::ChunkHash;
 
     fn save_test_snapshot(paths: &RepoPaths, path: &str, bytes: &[u8]) -> SnapshotManifest {
         let hash = crate::artifact::hash::ChunkHash::of(bytes);
@@ -241,7 +242,7 @@ mod tests {
             size: bytes.len() as u64,
             executable: false,
             read_only: false,
-            full_file_hash: hash.to_hex(),
+            full_file_hash: hash,
             chunks: if bytes.is_empty() {
                 Vec::new()
             } else {
@@ -297,7 +298,7 @@ mod tests {
 
         let mut index = load_chunk_index(&paths).unwrap();
         let chunk = unselected.files().next().unwrap().chunks[0].chunk_hash;
-        let mut entry = index.entries.get_hash(&chunk).unwrap().clone();
+        let mut entry = index.entries.get(&chunk).unwrap().clone();
         entry.raw_size += 1;
         index.entries.insert(chunk, entry);
         crate::repo::index::write_chunk_index(&paths, &index).unwrap();
@@ -324,7 +325,7 @@ mod tests {
         let crate::manifest::SnapshotEntry::File(file) = &mut invalid.entries[0] else {
             panic!("expected the fixture's file entry");
         };
-        file.full_file_hash = blake3::hash(b"different content").to_hex().to_string();
+        file.full_file_hash = ChunkHash::of(b"different content");
         crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
             &paths,
             &invalid,

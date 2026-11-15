@@ -41,11 +41,7 @@ fn file_representation(file: &FileManifest) -> u8 {
         0 => FILE_EMPTY,
         // Validation ensures the sole chunk spans the file; matching hashes let
         // the reader recover the chunk entirely from the file size and hash.
-        1 if ChunkHash::parse_hex(&file.full_file_hash)
-            .is_ok_and(|hash| file.chunks[0].chunk_hash == hash) =>
-        {
-            FILE_IMPLICIT_CHUNK
-        }
+        1 if file.chunks[0].chunk_hash == file.full_file_hash => FILE_IMPLICIT_CHUNK,
         _ => FILE_EXPLICIT_CHUNKS,
     }
 }
@@ -174,7 +170,7 @@ fn encode_entry_metadata(
         write_u64(&mut entry_metadata, file.size)?;
     }
     for file in files {
-        let hash = ChunkHash::parse_hex(&file.full_file_hash)?;
+        let hash = file.full_file_hash;
         if file.size == 0 {
             if hash.as_bytes() != blake3::hash(b"").as_bytes() {
                 return Err(Error::manifest("invalid empty file hash"));
@@ -470,7 +466,7 @@ fn reconstruct_entries(
         entries.push(match entry_kinds[entry_row] {
             ENTRY_FILE => {
                 let size = file_sizes[file_row];
-                let hash = file_content_hashes[file_row].to_hex();
+                let hash = file_content_hashes[file_row];
                 let file_chunks = match file_representations[file_row] {
                     FILE_EMPTY if size == 0 => Vec::new(),
                     FILE_IMPLICIT_CHUNK if size > 0 && size <= MAX_RAW_CHUNK_SIZE => {
@@ -543,7 +539,7 @@ mod tests {
                 size: bytes.len() as u64,
                 executable: true,
                 read_only: false,
-                full_file_hash: blake3::hash(&bytes).to_hex().to_string(),
+                full_file_hash: ChunkHash::of(&bytes),
                 chunks: parts
                     .iter()
                     .map(|part| ChunkRef {
@@ -582,7 +578,7 @@ mod tests {
             size: 1,
             executable: true,
             read_only: true,
-            full_file_hash: blake3::hash(b"x").to_hex().to_string(),
+            full_file_hash: ChunkHash::of(b"x"),
             chunks: vec![ChunkRef {
                 chunk_hash: ChunkHash::of(b"x"),
                 raw_size: 1,

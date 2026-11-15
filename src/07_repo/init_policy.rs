@@ -300,6 +300,10 @@ mod tests {
         crate::artifact::hash::ChunkHash::of(label.as_bytes()).to_hex()
     }
 
+    fn test_chunk_hash(label: &str) -> crate::artifact::hash::ChunkHash {
+        crate::artifact::hash::ChunkHash::of(label.as_bytes())
+    }
+
     #[test]
     fn assess_repo_init_path_reports_existing_repo() {
         let temp = tempfile::tempdir().unwrap();
@@ -346,10 +350,9 @@ mod tests {
             size: 4,
             executable: true,
             read_only: false,
-            full_file_hash: test_hash("game.exe"),
+            full_file_hash: test_chunk_hash("game.exe"),
             chunks: vec![crate::manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("game.exe"))
-                    .unwrap(),
+                chunk_hash: test_chunk_hash("game.exe"),
                 raw_size: 4,
             }],
         });

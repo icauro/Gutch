@@ -1,6 +1,7 @@
 use super::*;
 use crate::artifact::chunk::scan_file_chunks;
 use crate::artifact::chunk_stream::ChunkStream;
+use crate::artifact::hash::ChunkHash;
 use std::fs;
 use std::io::{Cursor, Read};
 
@@ -101,17 +102,14 @@ fn streaming_and_capture_preserve_ram_boundaries_and_hashes() {
             for chunk in scan.chunks {
                 let length = reference(&data[offset..size], window, maximum);
                 assert_eq!((chunk.offset, chunk.size), (offset as u64, length as u64));
-                assert_eq!(chunk.hash, blake3::hash(&data[offset..offset + length]));
+                assert_eq!(chunk.hash, ChunkHash::of(&data[offset..offset + length]));
                 let streamed = stream.next(&Default::default()).unwrap().unwrap();
                 assert_eq!(streamed.data, &data[offset..offset + length]);
                 offset += length;
             }
             assert_eq!(offset, size);
             assert!(stream.next(&Default::default()).unwrap().is_none());
-            assert_eq!(
-                scan.full_file_hash,
-                blake3::hash(&data[..size]).to_hex().to_string()
-            );
+            assert_eq!(scan.full_file_hash, ChunkHash::of(&data[..size]));
         }
     }
 }

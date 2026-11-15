@@ -13,7 +13,7 @@ pub struct FileManifest {
     pub size: u64,
     pub executable: bool,
     pub read_only: bool,
-    pub full_file_hash: String,
+    pub full_file_hash: ChunkHash,
     pub chunks: Vec<ChunkRef>,
 }
 
@@ -71,7 +71,6 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             )));
         }
         if let SnapshotEntry::File(file) = entry {
-            ChunkHash::parse_hex(&file.full_file_hash)?;
             for chunk in &file.chunks {
                 if chunk.raw_size == 0 || u64::from(chunk.raw_size) > MAX_RAW_CHUNK_SIZE {
                     return Err(crate::Error::manifest("invalid snapshot chunk size"));

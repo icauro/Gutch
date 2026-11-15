@@ -32,7 +32,7 @@ pub(crate) struct LooseChunkReadMetrics {
 /// from the chunk header.
 pub(crate) fn read_loose_chunk(
     path: &Path,
-    chunk_hash: &str,
+    chunk_hash: ChunkHash,
     raw_size: u64,
     profiler: Option<&Profiler>,
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
@@ -44,7 +44,7 @@ pub(crate) fn read_loose_chunk(
         metrics.compressed_bytes = file.metadata()?.len();
         format::size_u32(metrics.compressed_bytes)?;
         let (declared_hash, declared_size, codec) = read_loose_header(&mut file)?;
-        if declared_hash.to_hex() != chunk_hash || u64::from(declared_size) != raw_size {
+        if declared_hash != chunk_hash || u64::from(declared_size) != raw_size {
             return Err(Error::artifact(
                 "loose chunk header disagrees with requested content",
             ));
@@ -80,11 +80,11 @@ pub(crate) fn read_loose_chunk(
     {
         let started_at = ProfileInstant::detailed(profiler);
 
-        let actual_hash = ChunkHash::of(&bytes).to_hex();
+        let actual_hash = ChunkHash::of(&bytes);
         if actual_hash != chunk_hash {
             return Err(Error::HashMismatch {
-                expected: chunk_hash.to_string(),
-                actual: actual_hash,
+                expected: chunk_hash.to_hex(),
+                actual: actual_hash.to_hex(),
             });
         }
         metrics.hash_verify = started_at.elapsed();
@@ -157,8 +157,7 @@ mod tests {
             )
             .unwrap();
             // The stored codec remains authoritative after repository defaults change.
-            let (decoded, _) =
-                read_loose_chunk(&path, &hash.to_hex(), bytes.len() as u64, None).unwrap();
+            let (decoded, _) = read_loose_chunk(&path, hash, bytes.len() as u64, None).unwrap();
             assert_eq!(decoded, bytes);
             let mut encoded = std::fs::read(&path).unwrap();
             encoded[20..24]

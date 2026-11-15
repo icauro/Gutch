@@ -28,7 +28,6 @@ use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::reference::ArtifactRef;
 use crate::filesystem::paths::ManifestPathResolver;
 use crate::installation::contracts::ReconstructTimings;
-use crate::manifest::typed::typed_file_manifest;
 use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
 use std::collections::BTreeMap;
@@ -175,7 +174,7 @@ fn reconstruct_artifact_job(
             timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
         }
         ArtifactRef::LooseChunk { hash } => {
-            if job.chunks.len() != 1 || job.chunks[0].chunk_hash != ChunkHash::parse_hex(hash)? {
+            if job.chunks.len() != 1 || job.chunks[0].chunk_hash != *hash {
                 return Err(Error::reconstruct(format!(
                     "loose artifact '{}' does not contain exactly its requested chunk",
                     hash
@@ -190,7 +189,7 @@ fn reconstruct_artifact_job(
             }
             let (bytes, read_metrics) = read_loose_chunk(
                 &job.artifact_path,
-                hash,
+                *hash,
                 u64::from(chunk.raw_size),
                 profiler,
             )?;
@@ -572,11 +571,10 @@ pub(crate) fn build_source_chunk_locations(
     let mut chunk_locations = HashMap::new();
     let source_paths = ManifestPathResolver::new(source.destination_dir)?;
     for file_manifest in source.snapshot_manifest.files() {
-        let typed_file = typed_file_manifest(file_manifest)?;
         // One immutable path per file is shared by its locations and source jobs.
         let source_path = Arc::new(source_paths.resolve(&file_manifest.path)?);
         let mut offset = 0u64;
-        for chunk_ref in typed_file.chunks {
+        for chunk_ref in &file_manifest.chunks {
             let raw_size = u64::from(chunk_ref.raw_size);
             if required_chunks.is_none_or(|required| required.contains(&chunk_ref.chunk_hash)) {
                 chunk_locations

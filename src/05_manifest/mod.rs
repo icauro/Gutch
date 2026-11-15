@@ -9,7 +9,6 @@ pub(crate) mod launch;
 pub(crate) mod repo_manifest;
 pub(crate) mod snapshot;
 mod tags;
-pub(crate) mod typed;
 
 pub const PUBLIC_METADATA_FORMAT_VERSION: &str = "1.0.0";
 pub const CONTENT_REPO_FORMAT: &str = "gutch_repo";

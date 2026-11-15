@@ -65,6 +65,10 @@ fn test_hash(label: &str) -> String {
     ChunkHash::of(label.as_bytes()).to_hex()
 }
 
+fn test_chunk_hash(label: &str) -> ChunkHash {
+    ChunkHash::of(label.as_bytes())
+}
+
 #[test]
 fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
     let temp = tempfile::tempdir().unwrap();
@@ -79,7 +83,7 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
             size: 9,
             executable: false,
             read_only: false,
-            full_file_hash: test_hash(content_label),
+            full_file_hash: test_chunk_hash(content_label),
             chunks: vec![ChunkRef {
                 chunk_hash: ChunkHash::parse_hex(&test_hash(content_label)).unwrap(),
                 raw_size: 9,
@@ -117,7 +121,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
             size: 0,
             executable: true,
             read_only: label == "snapshot-a",
-            full_file_hash: blake3::hash(b"").to_hex().to_string(),
+            full_file_hash: ChunkHash::of(b""),
             chunks: Vec::new(),
         });
         snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
@@ -223,7 +227,10 @@ fn payload_paths_are_extensionless_and_bundle_names_are_hashes() {
     let root = PathBuf::from("/test/repo");
     let chunk_hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
     assert_eq!(
-        chunk_path_in_root(&root.join("chunks"), chunk_hash).unwrap(),
+        chunk_path_in_root(
+            &root.join("chunks"),
+            ChunkHash::parse_hex(chunk_hash).unwrap()
+        ),
         root.join("chunks").join("ab").join(chunk_hash)
     );
     assert_eq!(
@@ -275,14 +282,14 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
         size: 200,
         executable: true,
         read_only: false,
-        full_file_hash: "hash".into(),
+        full_file_hash: ChunkHash::of(b"hash"),
         chunks: vec![
             manifest::ChunkRef {
-                chunk_hash: ChunkHash::parse_hex(&test_hash("chunk-a")).unwrap(),
+                chunk_hash: test_chunk_hash("chunk-a"),
                 raw_size: 100,
             },
             manifest::ChunkRef {
-                chunk_hash: ChunkHash::parse_hex(&test_hash("chunk-b")).unwrap(),
+                chunk_hash: test_chunk_hash("chunk-b"),
                 raw_size: 100,
             },
         ],
@@ -342,9 +349,9 @@ fn check_gutch_repo_reports_snapshots() {
         size: 42,
         executable: true,
         read_only: false,
-        full_file_hash: test_hash("game.exe"),
+        full_file_hash: test_chunk_hash("game.exe"),
         chunks: vec![ChunkRef {
-            chunk_hash: ChunkHash::parse_hex(&test_hash("game.exe")).unwrap(),
+            chunk_hash: test_chunk_hash("game.exe"),
             raw_size: 42,
         }],
     });
@@ -398,10 +405,10 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     ensure_gutch_repo_layout(&paths, "loose-repo").unwrap();
 
     let raw_bytes = b"loose artifact content";
-    let chunk_hash = test_hash("loose artifact content");
+    let chunk_hash = test_chunk_hash("loose artifact content");
     let compression_profile = CompressionProfile::default();
     let compressed_bytes = loose_bytes(raw_bytes, &compression_profile);
-    let chunk_path = chunk_path(&paths, &chunk_hash).unwrap();
+    let chunk_path = chunk_path(&paths, chunk_hash);
     fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
     fs::write(&chunk_path, &compressed_bytes).unwrap();
 
@@ -425,9 +432,9 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         size: raw_bytes.len() as u64,
         executable: true,
         read_only: false,
-        full_file_hash: chunk_hash.clone(),
+        full_file_hash: chunk_hash,
         chunks: vec![manifest::ChunkRef {
-            chunk_hash: ChunkHash::parse_hex(&chunk_hash).unwrap(),
+            chunk_hash,
             raw_size: raw_bytes.len() as u32,
         }],
     });
@@ -443,11 +450,11 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         format_version: FORMAT_VERSION.to_string(),
 
         entries: chunk_entries(BTreeMap::from([(
-            chunk_hash.clone(),
+            chunk_hash.to_hex(),
             ChunkIndexEntry::new(
                 compressed_bytes.len() as u32,
                 0,
-                (chunk_hash).into(),
+                chunk_hash.to_hex().into(),
                 raw_bytes.len() as u32,
                 ArtifactStorageMode::LooseChunks,
             ),
@@ -523,18 +530,18 @@ fn chunk_index_write_and_load_roundtrip() {
     assert_eq!(
         loaded
             .entries
-            .get(&test_hash("chunk-a"))
+            .get(&test_chunk_hash("chunk-a"))
             .map(|entry| entry.bundle_id.as_str()),
         Some(test_hash("bundle-1").as_str())
     );
     assert_eq!(
         loaded
             .entries
-            .get(&test_hash("chunk-c"))
+            .get(&test_chunk_hash("chunk-c"))
             .map(|entry| entry.bundle_id.as_str()),
         Some(test_hash("bundle-2").as_str())
     );
-    assert!(!loaded.entries.contains_key("nonexistent"));
+    assert!(!loaded.entries.contains_key(&test_chunk_hash("nonexistent")));
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -591,7 +598,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     assert_eq!(
         rebuilt
             .entries
-            .get(&chunk_hash.to_string())
+            .get(&chunk_hash)
             .map(|entry| entry.bundle_id.as_str()),
         Some(bundle_id.as_str())
     );
@@ -616,9 +623,9 @@ fn inspect_repo_shows_snapshot_tags() {
         size: 100,
         executable: true,
         read_only: false,
-        full_file_hash: test_hash("game.bin"),
+        full_file_hash: test_chunk_hash("game.bin"),
         chunks: vec![ChunkRef {
-            chunk_hash: ChunkHash::parse_hex(&test_hash("game.bin")).unwrap(),
+            chunk_hash: test_chunk_hash("game.bin"),
             raw_size: 100,
         }],
     });
@@ -658,7 +665,7 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         size: 300,
         executable: true,
         read_only: false,
-        full_file_hash: test_hash("game.exe"),
+        full_file_hash: test_chunk_hash("game.exe"),
         chunks: vec![
             manifest::ChunkRef {
                 chunk_hash: ChunkHash::parse_hex(&chunk_one).unwrap(),

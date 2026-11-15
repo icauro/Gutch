@@ -84,7 +84,7 @@ fn hash_installation_entry(hasher: &mut blake3::Hasher, entry: &SnapshotEntry) {
     match entry {
         SnapshotEntry::File(file) => {
             hasher.update(b"f");
-            hash_identity_field(hasher, &file.full_file_hash);
+            hash_identity_field(hasher, &file.full_file_hash.to_hex());
             hasher.update(&[u8::from(file.executable), u8::from(file.read_only)]);
         }
         SnapshotEntry::Directory(directory) => {
@@ -114,7 +114,7 @@ mod tests {
             size: 4,
             executable: true,
             read_only: false,
-            full_file_hash: crate::artifact::hash::hash_hex(&blake3::hash(b"data")),
+            full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
             chunks: vec![],
         };
         let directory = SnapshotEntry::Directory(DirectoryManifest {
@@ -148,7 +148,7 @@ mod tests {
                 ..file.clone()
             },
             FileManifest {
-                full_file_hash: crate::artifact::hash::hash_hex(&blake3::hash(b"edit")),
+                full_file_hash: crate::artifact::hash::ChunkHash::of(b"edit"),
                 ..file.clone()
             },
         ] {

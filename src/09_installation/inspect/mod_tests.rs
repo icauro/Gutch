@@ -89,7 +89,7 @@ fn verify_contiguous_chunks_detects_corruption() {
     let mut full_file = Vec::new();
     full_file.extend_from_slice(chunk_a_data);
     full_file.extend_from_slice(chunk_b_data);
-    let file_hash = ChunkHash::of(&full_file).to_hex();
+    let file_hash = ChunkHash::of(&full_file);
 
     fs::write(dir.join("data.bin"), &full_file).unwrap();
 
@@ -131,7 +131,7 @@ fn verify_contiguous_chunks_single_chunk() {
     test_util::recreate_dir(&dir);
 
     let data = b"single chunk content here";
-    let file_hash = ChunkHash::of(data).to_hex();
+    let file_hash = ChunkHash::of(data);
     fs::write(dir.join("single.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
@@ -158,7 +158,7 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
     test_util::recreate_dir(&dir);
 
     let data = b"fast mode content";
-    let file_hash = ChunkHash::of(data).to_hex();
+    let file_hash = ChunkHash::of(data);
     fs::write(dir.join("fast.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
@@ -196,7 +196,7 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
         size: expected.len() as u64,
         executable: false,
         read_only: false,
-        full_file_hash: ChunkHash::of(expected).to_hex(),
+        full_file_hash: ChunkHash::of(expected),
         chunks: Vec::new(),
     });
 
@@ -226,7 +226,7 @@ fn verify_strict_mode_checks_chunk_hashing() {
     let mut full_file = Vec::new();
     full_file.extend_from_slice(chunk_a_data);
     full_file.extend_from_slice(chunk_b_data);
-    let file_hash = ChunkHash::of(&full_file).to_hex();
+    let file_hash = ChunkHash::of(&full_file);
 
     fs::write(dir.join("strict.bin"), &full_file).unwrap();
 
@@ -283,7 +283,7 @@ fn verify_rejects_manifest_path_traversal() {
         size: 1,
         executable: false,
         read_only: false,
-        full_file_hash: "hash".into(),
+        full_file_hash: ChunkHash::of(b"hash"),
         chunks: vec![],
     });
 
@@ -299,7 +299,7 @@ fn verify_with_hints_records_runtime_plan() {
     test_util::recreate_dir(&dir);
 
     let data = b"runtime plan content";
-    let file_hash = ChunkHash::of(data).to_hex();
+    let file_hash = ChunkHash::of(data);
     fs::write(dir.join("runtime.bin"), data).unwrap();
 
     let mut manifest = empty_manifest();
@@ -398,7 +398,7 @@ fn parallel_verification_preserves_issue_order_across_worker_counts() {
             size: size as u64,
             executable: false,
             read_only: false,
-            full_file_hash: ChunkHash::of(&expected).to_hex(),
+            full_file_hash: ChunkHash::of(&expected),
             chunks: Vec::new(),
         });
     }

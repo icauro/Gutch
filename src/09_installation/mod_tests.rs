@@ -51,7 +51,7 @@ fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
                 size: bytes.len() as u64,
                 executable: false,
                 read_only: false,
-                full_file_hash: hash_hex(&blake3::hash(bytes)),
+                full_file_hash: ChunkHash::of(bytes),
                 chunks: Vec::new(),
             })
             .collect(),
@@ -160,7 +160,7 @@ fn resolved_snapshot_state_uses_product_runtime() {
         size: 1,
         executable: true,
         read_only: false,
-        full_file_hash: test_hash("Game.exe"),
+        full_file_hash: ChunkHash::parse_hex(&test_hash("Game.exe")).unwrap(),
         chunks: vec![ChunkRef {
             chunk_hash: ChunkHash::parse_hex(&test_hash("Game.exe")).unwrap(),
             raw_size: 1,
@@ -305,7 +305,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             size: 4,
             executable: true,
             read_only: false,
-            full_file_hash: test_hash("game"),
+            full_file_hash: ChunkHash::parse_hex(&test_hash("game")).unwrap(),
             chunks: vec![manifest::ChunkRef {
                 chunk_hash: ChunkHash::parse_hex(&chunk_a).unwrap(),
                 raw_size: 4,
@@ -316,7 +316,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             size: 4,
             executable: false,
             read_only: false,
-            full_file_hash: test_hash("data"),
+            full_file_hash: ChunkHash::parse_hex(&test_hash("data")).unwrap(),
             chunks: vec![manifest::ChunkRef {
                 chunk_hash: ChunkHash::parse_hex(&chunk_b).unwrap(),
                 raw_size: 4,

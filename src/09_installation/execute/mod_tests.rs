@@ -87,7 +87,7 @@ fn snapshot_manifest_with_chunk(
         size: 4,
         executable: true,
         read_only: false,
-        full_file_hash: full_file_hash.to_string(),
+        full_file_hash: ChunkHash::parse_hex(full_file_hash).unwrap(),
         chunks: vec![ChunkRef {
             chunk_hash: ChunkHash::parse_hex(&chunk_hash).unwrap(),
             raw_size: 4,
@@ -125,7 +125,7 @@ fn snapshot_manifest_with_two_chunks(
         size: 8,
         executable: true,
         read_only: false,
-        full_file_hash: full_file_hash.to_string(),
+        full_file_hash: ChunkHash::parse_hex(full_file_hash).unwrap(),
         chunks: vec![
             ChunkRef {
                 chunk_hash: ChunkHash::parse_hex(&first_chunk_hash).unwrap(),
@@ -322,7 +322,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     let replacement_chunk_hash = test_hash(b"new!");
     let compression_profile = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(3));
     let replacement_artifact = ArtifactRef::LooseChunk {
-        hash: replacement_chunk_hash.clone(),
+        hash: ChunkHash::parse_hex(&replacement_chunk_hash).unwrap(),
     };
     let replacement_path = replacement_artifact.local_path(&repo_paths).unwrap();
     fs::create_dir_all(replacement_path.parent().unwrap()).unwrap();
@@ -427,7 +427,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
 
     let chunk_hash = test_hash(b"game");
     let artifact = ArtifactRef::LooseChunk {
-        hash: chunk_hash.clone(),
+        hash: ChunkHash::parse_hex(&chunk_hash).unwrap(),
     };
     let chunk_path = artifact.local_path(&repo_paths).unwrap();
     fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
@@ -524,7 +524,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         size: 8,
         executable: false,
         read_only: false,
-        full_file_hash: test_hash(b"11112222"),
+        full_file_hash: ChunkHash::of(b"11112222"),
         chunks: vec![
             ChunkRef {
                 chunk_hash: ChunkHash::parse_hex(&first_hash).unwrap(),
@@ -541,7 +541,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         size: 8,
         executable: false,
         read_only: false,
-        full_file_hash: test_hash(b"33331111"),
+        full_file_hash: ChunkHash::of(b"33331111"),
         chunks: vec![
             ChunkRef {
                 chunk_hash: ChunkHash::parse_hex(&third_hash).unwrap(),
@@ -712,7 +712,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
             size: bytes.len() as u64,
             executable: false,
             read_only: false,
-            full_file_hash: test_hash(bytes),
+            full_file_hash: ChunkHash::of(bytes),
             chunks,
         });
     }
@@ -778,7 +778,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let compression = CompressionProfile::default();
     let chunk_hash = test_hash(b"game");
     let artifact = ArtifactRef::LooseChunk {
-        hash: chunk_hash.clone(),
+        hash: ChunkHash::parse_hex(&chunk_hash).unwrap(),
     };
     let payload = loose_bytes(b"game", &compression);
     let compressed_size = payload.len() as u64;
@@ -886,12 +886,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
             } else {
                 let mut encoded = Vec::new();
                 write_loose_chunk(&mut encoded, hash, bytes, &profile).unwrap();
-                (
-                    ArtifactRef::LooseChunk {
-                        hash: hash.to_hex(),
-                    },
-                    encoded,
-                )
+                (ArtifactRef::LooseChunk { hash }, encoded)
             };
             if corrupt {
                 // Reconstruction checks chunk hashes, not the bundle trailer, so
@@ -980,7 +975,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         size: pieces.iter().map(|piece| piece.len() as u64).sum(),
         executable: false,
         read_only: false,
-        full_file_hash: test_hash(&pieces.concat()),
+        full_file_hash: ChunkHash::of(&pieces.concat()),
         chunks: pieces
             .iter()
             .map(|piece| ChunkRef {
@@ -1056,11 +1051,11 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         let artifact_ids = plan
             .required_artifacts
             .iter()
-            .map(|artifact| artifact.id())
+            .map(|artifact| artifact.id().into_owned())
             .collect::<HashSet<_>>();
         assert_eq!(
             artifact_ids,
-            HashSet::from([first_bundle.as_str(), second_bundle.as_str()])
+            HashSet::from([first_bundle.to_string(), second_bundle.to_string()])
         );
         assert_eq!(plan.reused_source_chunk_count, 11);
         let first_artifact = ArtifactRef::Bundle {
@@ -1217,12 +1212,12 @@ fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
         first.path = "first.bin".into();
         first.chunks.push(first.chunks[0].clone());
         first.size = 8;
-        first.full_file_hash = test_hash(b"gamegame");
+        first.full_file_hash = ChunkHash::of(b"gamegame");
         let mut second = first.clone();
         second.path = "second.bin".into();
         second.chunks.truncate(1);
         second.size = 4;
-        second.full_file_hash = hash.to_hex();
+        second.full_file_hash = hash;
         snapshot.set_files(vec![first, second]);
         for cached in [false, true] {
             let available = if cached {

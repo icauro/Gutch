@@ -80,8 +80,7 @@ fn write_loose_chunks(
             .par_iter()
             .map(|chunk| {
                 control_for_work.checkpoint()?;
-                let chunk_hash = chunk.chunk_hash.to_string();
-                let chunk_path = chunk_path_in_root(chunks_root, &chunk_hash)?;
+                let chunk_path = chunk_path_in_root(chunks_root, chunk.chunk_hash);
                 if let Some(parent) = chunk_path.parent() {
                     filesystem::create_dir_all(parent)?;
                 }

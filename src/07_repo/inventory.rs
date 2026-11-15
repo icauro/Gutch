@@ -90,11 +90,8 @@ fn visit_repo_artifacts(
             let Some(hash) = entry.file_name().to_str() else {
                 continue;
             };
-            if ChunkHash::parse_hex(hash).is_ok() {
-                let artifact = ArtifactRef::LooseChunk {
-                    hash: hash.to_string(),
-                };
-                visit(artifact, entry)?;
+            if let Ok(hash) = ChunkHash::parse_hex(hash) {
+                visit(ArtifactRef::LooseChunk { hash }, entry)?;
             }
         }
     }

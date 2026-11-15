@@ -8,7 +8,7 @@ fn file(path: &str, size: u64) -> SnapshotEntry {
         size,
         executable: false,
         read_only: false,
-        full_file_hash: "a".repeat(64),
+        full_file_hash: ChunkHash::from_bytes([0xaa; 32]),
         chunks: vec![],
     }
     .into()
@@ -45,7 +45,7 @@ fn diff_ignores_packaging_but_preserves_properties_links_and_type_changes() {
         changed_entry_kind(&base, &repacked.clone().into()),
         Some(SnapshotChangeKind::Metadata)
     );
-    repacked.full_file_hash = "c".repeat(64);
+    repacked.full_file_hash = ChunkHash::from_bytes([0xcc; 32]);
     assert_eq!(
         changed_entry_kind(&base, &repacked.into()),
         Some(SnapshotChangeKind::Modified)

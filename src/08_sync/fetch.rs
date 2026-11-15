@@ -92,7 +92,7 @@ pub fn fetch_snapshot_for_artifact_ids(
                 prepared
                     .required_artifacts
                     .iter()
-                    .filter(|artifact| ids.contains(artifact.id()))
+                    .filter(|artifact| ids.contains(artifact.id().as_ref()))
                     .cloned()
                     .collect::<HashSet<_>>()
             })
@@ -450,12 +450,12 @@ fn build_pending_artifact_downloads(
         .filter(|artifact| !existing_artifacts.contains(*artifact))
         .cloned()
         .collect::<Vec<_>>();
-    pending_artifacts.sort_by(|left, right| left.id().cmp(right.id()));
+    pending_artifacts.sort_by_cached_key(|artifact| artifact.id().into_owned());
     pending_artifacts
         .into_iter()
         .enumerate()
         .map(|(ordinal, artifact)| {
-            let url = artifact_urls.get(artifact.id()).ok_or_else(|| {
+            let url = artifact_urls.get(artifact.id().as_ref()).ok_or_else(|| {
                 Error::repository(format!(
                     "missing download URL for required artifact '{}'",
                     artifact.id()

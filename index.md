@@ -105,7 +105,6 @@ src/05_manifest/repo_manifest_tests.rs
 src/05_manifest/snapshot.rs
 src/05_manifest/snapshot_tests.rs
 src/05_manifest/tags.rs
-src/05_manifest/typed.rs
 src/05_path_compare.rs
 src/05_path_compare_tests.rs
 src/05_transfer/
