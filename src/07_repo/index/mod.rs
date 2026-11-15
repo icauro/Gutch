@@ -81,8 +81,8 @@ mod entries;
 mod records;
 use crate::artifact::reference::ArtifactRef;
 use crate::repo::artifacts::required_artifacts;
-pub use entries::ChunkIndexEntries;
-pub use records::{ChunkIndex, ChunkIndexEntry};
+pub(crate) use entries::ChunkIndexEntries;
+pub(crate) use records::{ChunkIndex, ChunkIndexEntry};
 
 #[cfg(test)]
 mod cache_merge_tests {

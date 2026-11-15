@@ -8,7 +8,7 @@ pub use crate::artifact::hash::ChunkHash;
 pub use crate::error::Error;
 pub use crate::error::Result;
 pub use crate::error::metadata_conflict::MetadataFieldDifference;
-pub use crate::error::path_validation::{PathValidationFailure, PathViolation};
+pub use crate::error::path_validation::{PathValidationFailure, PathViolation, ViolationCode};
 pub use crate::error::promotion_diagnostics::{
     DiagnosticIoError, DirectoryPromotionDiagnostic, PromotionPathObservation, PromotionPathState,
     PromotionPhase, PromotionRecoveryAttempt, PromotionRecoveryOperation,

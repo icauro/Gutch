@@ -10,7 +10,7 @@ use std::slice::Iter;
 
 /// Sorted binary keys and contiguous values. Text is decoded only at boundaries.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ChunkIndexEntries(Vec<(ChunkHash, ChunkIndexEntry)>);
+pub(crate) struct ChunkIndexEntries(Vec<(ChunkHash, ChunkIndexEntry)>);
 
 impl ChunkIndexEntries {
     pub(crate) fn share_artifacts(&mut self) {
@@ -43,15 +43,13 @@ impl ChunkIndexEntries {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
     pub fn get(&self, hash: &ChunkHash) -> Option<&ChunkIndexEntry> {
         self.0
             .binary_search_by_key(hash, |row| row.0)
             .ok()
             .map(|row| &self.0[row].1)
     }
+    #[cfg(test)]
     pub fn contains_key(&self, hash: &ChunkHash) -> bool {
         self.get(hash).is_some()
     }
@@ -96,6 +94,7 @@ impl ChunkIndexEntries {
     pub fn values(&self) -> impl Iterator<Item = &ChunkIndexEntry> {
         self.0.iter().map(|(_, value)| value)
     }
+    #[cfg(test)]
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut ChunkIndexEntry> {
         self.0.iter_mut().map(|(_, value)| value)
     }

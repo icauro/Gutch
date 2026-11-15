@@ -7,13 +7,13 @@ use std::sync::Arc;
 /// The binary chunk map carries its own format header, so the record holds
 /// only entries.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ChunkIndex {
+pub(crate) struct ChunkIndex {
     pub entries: super::entries::ChunkIndexEntries,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct IndexedArtifact {
+pub(crate) struct IndexedArtifact {
     pub artifact_size: u32,
     pub bundle_id: smol_str::SmolStr,
     pub storage_mode: ArtifactStorageMode,
@@ -21,7 +21,7 @@ pub struct IndexedArtifact {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct ChunkIndexEntry {
+pub(crate) struct ChunkIndexEntry {
     #[serde(flatten)]
     pub artifact: Arc<IndexedArtifact>,
     pub chunk_ordinal: u32,
