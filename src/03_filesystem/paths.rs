@@ -44,11 +44,7 @@ pub(crate) fn validate_destination_paths<'a>(
             operation: "installation".into(),
             snapshot_id: None,
             violations: vec![PathViolation {
-                path: path
-                    .strip_prefix(root)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .into_owned(),
+                path: path.trim_prefix(root).to_string_lossy().into_owned(),
                 conflicting_path: None,
                 target: "actual-destination".into(),
                 code: "destination_incompatible".into(),

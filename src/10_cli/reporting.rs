@@ -673,7 +673,7 @@ pub(crate) fn write_stats_json_output<T: Serialize>(
     profile: Option<&Profiler>,
 ) -> crate::Result<()> {
     let mut value = serde_json::to_value(stats)?;
-    let mode = profile.map(|p| p.mode()).unwrap_or_default();
+    let mode = profile_mode(profile);
     value["profiling_mode"] = serde_json::to_value(mode)?;
     let json = serde_json::to_string_pretty(&value)?;
     output::record(&value)?;
@@ -711,7 +711,7 @@ pub(crate) fn print_transfer_timings(t: &TransferStats) {
 mod tests;
 
 pub(crate) fn profile_mode(profile: Option<&Profiler>) -> ProfileMode {
-    profile.map(|profile| profile.mode()).unwrap_or_default()
+    profile.map_or_default(Profiler::mode)
 }
 
 pub(crate) fn diagnostic_seconds(duration: Duration, profile: Option<&Profiler>) -> Option<f64> {

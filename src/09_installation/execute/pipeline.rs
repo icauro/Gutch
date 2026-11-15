@@ -186,8 +186,7 @@ pub(crate) fn run_reconstruction_jobs(
         downloads_done: artifact_scheduler.is_none(),
         artifact_worker_count: artifact_scheduler
             .as_ref()
-            .map(ArtifactDownloadScheduler::worker_count)
-            .unwrap_or(0),
+            .map_or_default(ArtifactDownloadScheduler::worker_count),
         finished_download_workers: 0,
         artifact_scheduler,
         artifact_job_indices,

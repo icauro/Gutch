@@ -2,12 +2,19 @@
 name = "gutch"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.100"
 description = "Provider-independent snapshot, artifact delivery, reconstruction, and verification engine"
 license = "MIT AND Apache-2.0 AND ISC"
 
 [workspace]
 members = ["gutch-cli"]
 resolver = "3"
+
+[workspace.lints.cargo]
+unused_dependencies = "deny"
+
+[lints]
+workspace = true
 
 [dependencies]
 blake3 = { version = "1.8.7", features = ["mmap", "rayon"] }

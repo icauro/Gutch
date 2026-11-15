@@ -32,7 +32,7 @@ impl Profiler {
             if self
                 .state
                 .allocated
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                     n.checked_add(65536)
                         .filter(|n| *n <= RECORDING_BYTES - OVERVIEW_BYTES)
                 })
@@ -62,7 +62,7 @@ impl Profiler {
         if self
             .state
             .detail_events
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 (n < 100000).then_some(n + 1)
             })
             .is_err()
@@ -91,7 +91,7 @@ impl Profiler {
             if self
                 .state
                 .allocated
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                     n.checked_add(bytes).filter(|n| *n <= limit)
                 })
                 .is_err()

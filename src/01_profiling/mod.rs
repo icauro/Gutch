@@ -53,7 +53,7 @@ impl ProfileInstant {
         )
     }
     pub(crate) fn elapsed(self) -> Duration {
-        self.0.map(|t| t.elapsed()).unwrap_or_default()
+        self.0.map_or_default(|t| t.elapsed())
     }
     pub(crate) fn saturating_duration_since(self, earlier: Self) -> Duration {
         self.0

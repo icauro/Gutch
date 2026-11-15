@@ -1344,7 +1344,7 @@ memory saving or general reconstruction speedup. Evidence:
 ## CLI builds in GitHub Actions
 
 `.github/workflows/build-cli.yml` builds `gutch-cli` in release mode with the
-locked Cargo dependencies and Rust 1.97.1. It runs manually or when relevant
+locked Cargo dependencies and Rust 1.100.0. It runs manually or when relevant
 code/build files change on `main`. Each native runner executes `--help` before
 packaging its executable. The independent correctness workflow remains the
 owner of the full test suites.

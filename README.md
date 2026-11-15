@@ -31,8 +31,10 @@ run. Artifacts cover Linux and Windows on x86-64 and ARM64, with checksums and
 notices. Builds run on code pushes to `main` or manually. See
 [CLI builds](_docs/current_state/12_performance_and_development.md#cli-builds-in-github-actions).
 
-Install Python 3.12 or newer, uv, and a Rust toolchain supporting edition 2024.
-The standalone CI currently uses Rust 1.97.1. On Windows, Rust also needs the
+Install Python 3.12 or newer, uv, and Rust 1.100 or newer, the minimum the
+crates declare; the standalone CI uses Rust 1.100.0. Cargo rejects unused
+dependencies, and `.cargo/config.toml` makes the resolver skip crate versions
+published less than seven days ago. On Windows, Rust also needs the
 MSVC C++ build tools, and the test corpus needs long paths: clone with
 `git clone -c core.longpaths=true` (or run `git config core.longpaths true`
 before checking out). Run these commands from this directory:

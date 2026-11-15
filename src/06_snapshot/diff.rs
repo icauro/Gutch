@@ -60,7 +60,7 @@ pub(crate) fn compare_snapshot_entries(
             i128::from(
                 entry
                     .and_then(SnapshotEntry::as_file)
-                    .map_or(0, |file| file.size),
+                    .map_or_default(|file| file.size),
             )
         };
         let delta_bytes = size(after) - size(before);

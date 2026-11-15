@@ -26,7 +26,7 @@ impl ChunkHash {
             return Err(crate::Error::verify("hash must contain 64 hex bytes"));
         }
         let mut bytes = [0u8; 32];
-        for (output, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
+        for (output, [high, low]) in bytes.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) {
             let digit = |byte: u8| match byte {
                 b'0'..=b'9' => Ok(byte - b'0'),
                 b'a'..=b'f' => Ok(byte - b'a' + 10),
@@ -34,7 +34,7 @@ impl ChunkHash {
                     "hash must use lowercase ASCII hexadecimal",
                 )),
             };
-            *output = digit(pair[0])? * 16 + digit(pair[1])?;
+            *output = digit(*high)? * 16 + digit(*low)?;
         }
         Ok(Self(bytes))
     }

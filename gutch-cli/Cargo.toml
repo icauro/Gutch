@@ -2,7 +2,11 @@
 name = "gutch-cli"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.100"
 license = "MIT"
 
 [dependencies]
 gutch = { path = ".." }
+
+[lints]
+workspace = true

@@ -10,8 +10,7 @@ fn nested_trace_endpoints_remain_inside_the_parent() {
     }
     let recorders = profiler.state.recorders.lock().unwrap();
     let recorder = recorders[0].lock().unwrap();
-    for pair in recorder.events.chunks_exact(2) {
-        let (parent, child) = (&pair[0], &pair[1]);
+    for [parent, child] in recorder.events.as_chunks::<2>().0 {
         assert!(parent.ts <= child.ts);
         assert!(child.ts + child.duration.unwrap() <= parent.ts + parent.duration.unwrap());
     }

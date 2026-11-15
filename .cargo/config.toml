@@ -1,2 +1,6 @@
 [build]
 target-dir = ".builds/compiler-cache/cargo"
+
+# Ignore crate versions newer than a week unless Cargo.lock already pins them.
+[registry]
+global-min-publish-age = "7 days"

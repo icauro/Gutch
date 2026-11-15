@@ -80,7 +80,7 @@ fn declared_modules(lib: &Path) -> BTreeMap<String, DeclaredModule> {
             }
             continue;
         }
-        let declaration = line.strip_prefix("pub ").unwrap_or(line);
+        let declaration = line.trim_prefix("pub ");
         if let Some(name) = declaration
             .strip_prefix("mod ")
             .and_then(|rest| rest.strip_suffix(';'))

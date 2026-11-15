@@ -247,7 +247,7 @@ impl<'a> EntryActions<'a> {
                 action,
                 InstallationAction::Keep | InstallationAction::UpdateMetadata
             ) {
-                retained_file_bytes += entry.as_file().map_or(0, |file| file.size);
+                retained_file_bytes += entry.as_file().map_or_default(|file| file.size);
             }
             visitor(InstallationPlanEvent::Entry {
                 path: path.to_owned(),
