@@ -8,7 +8,9 @@ use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
 use crate::capture::reuse::add_built_loose_chunks_to_chunk_index;
 use crate::filesystem;
+use crate::profiling::Arguments;
 use crate::profiling::file_trace_args;
+use crate::profiling::trace_args;
 use crate::progress::OperationControl;
 use crate::repo::artifacts::required_artifacts;
 use crate::repo::index::write_chunk_index;
@@ -17,7 +19,6 @@ use crate::repo::paths::bundle_path_in_root;
 use crate::repo::paths::chunk_path_in_root;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use rayon::prelude::*;
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -91,11 +92,8 @@ fn write_loose_chunks(
     Ok(())
 }
 
-fn capture_count_bytes_trace_args(count: usize, bytes: u64) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        ("count".to_string(), serde_json::json!(count)),
-        ("size_bytes".to_string(), serde_json::json!(bytes)),
-    ])
+fn capture_count_bytes_trace_args(count: usize, bytes: u64) -> Arguments {
+    trace_args!("count" => count, "size_bytes" => bytes)
 }
 
 fn capture_artifact_write_trace_args(
@@ -103,7 +101,7 @@ fn capture_artifact_write_trace_args(
     artifact_id: &str,
     path: &Path,
     bytes: u64,
-) -> BTreeMap<String, serde_json::Value> {
+) -> Arguments {
     let mut args = file_trace_args(path.display().to_string(), bytes);
     args.insert("artifact_kind".to_string(), serde_json::json!(kind));
     args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));

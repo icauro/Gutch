@@ -1,5 +1,6 @@
 //! Coalesced operation feedback, independent of diagnostic profiling.
 use super::{ProgressEvent, ProgressSink};
+use crate::profiling::Arguments;
 use crate::profiling::Profiler;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -193,7 +194,7 @@ impl SharedFeedbackState {
     }
 }
 
-fn feedback_profile_args(feedback: &LiveFeedback) -> BTreeMap<String, serde_json::Value> {
+fn feedback_profile_args(feedback: &LiveFeedback) -> Arguments {
     let mut args = BTreeMap::new();
     for (prefix, rate) in [
         ("download", &feedback.download),

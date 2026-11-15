@@ -3,6 +3,7 @@
 use crate::error::IoContext;
 use crate::profiling::ProfileInstant;
 use crate::profiling::ProfileSpan;
+use crate::profiling::trace_args;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
@@ -47,7 +48,6 @@ use crate::runtime::MemoryBudget;
 use crate::transfer::download::ArtifactPriority;
 use crate::transfer::http::DownloadClient;
 use crate::transfer::types::TransferConcurrencyPolicy;
-use std::collections::BTreeMap;
 pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
     pub(crate) pipeline_plan: ReconstructPipelinePlan,
     pub(crate) output_paths: Arc<Vec<PathBuf>>,
@@ -83,12 +83,10 @@ pub(crate) fn run_reconstruction_jobs(
     let _pipeline_span = control.profile_span("installation.reconstruct.pipeline");
     let pipeline_started_at = ProfileInstant::start(control.profiler());
     let runtime_plan = plan_runtime(runtime_hints);
-    control.profile_event_with_args("runtime.memory.budget", || {
-        BTreeMap::from([(
-            "budget_bytes".into(),
-            serde_json::json!(runtime_plan.memory_budget_bytes),
-        )])
-    });
+    control.profile_event_with_args(
+        "runtime.memory.budget",
+        || trace_args!("budget_bytes" => runtime_plan.memory_budget_bytes),
+    );
     let mut reconstruct_timings = ReconstructTimings {
         runtime_plan: Some(runtime_plan.clone()),
         verify_files: true,

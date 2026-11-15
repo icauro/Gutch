@@ -3,6 +3,8 @@
 use super::adaptive::{ADAPTIVE_SAMPLE_INTERVAL, AdaptiveTransferState, TransferObservation};
 use super::artifact_download::download_pending_artifact;
 use super::progress::FetchTransferProgress;
+use crate::profiling::Arguments;
+use crate::profiling::trace_args;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
@@ -26,7 +28,6 @@ use crate::progress::CancellationHook;
 use crate::progress::OperationControl;
 use crate::transfer::http::DownloadClient;
 use crate::transfer::types::TransferConcurrencyPolicy;
-use std::collections::BTreeMap;
 
 /// How often the adaptive controller checks for a stop request between samples.
 const CONTROLLER_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -371,27 +372,22 @@ fn run_adaptive_transfer_controller(
         shared
             .target_worker_count
             .store(new_target, AtomicOrdering::Release);
-        control.profile_event_with_args("transfer.concurrency", || {
-            BTreeMap::from([("target_workers".to_string(), serde_json::json!(new_target))])
-        });
+        control.profile_event_with_args(
+            "transfer.concurrency",
+            || trace_args!("target_workers" => new_target),
+        );
         transfer_progress.adjustment_recorded();
         shared.wake.notify_all();
     }
 }
 
 impl PendingArtifactDownload {
-    pub(super) fn trace_args(&self) -> BTreeMap<String, serde_json::Value> {
-        BTreeMap::from([
-            (
-                "artifact_id".to_string(),
-                serde_json::json!(self.artifact.id()),
-            ),
-            ("ordinal".to_string(), serde_json::json!(self.ordinal)),
-            (
-                "total".to_string(),
-                serde_json::json!(self.missing_artifact_count),
-            ),
-        ])
+    pub(super) fn trace_args(&self) -> Arguments {
+        trace_args!(
+            "artifact_id" => self.artifact.id(),
+            "ordinal" => self.ordinal,
+            "total" => self.missing_artifact_count,
+        )
     }
 }
 

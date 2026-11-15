@@ -15,6 +15,16 @@ use std::time::{Duration, Instant};
 
 pub(crate) type Arguments = BTreeMap<String, serde_json::Value>;
 
+/// Trace arguments from `name => value` pairs; values take any `json!` input.
+macro_rules! trace_args {
+    ($($name:expr => $value:expr),* $(,)?) => {
+        $crate::profiling::Arguments::from([
+            $(($name.to_string(), serde_json::json!($value))),*
+        ])
+    };
+}
+pub(crate) use trace_args;
+
 pub(super) const RECORDING_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const OVERVIEW_BYTES: usize = 1024 * 1024;
 pub(super) const ARGUMENT_FIELDS: usize = 8;

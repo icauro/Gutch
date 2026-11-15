@@ -4,7 +4,9 @@ use super::handles::ReconstructOutputWriter;
 use super::handles::{OutputHandleCache, SourceHandleCache, cached_target_handle, write_file_at};
 use crate::error::IoContext;
 use crate::installation::contracts::SnapshotReconstructSource;
+use crate::profiling::Arguments;
 use crate::profiling::ProfileInstant;
+use crate::profiling::trace_args;
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -31,7 +33,6 @@ use crate::filesystem::paths::ManifestPathResolver;
 use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
-use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::fs;
 use std::sync::Arc;
@@ -222,16 +223,10 @@ fn reconstruct_source_chunk_job(
     control: &OperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
-    let _source_job_span =
-        control.profile_span_with_args("installation.source_chunk.read_verify_and_write", || {
-            BTreeMap::from([
-                ("size_bytes".into(), serde_json::json!(job.raw_size)),
-                (
-                    "target_count".into(),
-                    serde_json::json!(job.targets().count()),
-                ),
-            ])
-        });
+    let _source_job_span = control.profile_span_with_args(
+        "installation.source_chunk.read_verify_and_write",
+        || trace_args!("size_bytes" => job.raw_size, "target_count" => job.targets().count()),
+    );
 
     let mut bytes = vec![
         0u8;
@@ -483,35 +478,16 @@ fn write_reconstruct_targets(
     Ok(())
 }
 
-fn reconstruct_artifact_trace_args(
-    job: &ReconstructArtifactJob,
-) -> BTreeMap<String, serde_json::Value> {
+fn reconstruct_artifact_trace_args(job: &ReconstructArtifactJob) -> Arguments {
     let logical_bytes = job
         .chunks
         .iter()
         .map(|chunk| u64::from(chunk.raw_size).saturating_mul(chunk.target_range.len() as u64))
         .sum::<u64>();
-    BTreeMap::from([
-        (
-            "artifact_kind".to_string(),
-            serde_json::json!(match &job.artifact {
+    trace_args!("artifact_kind" => match &job.artifact {
                 ArtifactRef::Bundle { .. } => "bundle",
                 ArtifactRef::LooseChunk { .. } => "loose_chunk",
-            }),
-        ),
-        (
-            "artifact_id".to_string(),
-            serde_json::json!(job.artifact.id()),
-        ),
-        (
-            "required_chunk_count".to_string(),
-            serde_json::json!(job.chunks.len()),
-        ),
-        (
-            "logical_write_bytes".to_string(),
-            serde_json::json!(logical_bytes),
-        ),
-    ])
+            }, "artifact_id" => job.artifact.id(), "required_chunk_count" => job.chunks.len(), "logical_write_bytes" => logical_bytes)
 }
 
 pub(crate) struct ReconstructedFileSizeCheck {

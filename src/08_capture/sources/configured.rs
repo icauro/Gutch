@@ -1,5 +1,6 @@
 //! Plans and captures every source found under a configured source root.
 
+use crate::profiling::trace_args;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -29,7 +30,6 @@ use crate::repo::snapshot_tag_summary::format_snapshot_tag_summary;
 use crate::repo::status::RepoStatus;
 use crate::repo::status::read_repo_status;
 use crate::runtime::RuntimeResourceHints;
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,12 +170,7 @@ pub fn capture_snapshot_sources(
         let repo_paths = RepoPaths::from_repo_root(repo_root);
         let _existing_state_span = control.profile_span_with_args(
             "capture.prepare_source.load_existing_store_state",
-            || {
-                BTreeMap::from([(
-                    "source_count".to_string(),
-                    serde_json::json!(plan.to_capture.len()),
-                )])
-            },
+            || trace_args!("source_count" => plan.to_capture.len()),
         );
         let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, control)?;
         drop(_existing_state_span);

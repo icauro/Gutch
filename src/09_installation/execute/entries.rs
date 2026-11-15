@@ -1,6 +1,8 @@
 //! Creates directories and symlinks before writing and finalizes entry attributes after.
 
 use crate::error::IoContext;
+use crate::profiling::Arguments;
+use crate::profiling::trace_args;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -72,15 +74,15 @@ fn resolve_snapshot_file_paths(
     let files = snapshot_manifest.files().collect::<Vec<_>>();
     let _resolve_paths_span = control.profile_span_with_args(
         "installation.reconstruct.prepare.outputs.resolve_paths",
-        || BTreeMap::from([("path_count".to_string(), serde_json::json!(files.len()))]),
+        || trace_args!("path_count" => files.len()),
     );
     // Bound trace volume while keeping enough batches for workers to share the work.
     // Indexed batch collection preserves manifest file order and error ordering.
     let resolve_batch = |batch: &[&FileManifest]| {
-        let _batch_span = control
-            .profile_span_with_args("installation.worker.resolve_output_paths", || {
-                BTreeMap::from([("path_count".into(), serde_json::json!(batch.len()))])
-            });
+        let _batch_span = control.profile_span_with_args(
+            "installation.worker.resolve_output_paths",
+            || trace_args!("path_count" => batch.len()),
+        );
         batch
             .iter()
             .map(|file| path_resolver.resolve(&file.path))
@@ -435,69 +437,37 @@ fn finalize_phase_trace_args(
     changed_entries: usize,
     worker_count: usize,
     parallel: bool,
-) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        (
-            "total_entries".to_string(),
-            serde_json::json!(total_entries),
-        ),
-        (
-            "changed_entries".to_string(),
-            serde_json::json!(changed_entries),
-        ),
-        ("parallel".to_string(), serde_json::json!(parallel)),
-        (
-            "parallel_workers".to_string(),
-            serde_json::json!(if parallel { worker_count } else { 1 }),
-        ),
-    ])
+) -> Arguments {
+    trace_args!(
+        "total_entries" => total_entries,
+        "changed_entries" => changed_entries,
+        "parallel" => parallel,
+        "parallel_workers" => if parallel { worker_count } else { 1 },
+    )
 }
 
-fn prepare_directory_trace_args(
-    path: &str,
-    read_only: Option<bool>,
-) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        ("path".to_string(), serde_json::json!(path)),
-        (
-            "depth".to_string(),
-            serde_json::json!(path.matches('/').count()),
-        ),
-        ("read_only".to_string(), serde_json::json!(read_only)),
-        (
-            "implicit".to_string(),
-            serde_json::json!(read_only.is_none()),
-        ),
-    ])
+fn prepare_directory_trace_args(path: &str, read_only: Option<bool>) -> Arguments {
+    trace_args!(
+        "path" => path,
+        "depth" => path.matches('/').count(),
+        "read_only" => read_only,
+        "implicit" => read_only.is_none(),
+    )
 }
 
-fn finalize_symlink_trace_args(link: &SymlinkManifest) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        ("path".to_string(), serde_json::json!(link.path)),
-        (
-            "target_path".to_string(),
-            serde_json::json!(link.target_path),
-        ),
-    ])
+fn finalize_symlink_trace_args(link: &SymlinkManifest) -> Arguments {
+    trace_args!("path" => link.path, "target_path" => link.target_path)
 }
 
-fn finalize_file_trace_args(file: &FileManifest) -> BTreeMap<String, serde_json::Value> {
+fn finalize_file_trace_args(file: &FileManifest) -> Arguments {
     let mut args = file_trace_args(&file.path, file.size);
     args.insert("read_only".to_string(), serde_json::json!(file.read_only));
     args.insert("executable".to_string(), serde_json::json!(file.executable));
     args
 }
 
-fn finalize_directory_trace_args(
-    directory: &DirectoryManifest,
-) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        ("path".to_string(), serde_json::json!(directory.path)),
-        (
-            "read_only".to_string(),
-            serde_json::json!(directory.read_only),
-        ),
-    ])
+fn finalize_directory_trace_args(directory: &DirectoryManifest) -> Arguments {
+    trace_args!("path" => directory.path, "read_only" => directory.read_only)
 }
 
 /// Apply the metadata represented by the manifest, including clearing old flags.

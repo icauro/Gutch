@@ -5,9 +5,9 @@ use super::feedback;
 use super::feedback::Stream;
 use crate::Error;
 use crate::Result;
+use crate::profiling::Arguments;
 use crate::profiling::ProfileSpan;
 use crate::profiling::Profiler;
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -116,7 +116,7 @@ impl OperationControl {
     pub(crate) fn profile_span_with_args(
         &self,
         name: &'static str,
-        args: impl FnOnce() -> BTreeMap<String, serde_json::Value>,
+        args: impl FnOnce() -> Arguments,
     ) -> Option<ProfileSpan> {
         self.profiler
             .as_ref()
@@ -126,7 +126,7 @@ impl OperationControl {
     pub(crate) fn profile_event_with_args(
         &self,
         name: &'static str,
-        args: impl FnOnce() -> BTreeMap<String, serde_json::Value>,
+        args: impl FnOnce() -> Arguments,
     ) {
         if let Some(profiler) = &self.profiler {
             profiler.event_with_args(name, args);

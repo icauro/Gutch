@@ -5,12 +5,12 @@ use super::job_io::{ReconstructedFileSizeCheck, check_reconstructed_output_size,
 use super::jobs::{ReconstructJob, ReconstructPipelineFile};
 use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::ProfileInstant;
+use crate::profiling::trace_args;
 use crate::progress::OperationControl;
 use crate::runtime::MemoryBudget;
 use crate::runtime::MemoryPermit;
 use crate::{Error, Result};
 use rayon::ThreadPool;
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -213,23 +213,18 @@ pub(crate) fn spawn_reconstruct_work(
     let event_tx = event_tx.clone();
     pool.spawn(move || {
         let queue_wait = queued_at.elapsed();
+        let work_kind = match &work_item {
+            ReconstructWorkItem::Jobs(_) => "reconstruct",
+            ReconstructWorkItem::VerifyFiles(_) => "verify",
+        };
         let _work_span =
             context
                 .control
                 .profile_span_with_args("installation.worker.execute", || {
-                    BTreeMap::from([
-                        (
-                            "queue_wait_us".into(),
-                            serde_json::json!(queue_wait.as_micros() as u64),
-                        ),
-                        (
-                            "work_kind".into(),
-                            serde_json::json!(match &work_item {
-                                ReconstructWorkItem::Jobs(_) => "reconstruct",
-                                ReconstructWorkItem::VerifyFiles(_) => "verify",
-                            }),
-                        ),
-                    ])
+                    trace_args!(
+                        "queue_wait_us" => queue_wait.as_micros() as u64,
+                        "work_kind" => work_kind,
+                    )
                 });
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
             ReconstructWorkItem::Jobs(job_indices) => {

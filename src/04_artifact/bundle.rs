@@ -2,6 +2,7 @@
 
 use super::binary_io::{read_exact_array, read_u32};
 use crate::profiling::ProfileInstant;
+use crate::profiling::trace_args;
 #[cfg(test)]
 use std::collections::HashMap;
 use std::fs::File;
@@ -30,7 +31,6 @@ use crate::artifact::integrity::with_hash_read_buffer;
 use crate::error::Error;
 use crate::filesystem;
 use crate::profiling::Profiler;
-use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::io;
 use std::io::Cursor;
@@ -166,22 +166,18 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
         let mut file = temporary.reopen()?;
         let capture = write_bundle(chunks, profile, &mut file, profiler, &mut load_chunk)?;
         let _flush_span = profiler.map(|profiler| {
-            profiler.span_with_args("capture.bundle.flush", || {
-                BTreeMap::from([(
-                    "bundle_size_bytes".to_string(),
-                    serde_json::json!(capture.size),
-                )])
-            })
+            profiler.span_with_args(
+                "capture.bundle.flush",
+                || trace_args!("bundle_size_bytes" => capture.size),
+            )
         });
         file.flush()?;
         drop(_flush_span);
         let _sync_span = profiler.map(|profiler| {
-            profiler.span_with_args("capture.bundle.sync", || {
-                BTreeMap::from([(
-                    "bundle_size_bytes".to_string(),
-                    serde_json::json!(capture.size),
-                )])
-            })
+            profiler.span_with_args(
+                "capture.bundle.sync",
+                || trace_args!("bundle_size_bytes" => capture.size),
+            )
         });
         file.sync_all()?;
         drop(_sync_span);
@@ -228,9 +224,10 @@ fn write_bundle<B: AsRef<[u8]>>(
     validate_bundle_entries(&entries)?;
     let compression_started_at = ProfileInstant::detailed(profiler);
     let _payload_span = profiler.map(|profiler| {
-        profiler.span_with_args("capture.bundle.encode_and_write", || {
-            BTreeMap::from([("chunk_count".to_string(), serde_json::json!(chunks.len()))])
-        })
+        profiler.span_with_args(
+            "capture.bundle.encode_and_write",
+            || trace_args!("chunk_count" => chunks.len()),
+        )
     });
     let mut input_load_time = Duration::ZERO;
     encode_to_writer(&mut hashing, profile, raw_offset, |writer| {

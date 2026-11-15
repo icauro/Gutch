@@ -14,7 +14,9 @@ use crate::filesystem::paths::ManifestPathResolver;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::profiling::Arguments;
 use crate::profiling::ProfileInstant;
+use crate::profiling::trace_args;
 use crate::progress::OperationControl;
 use crate::progress::OperationKind;
 use crate::progress::ProgressEvent;
@@ -26,7 +28,6 @@ use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
 use rayon::ThreadPool;
 use rayon::prelude::*;
-use std::collections::BTreeMap;
 use std::fs::Metadata;
 use std::path::Path;
 use std::path::PathBuf;
@@ -267,17 +268,8 @@ impl EntryLocations {
     }
 }
 
-fn prepare_paths_args(
-    snapshot_manifest: &SnapshotManifest,
-    strategy: &str,
-) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        (
-            "path_count".to_string(),
-            serde_json::json!(snapshot_manifest.entries.len()),
-        ),
-        ("strategy".to_string(), serde_json::json!(strategy)),
-    ])
+fn prepare_paths_args(snapshot_manifest: &SnapshotManifest, strategy: &str) -> Arguments {
+    trace_args!("path_count" => snapshot_manifest.entries.len(), "strategy" => strategy)
 }
 
 /// Walks `dir` once, including the targets of symlinked parent directories.
@@ -293,16 +285,10 @@ fn inventory_entries(
     let mut inventory = build_filesystem_inventory(snapshot_manifest, dir, control)?;
     augment_inventory_for_symlinked_parents(snapshot_manifest, dir, &mut inventory, control)?;
     control.profile_event_with_args(spans.prepare_inventory, || {
-        BTreeMap::from([
-            (
-                "inventory_entry_count".to_string(),
-                serde_json::json!(inventory.entries.len()),
-            ),
-            (
-                "extra_path_count".to_string(),
-                serde_json::json!(inventory.extra_paths.len()),
-            ),
-        ])
+        trace_args!(
+            "inventory_entry_count" => inventory.entries.len(),
+            "extra_path_count" => inventory.extra_paths.len(),
+        )
     });
     Ok(inventory)
 }
@@ -357,17 +343,11 @@ fn verify_files(
         total_file_count,
     } = verification;
     let _span = control.profile_span_with_args(spans.files, || {
-        BTreeMap::from([
-            (
-                "file_count".to_string(),
-                serde_json::json!(prepared_files.len()),
-            ),
-            (
-                "scheduling".to_string(),
-                serde_json::json!("largest_first_work_stealing"),
-            ),
-            ("worker_count".to_string(), serde_json::json!(worker_count)),
-        ])
+        trace_args!(
+            "file_count" => prepared_files.len(),
+            "scheduling" => "largest_first_work_stealing",
+            "worker_count" => worker_count,
+        )
     });
     let completed_files = AtomicUsize::new(0);
     let concurrent_file_count = worker_count.min(prepared_files.len());

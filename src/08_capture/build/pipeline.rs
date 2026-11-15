@@ -1,7 +1,8 @@
 //! Chunks, deduplicates and packs scanned files into staged bundles and loose chunks.
 
+use crate::profiling::Arguments;
 use crate::profiling::ProfileInstant;
-use std::collections::BTreeMap;
+use crate::profiling::trace_args;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -209,12 +210,7 @@ fn plan_bundle_compressed_groups(
     } else {
         let _probe_span = control.profile_span_with_args(
             "capture.plan_artifact_groups.estimate_compression_ratio",
-            || {
-                BTreeMap::from([(
-                    "probe_target_bytes".to_string(),
-                    serde_json::json!(bundle_profile.bundle_preferred_size_bytes()),
-                )])
-            },
+            || trace_args!("probe_target_bytes" => bundle_profile.bundle_preferred_size_bytes()),
         );
         let probe_start = ProfileInstant::detailed(control.profiler());
         let (ratio, raw_bytes) = estimate_bundle_compression_ratio_from_probe(
@@ -383,9 +379,10 @@ where
     F: Fn(T, &OperationControl) -> Result<U> + Send + Sync,
 {
     control.checkpoint()?;
-    control.profile_event_with_args("runtime.memory.budget", || {
-        BTreeMap::from([("budget_bytes".into(), serde_json::json!(memory_budget))])
-    });
+    control.profile_event_with_args(
+        "runtime.memory.budget",
+        || trace_args!("budget_bytes" => memory_budget),
+    );
     let memory = Arc::new(MemoryBudget::new(memory_budget));
     let mut results = (0..work_items.len()).map(|_| None).collect::<Vec<_>>();
     // After any failure, nothing new is admitted or started; the result is that
@@ -514,15 +511,8 @@ fn build_loose_chunks(
     )
 }
 
-fn capture_bytes_trace_args(
-    count_name: &str,
-    count: usize,
-    bytes: u64,
-) -> BTreeMap<String, serde_json::Value> {
-    BTreeMap::from([
-        (count_name.to_string(), serde_json::json!(count)),
-        ("size_bytes".to_string(), serde_json::json!(bytes)),
-    ])
+fn capture_bytes_trace_args(count_name: &str, count: usize, bytes: u64) -> Arguments {
+    trace_args!(count_name => count, "size_bytes" => bytes)
 }
 
 fn build_loose_chunk(
@@ -535,10 +525,10 @@ fn build_loose_chunk(
     control.checkpoint()?;
     let load_start = ProfileInstant::detailed(control.profiler());
     let raw_size = payload.raw_size();
-    let _artifact_span = control
-        .profile_span_with_args("capture.loose.load_encode_and_write", || {
-            BTreeMap::from([("size_bytes".into(), serde_json::json!(raw_size))])
-        });
+    let _artifact_span = control.profile_span_with_args(
+        "capture.loose.load_encode_and_write",
+        || trace_args!("size_bytes" => raw_size),
+    );
     let bytes = payload.load_bytes()?;
     let payload_load = load_start.elapsed();
 
@@ -601,12 +591,10 @@ fn build_bundle_compressed_group(
     control: &OperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
     control.checkpoint()?;
-    let _job_span = control.profile_span_with_args("capture.bundle.build", || {
-        BTreeMap::from([(
-            "chunk_count".into(),
-            serde_json::json!(planned_bundle.len()),
-        )])
-    });
+    let _job_span = control.profile_span_with_args(
+        "capture.bundle.build",
+        || trace_args!("chunk_count" => planned_bundle.len()),
+    );
     let descriptors = planned_bundle
         .iter()
         .map(|(hash, payload)| (*hash, payload.raw_size()))
@@ -647,11 +635,10 @@ pub(crate) fn build_directory(
 ) -> Result<(BuildResult, BuildTimings)> {
     let worker_count = plan_runtime(&config.runtime_hints).worker_count;
     let build_pool = {
-        let _pool_span = config
-            .control
-            .profile_span_with_args("capture.create_worker_pool", || {
-                BTreeMap::from([("worker_count".to_string(), serde_json::json!(worker_count))])
-            });
+        let _pool_span = config.control.profile_span_with_args(
+            "capture.create_worker_pool",
+            || trace_args!("worker_count" => worker_count),
+        );
         build_thread_pool(worker_count, "Capture worker")?
     };
     let inventory = {
@@ -846,18 +833,10 @@ fn plan_deduplicated_chunks(
         config
             .control
             .profile_event_with_args("capture.plan_deduplicated_chunks.complete", || {
-                BTreeMap::from([
-                    (
-                        "unique_chunk_count".to_string(),
-                        serde_json::json!(
-                            compressed_estimate_seen.len() + chunks_to_compress.len()
-                        ),
-                    ),
-                    (
-                        "new_chunk_count".to_string(),
-                        serde_json::json!(chunks_to_compress.len()),
-                    ),
-                ])
+                trace_args!(
+                    "unique_chunk_count" => compressed_estimate_seen.len() + chunks_to_compress.len(),
+                    "new_chunk_count" => chunks_to_compress.len(),
+                )
             });
     }
     timings.dedupe_plan_wall = dedupe_plan_start.elapsed();

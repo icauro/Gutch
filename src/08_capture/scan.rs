@@ -1,5 +1,6 @@
 //! Scans a source tree into a stable inventory of files, directories and links.
 
+use crate::profiling::trace_args;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -29,7 +30,6 @@ use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
 use crate::progress::ProgressPhase;
 use rayon::ThreadPool;
-use std::collections::BTreeMap;
 use std::fs;
 use std::fs::Metadata;
 use std::path::Component;
@@ -336,14 +336,10 @@ pub(crate) fn scan_directory_into_file_entries(
     inventory: &SourceInventory,
     options: ScanDirectoryOptions<'_>,
 ) -> Result<Vec<FileBuildEntry>> {
-    options
-        .control
-        .profile_event_with_args("capture.scan_source.inventory.complete", || {
-            BTreeMap::from([(
-                "file_count".to_string(),
-                serde_json::json!(inventory.files.len()),
-            )])
-        });
+    options.control.profile_event_with_args(
+        "capture.scan_source.inventory.complete",
+        || trace_args!("file_count" => inventory.files.len()),
+    );
 
     let progress =
         BuildProgressTracker::new(&options.control, ProgressPhase::Scan, "Scanning files");

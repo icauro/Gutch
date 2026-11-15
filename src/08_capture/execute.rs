@@ -3,6 +3,7 @@
 use crate::capture::contracts::SnapshotCaptureOutcome;
 use crate::capture::contracts::{SnapshotCaptureRequest, SnapshotCaptureResult};
 use crate::error::metadata_conflict::MetadataFieldDifference;
+use crate::profiling::trace_args;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,7 +43,6 @@ use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::runtime::RuntimeResourceHints;
 use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
-use std::collections::BTreeMap;
 use std::fs;
 use std::mem;
 pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
@@ -269,16 +269,10 @@ fn configure_build<'a>(
         request
             .control
             .profile_span_with_args("capture.prepare_source.configure_build", || {
-                BTreeMap::from([
-                    (
-                        "existing_bundle_count".to_string(),
-                        serde_json::json!(reuse_state.bundle_ids.len()),
-                    ),
-                    (
-                        "existing_chunk_location_count".to_string(),
-                        serde_json::json!(reuse_state.available_chunk_sizes.len()),
-                    ),
-                ])
+                trace_args!(
+                    "existing_bundle_count" => reuse_state.bundle_ids.len(),
+                    "existing_chunk_location_count" => reuse_state.available_chunk_sizes.len(),
+                )
             });
     let mut build_config = BuildConfig::for_snapshot(snapshot_tags)
         .with_existing_chunks(&reuse_state.available_chunk_sizes)
@@ -401,12 +395,10 @@ pub(super) fn build_capture_pool(
     hints: &RuntimeResourceHints,
 ) -> Result<rayon::ThreadPool> {
     let runtime_plan = plan_runtime(hints);
-    let _pool_span = control.profile_span_with_args("capture.create_worker_pool", || {
-        BTreeMap::from([(
-            "worker_count".to_string(),
-            serde_json::json!(runtime_plan.worker_count),
-        )])
-    });
+    let _pool_span = control.profile_span_with_args(
+        "capture.create_worker_pool",
+        || trace_args!("worker_count" => runtime_plan.worker_count),
+    );
     build_thread_pool(runtime_plan.worker_count, "Capture worker")
 }
 
