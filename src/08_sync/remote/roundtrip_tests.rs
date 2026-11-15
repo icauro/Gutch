@@ -6,10 +6,14 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use super::artifact_decision::repo_file_hash;
 use super::link::bind_remote_repo;
 use super::pull::local_bundle_paths;
 use super::*;
+use crate::Result;
 use crate::manifest::SnapshotTagSet;
+use crate::progress::OperationControl;
+use crate::repo::paths::RepoPaths;
 
 #[derive(Default)]
 struct MemoryState {

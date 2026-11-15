@@ -1,16 +1,17 @@
 //! Pull: plans and downloads remote snapshots and bundles into the local repository.
 
-use super::ArtifactDecision;
-use super::RemoteProgress;
-use super::decide_artifact;
-use super::hashes_differ;
+use super::artifact_decision::ArtifactDecision;
+use super::artifact_decision::decide_artifact;
+use super::artifact_decision::hashes_differ;
+use super::artifact_decision::local_file_mtime;
+use super::artifact_decision::verify_remote_artifact;
 use super::link::bound_remote_repo_id;
-use super::local_chunk_map_hash_b3;
-use super::local_file_mtime;
-use super::local_repo_metadata_hash_b3;
-use super::local_snapshot_blueprint_hash_b3;
-use super::local_snapshot_metadata_hash_b3;
-use super::local_snapshot_product_metadata_hash_b3;
+use super::local_hashes::local_chunk_map_hash_b3;
+use super::local_hashes::local_repo_metadata_hash_b3;
+use super::local_hashes::local_snapshot_blueprint_hash_b3;
+use super::local_hashes::local_snapshot_metadata_hash_b3;
+use super::local_hashes::local_snapshot_product_metadata_hash_b3;
+use super::progress::RemoteProgress;
 use super::provider::PullConflictPolicy;
 use super::provider::RemoteArtifactSource;
 use super::provider::RemoteBundleSource;
@@ -19,7 +20,6 @@ use super::provider::RemoteRepositoryReader;
 use super::provider::RemoteSnapshot;
 use super::provider::RepoPullPlan;
 use super::provider::RepoPullStats;
-use super::verify_remote_artifact;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle::BundleIdentityWriter;
