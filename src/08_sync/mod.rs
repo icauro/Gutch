@@ -2,4 +2,5 @@
 
 pub(crate) mod fetch;
 pub(crate) mod fetch_types;
+pub(crate) mod limits;
 pub(crate) mod remote;

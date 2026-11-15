@@ -16,9 +16,6 @@ use crate::progress::ProgressSink;
 use crate::repo::paths::RepoPaths;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
-pub(crate) const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
-pub(crate) const MAX_REMOTE_BINARY_BYTES: u64 = 256 * 1024 * 1024;
-
 mod link;
 mod provider;
 mod pull;
@@ -64,7 +61,8 @@ use std::time::SystemTime;
 enum ArtifactDecision {
     Identical,
     Fetch,
-    KeepLocalNewer,
+    /// The local copy differs and the conflict policy keeps it.
+    KeepLocal,
 }
 
 fn repo_file_hash(bytes: &[u8]) -> String {
@@ -87,11 +85,6 @@ fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &str) -> Res
         });
     }
     Ok(())
-}
-
-#[cfg(test)]
-fn verify_remote_bundle(bundle_id: &str, bytes: &[u8]) -> Result<()> {
-    crate::artifact::bundle::verify_bundle_identity_bytes(bundle_id, bytes)
 }
 
 fn hashes_differ(local_hash: &str, remote_hash: &str) -> bool {
@@ -133,7 +126,7 @@ fn decide_artifact(
         match policy {
             PullConflictPolicy::KeepLocal => {
                 if local_exists {
-                    ArtifactDecision::KeepLocalNewer
+                    ArtifactDecision::KeepLocal
                 } else {
                     ArtifactDecision::Fetch
                 }
@@ -143,7 +136,7 @@ fn decide_artifact(
                 if remote_updated_at_is_newer_or_equal(remote_updated_at, local_modified) {
                     ArtifactDecision::Fetch
                 } else {
-                    ArtifactDecision::KeepLocalNewer
+                    ArtifactDecision::KeepLocal
                 }
             }
         }
@@ -392,49 +385,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_bundle_content_hash_is_verified() {
-        let payload = b"bundle payload";
-        let bundle_hash = repo_file_hash(payload);
-        let mut bundle_bytes = payload.to_vec();
-        bundle_bytes.extend_from_slice(blake3::hash(payload).as_bytes());
-
-        assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_ok());
-        bundle_bytes[0] ^= 1;
-        assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_err());
-    }
-
-    #[test]
-    fn remote_bundle_identity_matches_local_verification() {
-        // Local strict verification and remote download share
-        // verify_bundle_identity_bytes, so both reject the same failures.
-        let payload = b"bundle payload";
-        let bundle_hash = repo_file_hash(payload);
-        let mut bundle_bytes = payload.to_vec();
-        bundle_bytes.extend_from_slice(blake3::hash(payload).as_bytes());
-
-        assert!(verify_remote_bundle(&bundle_hash, &bundle_bytes).is_ok());
-        assert!(
-            crate::artifact::bundle::verify_bundle_identity_bytes(&bundle_hash, &bundle_bytes)
-                .is_ok()
-        );
-
-        // Corrupt trailing ID: content hash still matches, trailing does not.
-        let mut trailing = bundle_bytes.clone();
-        let last = trailing.len() - 1;
-        trailing[last] = if trailing[last] == b'0' { b'1' } else { b'0' };
-        assert!(verify_remote_bundle(&bundle_hash, &trailing).is_err());
-        assert!(
-            crate::artifact::bundle::verify_bundle_identity_bytes(&bundle_hash, &trailing).is_err()
-        );
-
-        // Truncated body without a trailing ID.
-        assert!(verify_remote_bundle(&bundle_hash, b"short").is_err());
-        assert!(
-            crate::artifact::bundle::verify_bundle_identity_bytes(&bundle_hash, b"short").is_err()
-        );
-    }
-
-    #[test]
     fn empty_remote_hashes_do_not_force_a_change() {
         assert!(!hashes_differ("", ""));
         assert!(hashes_differ("abc", ""));
@@ -475,7 +425,7 @@ mod tests {
             Some(mtime_ago(100)),
             PullConflictPolicy::KeepLocal,
         );
-        assert_eq!(existing, ArtifactDecision::KeepLocalNewer);
+        assert_eq!(existing, ArtifactDecision::KeepLocal);
 
         let missing = decide_artifact(
             false,
@@ -628,7 +578,7 @@ mod tests {
             Some(mtime_ago(100)),
             PullConflictPolicy::KeepNewer,
         );
-        assert_eq!(local_newer, ArtifactDecision::KeepLocalNewer);
+        assert_eq!(local_newer, ArtifactDecision::KeepLocal);
 
         let remote_newer = decide_artifact(
             true,

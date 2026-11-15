@@ -39,10 +39,20 @@ pub struct RemoteSnapshot {
     pub artifact_ready: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum RemoteArtifactSource {
     Bytes(Vec<u8>),
     Url(String),
+}
+
+/// URLs may be presigned, so `Debug` never prints them or the bytes.
+impl std::fmt::Debug for RemoteArtifactSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bytes(bytes) => write!(formatter, "Bytes({} bytes)", bytes.len()),
+            Self::Url(_) => formatter.write_str("Url(<redacted>)"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -247,7 +257,7 @@ pub struct RepoPullStats {
     pub snapshot_skipped_count: usize,
     pub bundle_downloaded_count: usize,
     pub bundle_skipped_count: usize,
-    pub kept_newer_local_count: usize,
+    pub kept_local_count: usize,
     pub local_only_snapshots_kept: usize,
     pub pruned_snapshot_count: usize,
     pub pruned_bundle_count: usize,
@@ -263,7 +273,7 @@ pub struct RepoPullPlan {
     pub snapshots_to_download: Vec<String>,
     pub snapshots_to_skip: Vec<String>,
     pub local_only_snapshots: Vec<String>,
-    pub kept_newer_local_snapshots: Vec<String>,
+    pub kept_local_snapshots: Vec<String>,
     pub bundle_count: usize,
 }
 
@@ -312,4 +322,18 @@ pub struct RepoPushStats {
     pub snapshot_removed_count: usize,
     pub snapshot_updated_count: usize,
     pub snapshot_unchanged_count: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RemoteArtifactSource;
+
+    #[test]
+    fn debug_output_hides_urls_and_bytes() {
+        let url = RemoteArtifactSource::Url("https://example.test/a?signature=secret".into());
+        let bytes = RemoteArtifactSource::Bytes(vec![1, 2, 3]);
+
+        assert_eq!(format!("{url:?}"), "Url(<redacted>)");
+        assert_eq!(format!("{bytes:?}"), "Bytes(3 bytes)");
+    }
 }

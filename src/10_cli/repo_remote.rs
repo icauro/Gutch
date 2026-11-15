@@ -280,12 +280,12 @@ fn print_pull_plan(plan: &RepoPullPlan) {
         plan.remote_repo_id, plan.remote_repo_name
     ));
     output::line(format_args!(
-        "changes: repo_metadata={} chunk_index={} snapshots_download={} snapshots_skip={} local_only={} kept_newer_local={}",
+        "changes: repo_metadata={} chunk_index={} snapshots_download={} snapshots_skip={} local_only={} kept_local={}",
         plan.repo_manifest_needed,
         plan.chunk_map_needed,
         plan.snapshots_to_download.len(),
         plan.snapshots_to_skip.len(),
         plan.local_only_snapshots.len(),
-        plan.kept_newer_local_snapshots.len()
+        plan.kept_local_snapshots.len()
     ));
 }

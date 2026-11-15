@@ -1,8 +1,6 @@
 //! Pull: plans and downloads remote snapshots and bundles into the local repository.
 
 use super::ArtifactDecision;
-use super::MAX_REMOTE_BINARY_BYTES;
-use super::MAX_REMOTE_JSON_BYTES;
 use super::RemoteProgress;
 use super::decide_artifact;
 use super::hashes_differ;
@@ -57,6 +55,9 @@ use crate::repo::updates::validate_existing_constraints;
 use crate::repo::verify::RepoArtifactVerification;
 use crate::repo::verify::verify_snapshot_artifacts;
 use crate::snapshot::identity::snapshot_id_from_entries;
+use crate::sync::limits::{
+    MAX_BUNDLE_BYTES, MAX_CHUNK_INDEX_BYTES, MAX_METADATA_BYTES, MAX_SNAPSHOT_BLUEPRINT_BYTES,
+};
 use crate::transfer::http::DownloadClient;
 use crate::transfer::http::build_download_client;
 use crate::transfer::http::download_url_streaming;
@@ -93,7 +94,7 @@ pub(super) fn compute_pull_plan(
 
     let mut snapshots_to_download = Vec::new();
     let mut snapshots_to_skip = Vec::new();
-    let mut kept_newer_local_snapshots = Vec::new();
+    let mut kept_local_snapshots = Vec::new();
     for snapshot in snapshots {
         // A snapshot whose artifacts are still uploading cannot be pulled yet.
         if !snapshot.artifact_ready {
@@ -153,23 +154,23 @@ pub(super) fn compute_pull_plan(
         );
         decision = match (decision, product_metadata_decision) {
             (ArtifactDecision::Fetch, _) | (_, ArtifactDecision::Fetch) => ArtifactDecision::Fetch,
-            (ArtifactDecision::KeepLocalNewer, _) | (_, ArtifactDecision::KeepLocalNewer) => {
-                ArtifactDecision::KeepLocalNewer
+            (ArtifactDecision::KeepLocal, _) | (_, ArtifactDecision::KeepLocal) => {
+                ArtifactDecision::KeepLocal
             }
             _ => ArtifactDecision::Identical,
         };
         match decision {
             ArtifactDecision::Identical => snapshots_to_skip.push(snapshot.snapshot_id.clone()),
             ArtifactDecision::Fetch => snapshots_to_download.push(snapshot.snapshot_id.clone()),
-            ArtifactDecision::KeepLocalNewer => {
-                kept_newer_local_snapshots.push(snapshot.snapshot_id.clone());
+            ArtifactDecision::KeepLocal => {
+                kept_local_snapshots.push(snapshot.snapshot_id.clone());
                 snapshots_to_skip.push(snapshot.snapshot_id.clone());
             }
         }
     }
     snapshots_to_download.sort();
     snapshots_to_skip.sort();
-    kept_newer_local_snapshots.sort();
+    kept_local_snapshots.sort();
 
     let remote_snapshot_ids: HashSet<&str> = snapshots
         .iter()
@@ -194,7 +195,7 @@ pub(super) fn compute_pull_plan(
         snapshots_to_download,
         snapshots_to_skip,
         local_only_snapshots,
-        kept_newer_local_snapshots,
+        kept_local_snapshots,
         bundle_count: 0,
     })
 }
@@ -231,8 +232,9 @@ fn write_source(
     match source {
         RemoteArtifactSource::Bytes(bytes) => {
             if bytes.len() as u64 > maximum_bytes {
-                return Err(Error::repository(
+                return Err(Error::download(
                     "remote artifact exceeded the allowed size",
+                    false,
                 ));
             }
             output.write_all(bytes)?;
@@ -265,13 +267,7 @@ fn download_and_publish_bundle(
         // verification inside the atomic writer: failure leaves the previous
         // cached artifact in place and drops only the owned temporary file.
         let mut writer = BundleIdentityWriter::new(BufWriter::new(file));
-        write_source(
-            source,
-            client,
-            MAX_REMOTE_BINARY_BYTES,
-            control,
-            &mut writer,
-        )?;
+        write_source(source, client, MAX_BUNDLE_BYTES, control, &mut writer)?;
         writer
             .finish(bundle_id)?
             .into_inner()
@@ -428,7 +424,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
     fn download_repo_manifest(&self, repository_existed: bool) -> Result<()> {
         let bytes = self.download(
             &self.provider.repository_metadata_source(self.repository)?,
-            MAX_REMOTE_JSON_BYTES,
+            MAX_METADATA_BYTES,
         )?;
         verify_remote_artifact(&bytes, &self.repository.metadata_hash_b3, "repo metadata")?;
         let mut manifest: RepoManifest = from_json_bytes(&bytes)?;
@@ -450,7 +446,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
     fn download_chunk_index(&self) -> Result<()> {
         let bytes = self.download(
             &self.provider.chunk_index_source(self.repository)?,
-            MAX_REMOTE_BINARY_BYTES,
+            MAX_CHUNK_INDEX_BYTES,
         )?;
         verify_remote_artifact(&bytes, &self.repository.chunk_map_hash_b3, "chunk index")?;
         let mut chunk_index = load_chunk_index_binary_from_bytes(&bytes)?;
@@ -461,7 +457,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
     fn download_snapshot(&self, snapshot: &RemoteSnapshot) -> Result<()> {
         let snapshot_id = snapshot.snapshot_id.as_str();
         let sources = self.provider.snapshot_sources(self.repository, snapshot)?;
-        let metadata_bytes = self.download(&sources.metadata, MAX_REMOTE_JSON_BYTES)?;
+        let metadata_bytes = self.download(&sources.metadata, MAX_METADATA_BYTES)?;
         verify_remote_artifact(
             &metadata_bytes,
             &snapshot.metadata_hash_b3,
@@ -470,7 +466,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
         let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
         let product_metadata = match sources.product_metadata {
             Some(source) => {
-                let bytes = self.download(&source, MAX_REMOTE_JSON_BYTES)?;
+                let bytes = self.download(&source, MAX_METADATA_BYTES)?;
                 verify_remote_artifact(
                     &bytes,
                     &snapshot.product_metadata_hash_b3,
@@ -480,7 +476,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
             }
             None => None,
         };
-        let blueprint_bytes = self.download(&sources.blueprint, MAX_REMOTE_BINARY_BYTES)?;
+        let blueprint_bytes = self.download(&sources.blueprint, MAX_SNAPSHOT_BLUEPRINT_BYTES)?;
         verify_remote_artifact(
             &blueprint_bytes,
             &snapshot.blueprint_hash_b3,
@@ -603,7 +599,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             snapshot_skipped_count: plan.snapshots_to_skip.len(),
             bundle_downloaded_count: 0,
             bundle_skipped_count: 0,
-            kept_newer_local_count: plan.kept_newer_local_snapshots.len(),
+            kept_local_count: plan.kept_local_snapshots.len(),
             local_only_snapshots_kept: 0,
             pruned_snapshot_count: 0,
             pruned_bundle_count: 0,

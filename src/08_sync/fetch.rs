@@ -1,12 +1,10 @@
 //! Snapshot acquisition, validation and repository publication.
-const MAX_SNAPSHOT_METADATA_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_SNAPSHOT_BLUEPRINT_BYTES: u64 = 256 * 1024 * 1024;
-const MAX_CHUNK_INDEX_BYTES: u64 = 256 * 1024 * 1024;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::limits::{MAX_CHUNK_INDEX_BYTES, MAX_METADATA_BYTES, MAX_SNAPSHOT_BLUEPRINT_BYTES};
 use crate::Error;
 use crate::Result;
 use crate::artifact::reference::ArtifactRef;
@@ -185,13 +183,7 @@ pub(crate) fn prepare_snapshot_fetch(
             let phase = ProgressPhase::RepoMetadata;
             let message = "Downloading repo metadata";
             downloader.announce(phase, message, None);
-            from_json_bytes(&downloader.download(
-                url,
-                phase,
-                message,
-                None,
-                MAX_SNAPSHOT_METADATA_BYTES,
-            )?)?
+            from_json_bytes(&downloader.download(url, phase, message, None, MAX_METADATA_BYTES)?)?
         }
         None => load_gutch_repo_manifest(&repo_paths.repo_root)?.1,
     };
@@ -325,7 +317,7 @@ fn download_snapshot_manifest(
         phase,
         message,
         Some(snapshot_id),
-        MAX_SNAPSHOT_METADATA_BYTES,
+        MAX_METADATA_BYTES,
     )?;
     let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
     let product_metadata = match request.product_metadata_url.as_deref() {
@@ -335,7 +327,7 @@ fn download_snapshot_manifest(
                 phase,
                 "Downloading snapshot product metadata",
                 Some(snapshot_id),
-                MAX_SNAPSHOT_METADATA_BYTES,
+                MAX_METADATA_BYTES,
             )?;
             Some(SnapshotProductMetadata::from_json_bytes(&bytes)?)
         }
