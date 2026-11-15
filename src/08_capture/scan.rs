@@ -593,7 +593,7 @@ pub(crate) fn verify_source_inventory_stable(
         .map(metadata_observation)
         .collect();
     if before_metadata != after_metadata {
-        return Err(Error::capture("source changed during capture"));
+        return Err(Error::SourceChanged { path: None });
     }
 
     let mut before_files: Vec<_> = before
@@ -609,7 +609,7 @@ pub(crate) fn verify_source_inventory_stable(
     before_files.sort();
     after_files.sort();
     if before_files != after_files {
-        return Err(Error::capture("source changed during capture"));
+        return Err(Error::SourceChanged { path: None });
     }
     Ok(())
 }

@@ -55,6 +55,13 @@ pub enum Error {
     #[error("Capture error: {0}")]
     Capture(String),
 
+    /// The source tree changed while capture read it; a fresh scan may succeed.
+    #[error(
+        "Capture error: source changed during capture{}",
+        path.as_ref().map(|path| format!(": {}", path.display())).unwrap_or_default()
+    )]
+    SourceChanged { path: Option<PathBuf> },
+
     #[error("Download error: {message}")]
     Download { message: String, retryable: bool },
 

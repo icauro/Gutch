@@ -38,12 +38,13 @@ pub struct SnapshotCaptureRequest {
     pub control: OperationControl,
 }
 
-/// Whether capture stored a new snapshot or found identical existing content.
-/// Conflicts with stored snapshots are errors.
+/// Whether capture stored a new snapshot, restored missing artifacts of an
+/// existing one, or found it intact. Conflicts with stored snapshots are errors.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum SnapshotCaptureOutcome {
     Created { snapshot_id: String },
+    Repaired { snapshot_id: String },
     Unchanged { snapshot_id: String },
 }
 
@@ -53,6 +54,9 @@ impl SnapshotCaptureOutcome {
         match self {
             SnapshotCaptureOutcome::Created { snapshot_id } => {
                 format!("Captured snapshot {snapshot_id}.")
+            }
+            SnapshotCaptureOutcome::Repaired { snapshot_id } => {
+                format!("Snapshot {snapshot_id} already existed; restored its missing artifacts.")
             }
             SnapshotCaptureOutcome::Unchanged { .. } => {
                 String::from("Snapshot content already exists; no changes were made.")

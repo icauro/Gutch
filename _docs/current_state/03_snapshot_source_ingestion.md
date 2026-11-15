@@ -35,10 +35,14 @@ the app Creator workspace, fixtures, and self-publish staging.
 5. After confirmation where required, Gutch scans the tree and writes the new
    snapshot artifacts through the repo pipeline. Immutable artifacts and the
    chunk index are published before the snapshot manifest, which is the
-   commit marker. If the computed snapshot ID already exists, capture
-   returns `Unchanged` for identical metadata, or fails with
-   `SnapshotMetadataConflict` or `SnapshotIntegrityMismatch` instead of mutating the stored snapshot; explicit retag targets
-   one exact snapshot ID.
+   commit marker. If the source changes while it is read, capture rescans
+   and rebuilds once, then fails without publishing on a second change. If
+   the computed snapshot ID already exists with the same tags, capture
+   returns `Unchanged`, or `Repaired` when it had to restore missing
+   artifacts; different tags fail with `SnapshotMetadataConflict`, and
+   `SnapshotIntegrityMismatch` reports damaged stored content, instead of
+   mutating the stored snapshot. Product metadata is edited separately and
+   is not compared. Explicit retag targets one exact snapshot ID.
 
 ## Ingestion Modes
 
@@ -52,7 +56,9 @@ depth. Each entry can provide tags. The list must be nonempty, duplicate
 entries are rejected, and every selected path must exist as a directory.
 
 Both mode-specific objects may remain in the config. Only the object selected
-by `ingestion_mode` is validated. `.gutch_source_config.json` itself is outside
+by `ingestion_mode` is validated. A missing or invalid sources path or config
+fails the plan and the capture. Multi-source capture uses the repository's
+configured artifact profile for every source. `.gutch_source_config.json` itself is outside
 snapshot trees and is always ignored.
 
 ## Identity Resolution

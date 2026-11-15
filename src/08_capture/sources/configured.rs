@@ -9,16 +9,12 @@ use serde::Serialize;
 use super::discovery::SourceSnapshotCandidate;
 use super::discovery::discover_source_snapshots;
 use crate::Result;
-use crate::artifact::profiles::ArtifactStorageMode;
-use crate::artifact::profiles::BundleSizingPreset;
-use crate::artifact::profiles::ChunkSizingPreset;
-use crate::artifact::profiles::Chunker;
-use crate::artifact::profiles::CompressionKind;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::execute::build_capture_pool;
 use crate::capture::execute::capture_snapshot_reusing_state;
 use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::load_capture_reuse_state;
+use crate::manifest::repo_manifest::ArtifactProfile;
 use crate::progress;
 use crate::progress::OperationControl;
 use crate::progress::OperationKind;
@@ -28,6 +24,7 @@ use crate::progress::ProgressSink;
 use crate::repo::cleanup::cleanup_orphan_artifacts_in_repo;
 use crate::repo::coordination;
 use crate::repo::paths::RepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_tag_summary::format_snapshot_tag_summary;
 use crate::repo::status::RepoStatus;
 use crate::repo::status::read_repo_status;
@@ -94,10 +91,7 @@ pub fn plan_snapshot_sources_capture_with_context(
 
     let candidates = match candidates {
         Some(candidates) => candidates.to_vec(),
-        None => match discover_source_snapshots(repo_root, &sources_path) {
-            Ok(candidates) => candidates,
-            Err(_) => return Ok(plan),
-        },
+        None => discover_source_snapshots(repo_root, &sources_path)?,
     };
 
     // Multi-source capture only adds content-derived snapshots. Every
@@ -183,6 +177,8 @@ pub fn capture_snapshot_sources(
         );
         let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, control)?;
         drop(_existing_state_span);
+        let (_, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+        let profile = repo_manifest.artifact_profile;
 
         let mut captured_count = 0usize;
         for (step_index, candidate) in plan.to_capture.iter().enumerate() {
@@ -202,7 +198,14 @@ pub fn capture_snapshot_sources(
                     done: false,
                 },
             );
-            capture_source_snapshot(repo_root, candidate, control, &mut reuse_state, &build_pool)?;
+            capture_source_snapshot(
+                repo_root,
+                candidate,
+                &profile,
+                control,
+                &mut reuse_state,
+                &build_pool,
+            )?;
             captured_count += 1;
         }
 
@@ -231,6 +234,7 @@ pub fn capture_snapshot_sources(
 fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotCandidate,
+    profile: &ArtifactProfile,
     control: &OperationControl,
     reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
@@ -248,12 +252,13 @@ fn capture_source_snapshot(
             repo_root: repo_root.to_path_buf(),
             source_dir: PathBuf::from(&candidate.path),
             explicit_tags: candidate.snapshot_tags.clone(),
-            chunk_profile: ChunkSizingPreset::Chunk128KiB,
-            chunker: Chunker::FastCdc,
-            bundle_profile: BundleSizingPreset::Bundle8MiB,
-            compression_algorithm: CompressionKind::Zstd,
-            compression_level: Some(3),
-            storage_mode: ArtifactStorageMode::Bundled,
+            // Every source follows the repository's configured artifact profile.
+            chunk_profile: profile.chunk,
+            chunker: profile.chunker,
+            bundle_profile: profile.bundle,
+            compression_algorithm: profile.compression,
+            compression_level: profile.compression_level,
+            storage_mode: profile.storage,
             runtime_hints: RuntimeResourceHints::default(),
             control: candidate_control,
         },
@@ -287,6 +292,7 @@ mod tests {
     use crate::manifest::snapshot::SnapshotManifest;
     use crate::repo::paths::RepoPaths;
     use crate::repo::paths::ensure_gutch_repo_layout;
+    use crate::repo::paths::load_gutch_repo_manifest;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
     use crate::snapshot::identity::format_system_time_utc;
     use std::time::Duration;
@@ -428,5 +434,52 @@ mod tests {
             plan_json.get("snapshotId").is_none(),
             "plan exposes tags as an ID: {plan_json}"
         );
+    }
+
+    #[test]
+    fn a_missing_sources_path_is_an_error_not_an_empty_plan() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path().join("repo");
+        ensure_gutch_repo_layout(&RepoPaths::from_repo_root(&repo_root), "base").unwrap();
+        let missing = temp.path().join("missing");
+        assert!(plan_snapshot_sources_capture(&repo_root, Some(&missing)).is_err());
+        assert!(
+            capture_snapshot_sources(&repo_root, &missing, &OperationControl::default()).is_err()
+        );
+    }
+
+    #[test]
+    fn sources_capture_uses_the_repository_artifact_profile() {
+        use crate::artifact::profiles::{
+            ArtifactStorageMode, BundleSizingPreset, ChunkSizingPreset, CompressionKind,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path().join("repo");
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
+        ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+        let (_, mut repo_manifest) = load_gutch_repo_manifest(&repo_root).unwrap();
+        repo_manifest.set_artifact_profile(
+            ChunkSizingPreset::Chunk128KiB,
+            CompressionKind::Lz4,
+            None,
+            BundleSizingPreset::Bundle8MiB,
+            ArtifactStorageMode::LooseChunks,
+        );
+        crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &repo_manifest).unwrap();
+        let sources = temp.path().join("sources");
+        std::fs::create_dir_all(sources.join("game")).unwrap();
+        std::fs::write(sources.join("game").join("game.exe"), b"content").unwrap();
+
+        let result =
+            capture_snapshot_sources(&repo_root, &sources, &OperationControl::default()).unwrap();
+        assert_eq!(result.captured_count, 1);
+        let count = |root: &Path| {
+            walkdir::WalkDir::new(root)
+                .into_iter()
+                .filter(|entry| entry.as_ref().unwrap().file_type().is_file())
+                .count()
+        };
+        assert!(count(&repo_paths.chunks_root) > 0);
+        assert_eq!(count(&repo_paths.bundles_root), 0);
     }
 }

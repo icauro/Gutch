@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use rayon::ThreadPool;
 use rayon::prelude::*;
@@ -394,24 +396,48 @@ where
     });
     let memory = Arc::new(MemoryBudget::new(memory_budget));
     let mut results = (0..work_items.len()).map(|_| None).collect::<Vec<_>>();
+    // After any failure, nothing new is admitted or started; the result is that
+    // failure, so skipped slots stay empty.
+    let failed = AtomicBool::new(false);
     // Each scoped worker exclusively borrows its result slot until the scope joins.
     // in_place_scope keeps admission on the caller, not on a Rayon worker.
     pool.in_place_scope(|scope| -> Result<()> {
         for (item, slot) in work_items.into_iter().zip(&mut results) {
+            if failed.load(Ordering::Acquire) {
+                break;
+            }
             let permit = memory.acquire(working_bytes(&item), control)?;
             let work = &work;
+            let failed = &failed;
             scope.spawn(move |_| {
+                if failed.load(Ordering::Acquire) {
+                    return;
+                }
                 let result = control.checkpoint().and_then(|_| work(item, control));
+                if result.is_err() {
+                    failed.store(true, Ordering::Release);
+                }
                 *slot = Some(result);
                 drop(permit);
             });
         }
         Ok(())
     })?;
-    results
-        .into_iter()
-        .map(|slot| slot.expect("joined capture worker"))
-        .collect()
+    let mut values = Vec::with_capacity(results.len());
+    let mut first_error = None;
+    for slot in results {
+        match slot {
+            Some(Ok(value)) => values.push(value),
+            Some(Err(error)) => {
+                first_error.get_or_insert(error);
+            }
+            None => {}
+        }
+    }
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(values),
+    }
 }
 
 fn build_bundled_chunks(

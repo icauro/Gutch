@@ -355,9 +355,9 @@ fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
 }
 
 #[test]
-fn capture_result_slots_join_workers_before_returning_an_error() {
+fn capture_workers_stop_starting_items_after_a_failure() {
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
+        .num_threads(1)
         .build()
         .unwrap();
     let completed = AtomicUsize::new(0);
@@ -376,8 +376,9 @@ fn capture_result_slots_join_workers_before_returning_an_error() {
             }
         },
     );
-    assert!(result.is_err());
-    assert_eq!(completed.load(Ordering::Relaxed), 32);
+    assert!(result.unwrap_err().to_string().contains("worker failed"));
+    // One worker and a four-item budget bound what was admitted before item 3 failed.
+    assert!(completed.load(Ordering::Relaxed) <= 8);
 }
 
 #[test]

@@ -384,6 +384,97 @@ fn same_id_different_tags_returns_metadata_conflict() {
 }
 
 #[test]
+fn recapture_after_product_metadata_edit_is_unchanged() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+    let first = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        OperationControl::default(),
+    );
+    let metadata = manifest::SnapshotProductMetadata {
+        document_version: manifest::PUBLIC_METADATA_FORMAT_VERSION.into(),
+        runtime: manifest::SnapshotRuntimeMetadata::Direct(
+            manifest::SnapshotDirectRuntimeMetadata {
+                launch_actions: vec![manifest::SnapshotLaunchAction {
+                    action_name: "Play".into(),
+                    executable_path: "game.exe".into(),
+                    command_arguments: Vec::new(),
+                    working_directory_path: None,
+                }],
+                external_dependencies: Vec::new(),
+            },
+        ),
+    };
+    crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots(
+        &repo_root,
+        std::slice::from_ref(&first.snapshot_id),
+        Some(metadata),
+    )
+    .unwrap();
+
+    let second = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        OperationControl::default(),
+    );
+    assert!(matches!(
+        second.outcome,
+        SnapshotCaptureOutcome::Unchanged { .. }
+    ));
+}
+
+#[test]
+fn recapture_reports_repairs_and_always_emits_done() {
+    #[derive(Debug, Default)]
+    struct DoneEvents(std::sync::atomic::AtomicBool);
+    impl crate::progress::ProgressSink for DoneEvents {
+        fn emit(&self, event: crate::progress::ProgressEvent) {
+            if event.phase == crate::progress::ProgressPhase::Done
+                && event.message == "Snapshot capture complete"
+            {
+                self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");
+    let first = test_capture(
+        &repo_root,
+        &source,
+        &test_tags(),
+        OperationControl::default(),
+    );
+    let done = Arc::new(DoneEvents::default());
+    // Live feedback may repeat the latest event, so check that one arrived.
+    let control = || {
+        done.0.store(false, std::sync::atomic::Ordering::Relaxed);
+        OperationControl::default().with_progress(done.clone())
+    };
+
+    let unchanged = test_capture(&repo_root, &source, &test_tags(), control());
+    assert!(matches!(
+        unchanged.outcome,
+        SnapshotCaptureOutcome::Unchanged { .. }
+    ));
+    assert!(done.0.load(std::sync::atomic::Ordering::Relaxed));
+
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
+    fs::remove_dir_all(&repo_paths.bundles_root).unwrap();
+    fs::create_dir_all(&repo_paths.bundles_root).unwrap();
+    let repaired = test_capture(&repo_root, &source, &test_tags(), control());
+    assert!(matches!(
+        repaired.outcome,
+        SnapshotCaptureOutcome::Repaired { .. }
+    ));
+    assert!(done.0.load(std::sync::atomic::Ordering::Relaxed));
+    test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
+}
+
+#[test]
 fn explicit_retag_reports_previous_and_new_tags() {
     let temp = tempfile::tempdir().unwrap();
     let (repo_root, source) = test_repo_with_source(&temp, "game", b"content");

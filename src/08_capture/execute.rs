@@ -46,15 +46,6 @@ use crate::snapshot::identity::format_system_time_utc;
 use std::collections::BTreeMap;
 use std::fs;
 use std::mem;
-fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
-    match value {
-        None => String::from("(absent)"),
-        Some(value) => {
-            serde_json::to_string(value).unwrap_or_else(|_| String::from("(unserializable)"))
-        }
-    }
-}
-
 pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
     validate_packaging_sizes(
         &ChunkSizingProfile::for_preset(request.chunk_profile),
@@ -188,14 +179,16 @@ fn execute_repo_snapshot_capture(
                 reused_chunks: required_chunks.len(),
             };
             write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
-            return Ok(capture_result(
+            let capture_result = capture_result(
                 repo_paths.repo_root,
                 &existing_manifest,
                 existing_manifest_path,
                 SnapshotCaptureOutcome::Unchanged { snapshot_id },
                 counts,
                 timings,
-            ));
+            );
+            capture_result.emit_done(control.progress());
+            return Ok(capture_result);
         }
         // A damaged snapshot may be rebuilt with a different chunk layout. Publish
         // its new blueprint with its artifacts, retaining descriptive metadata.
@@ -218,7 +211,7 @@ fn execute_repo_snapshot_capture(
         publish_snapshot_artifacts(control, &repo_paths, &result, reuse_state, build_pool)?;
 
     let outcome = if snapshot_already_existed {
-        SnapshotCaptureOutcome::Unchanged { snapshot_id }
+        SnapshotCaptureOutcome::Repaired { snapshot_id }
     } else {
         SnapshotCaptureOutcome::Created { snapshot_id }
     };
@@ -328,8 +321,9 @@ fn capture_result(
     }
 }
 
-/// Rejects a capture whose descriptive metadata differs from the existing
-/// snapshot with the same content.
+/// Rejects a capture whose tags differ from the existing snapshot with the same
+/// content. Product metadata is edited separately after capture, so a recapture
+/// never supplies it and it is not compared.
 fn ensure_same_metadata(
     existing_manifest: &SnapshotManifest,
     requested_manifest: &SnapshotManifest,
@@ -360,20 +354,6 @@ fn capture_metadata_differences(
                 .snapshot_tags
                 .to_canonical_strings()
                 .join(" "),
-        });
-    }
-    if existing_manifest.product_metadata != requested_manifest.product_metadata {
-        differences.push(MetadataFieldDifference {
-            field: String::from("product_metadata"),
-            existing: metadata_display_value(existing_manifest.product_metadata.as_ref()),
-            requested: metadata_display_value(requested_manifest.product_metadata.as_ref()),
-        });
-    }
-    if existing_manifest.launch != requested_manifest.launch {
-        differences.push(MetadataFieldDifference {
-            field: String::from("launch"),
-            existing: metadata_display_value(existing_manifest.launch.as_ref()),
-            requested: metadata_display_value(requested_manifest.launch.as_ref()),
         });
     }
     differences

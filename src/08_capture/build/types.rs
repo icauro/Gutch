@@ -239,10 +239,9 @@ impl ChunkPayloadReader {
         self.position = payload.offset.checked_add(payload.size);
         // Reusing a handle never skips validation against the scan-time hash.
         if ChunkHash::of(&bytes) != payload.hash {
-            return Err(crate::Error::capture(format!(
-                "source changed during capture: {}",
-                payload.source.display()
-            )));
+            return Err(crate::Error::SourceChanged {
+                path: Some(payload.source.as_ref().clone()),
+            });
         }
         Ok(bytes)
     }

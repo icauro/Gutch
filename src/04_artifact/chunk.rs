@@ -193,7 +193,7 @@ fn scan_with_boundary<C: ChunkBoundary>(
     // Match the small-file path: a source that grew or shrank while it was read
     // would otherwise be recorded with a size that differs from its inventory.
     if file_size != inventory_size {
-        return Err(crate::Error::capture("source size changed during capture"));
+        return Err(crate::Error::SourceChanged { path: None });
     }
 
     Ok((
@@ -225,7 +225,7 @@ fn scan_small_file<C: ChunkBoundary>(
     file.take(inventory_size + 1).read_to_end(&mut bytes)?;
     control.checkpoint()?;
     if bytes.len() as u64 != inventory_size {
-        return Err(crate::Error::capture("source size changed during capture"));
+        return Err(crate::Error::SourceChanged { path: None });
     }
     let mut boundary_scan = started.elapsed();
     let started = ProfileInstant::detailed(control.profiler());
