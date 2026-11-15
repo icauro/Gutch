@@ -80,3 +80,14 @@ fn persisted_packaging_rejects_invalid_pairs_and_unknown_presets() {
     invalid_compression["content_packaging_profile"]["compression_level"] = 100.into();
     assert!(serde_json::from_value::<RepoManifest>(invalid_compression).is_err());
 }
+
+#[test]
+fn repo_manifest_rejects_unknown_document_type_and_version() {
+    let original = serde_json::to_value(RepoManifest::new("base".into())).unwrap();
+    let mut wrong_type = original.clone();
+    wrong_type["document_type"] = "other_repo".into();
+    assert!(serde_json::from_value::<RepoManifest>(wrong_type).is_err());
+    let mut wrong_version = original;
+    wrong_version["document_version"] = "2.0.0".into();
+    assert!(serde_json::from_value::<RepoManifest>(wrong_version).is_err());
+}

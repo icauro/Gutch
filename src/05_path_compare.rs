@@ -49,7 +49,7 @@ pub fn compare_paths(expected: &Path, actual: &Path) -> crate::Result<PathCompar
     {
         actual_files[0].0 = expected_files[0].0.clone();
     }
-    let actual_file_map: HashMap<String, ComparableEntry> = actual_files.into_iter().collect();
+    let actual_file_map: HashMap<PathBuf, ComparableEntry> = actual_files.into_iter().collect();
     let mut matched_files = Vec::new();
     let mut mismatched_files = Vec::new();
     let mut missing_files = Vec::new();
@@ -58,15 +58,13 @@ pub fn compare_paths(expected: &Path, actual: &Path) -> crate::Result<PathCompar
     for (relative_path, expected_entry) in &expected_files {
         let actual_entry = actual_file_map.get(relative_path);
         let Some(actual_entry) = actual_entry else {
-            missing_files.push(relative_path.clone());
+            missing_files.push(display_relative_path(relative_path));
             continue;
         };
-        let is_match = entries_match(expected_entry, actual_entry, relative_path)?;
-
-        if is_match {
-            matched_files.push(relative_path.clone());
+        if entries_match(expected_entry, actual_entry, relative_path)? {
+            matched_files.push(display_relative_path(relative_path));
         } else {
-            mismatched_files.push(relative_path.clone());
+            mismatched_files.push(display_relative_path(relative_path));
         }
         seen_actual_relative_paths.insert(relative_path.clone());
     }
@@ -76,7 +74,7 @@ pub fn compare_paths(expected: &Path, actual: &Path) -> crate::Result<PathCompar
     let mut extra_files: Vec<String> = actual_file_map
         .keys()
         .filter(|actual_relative_path| !seen_actual_relative_paths.contains(*actual_relative_path))
-        .cloned()
+        .map(|relative_path| display_relative_path(relative_path))
         .collect();
 
     extra_files.sort();
@@ -105,7 +103,17 @@ pub fn compare_paths(expected: &Path, actual: &Path) -> crate::Result<PathCompar
     })
 }
 
-fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, ComparableEntry)>> {
+/// Report-only spelling of a native relative path. Map keys stay native so
+/// distinct names (such as a Unix name containing a backslash) never merge.
+fn display_relative_path(relative_path: &Path) -> String {
+    relative_path
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(PathBuf, ComparableEntry)>> {
     if root_path.is_file() {
         let file_name = root_path
             .file_name()
@@ -114,7 +122,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
                 reason: "file path has no file name".to_string(),
             })?;
         return Ok(vec![(
-            file_name.to_string_lossy().to_string(),
+            PathBuf::from(file_name),
             ComparableEntry {
                 path: root_path.to_path_buf(),
                 kind: ComparableKind::File,
@@ -136,8 +144,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
                     path: entry.path().to_path_buf(),
                     reason: err.to_string(),
                 })?
-                .to_string_lossy()
-                .replace('\\', "/");
+                .to_path_buf();
             let kind = if entry.file_type().is_file() {
                 ComparableKind::File
             } else if entry.file_type().is_dir() {
@@ -170,7 +177,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(String, Comp
 fn entries_match(
     expected: &ComparableEntry,
     actual: &ComparableEntry,
-    relative_path: &str,
+    relative_path: &Path,
 ) -> crate::Result<bool> {
     if expected.kind != actual.kind {
         return Ok(false);
@@ -182,8 +189,7 @@ fn entries_match(
     }
     match expected.kind {
         ComparableKind::Directory => Ok(true),
-        ComparableKind::Symlink => Ok(normalized_link_target(relative_path, &expected.path)?
-            == normalized_link_target(relative_path, &actual.path)?),
+        ComparableKind::Symlink => link_targets_match(relative_path, expected, actual),
         ComparableKind::File => {
             if expected_metadata.len() != actual_metadata.len() {
                 return Ok(false);
@@ -202,8 +208,29 @@ fn entries_match(
     }
 }
 
-fn normalized_link_target(relative_path: &str, link_path: &Path) -> crate::Result<String> {
-    normalize_link_target(relative_path, &fs::read_link(link_path)?)
+/// Identical raw targets match even when they escape the root or are absolute;
+/// otherwise targets match when they name the same in-root location. A target
+/// that cannot be normalized is a mismatch, not a failed comparison.
+fn link_targets_match(
+    relative_path: &Path,
+    expected: &ComparableEntry,
+    actual: &ComparableEntry,
+) -> crate::Result<bool> {
+    let expected_target = fs::read_link(&expected.path)?;
+    let actual_target = fs::read_link(&actual.path)?;
+    if expected_target == actual_target {
+        return Ok(true);
+    }
+    let relative_path = display_relative_path(relative_path);
+    Ok(
+        match (
+            normalize_link_target(&relative_path, &expected_target),
+            normalize_link_target(&relative_path, &actual_target),
+        ) {
+            (Ok(expected), Ok(actual)) => expected == actual,
+            _ => false,
+        },
+    )
 }
 
 #[cfg(test)]

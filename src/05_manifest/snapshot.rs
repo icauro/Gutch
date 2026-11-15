@@ -117,6 +117,7 @@ impl SnapshotProductMetadata {
                         &variant.external_dependencies,
                     )?;
                 }
+                validate_host_variants_are_exclusive(&runtime.host_variants)?;
             }
         }
         Ok(())
@@ -216,6 +217,36 @@ impl SnapshotProductMetadata {
     }
 }
 
+/// A host has one value per tag key, so two variants are exclusive only when
+/// they require different values for a shared key. Otherwise one host could
+/// match both and launch resolution would be ambiguous.
+fn validate_host_variants_are_exclusive(variants: &[SnapshotHostVariant]) -> crate::Result<()> {
+    fn requirements(variant: &SnapshotHostVariant) -> Vec<(&str, &str)> {
+        variant
+            .host_tag_requirements
+            .iter()
+            .filter_map(|requirement| requirement.split_once('='))
+            .collect()
+    }
+    for (index, first) in variants.iter().enumerate() {
+        let first_requirements = requirements(first);
+        for second in &variants[index + 1..] {
+            let exclusive = requirements(second).iter().any(|(key, value)| {
+                first_requirements
+                    .iter()
+                    .any(|(other_key, other_value)| other_key == key && other_value != value)
+            });
+            if !exclusive {
+                return Err(crate::Error::manifest(format!(
+                    "snapshot product metadata host variants '{}' and '{}' can match the same host",
+                    first.variant_id, second.variant_id
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn resolved_launch_configuration(
     actions: &[SnapshotLaunchAction],
 ) -> launch::ResolvedLaunchConfiguration {
@@ -299,7 +330,10 @@ pub(crate) fn current_host_tags() -> SnapshotTagSet {
 pub(crate) struct SnapshotMetadata {
     #[serde(default)]
     pub chunker: Chunker,
-    #[serde(rename = "snapshot_metadata_version")]
+    #[serde(
+        rename = "snapshot_metadata_version",
+        deserialize_with = "super::deserialize_document_version"
+    )]
     pub metadata_version: String,
     #[serde(skip)]
     pub snapshot_id: String,

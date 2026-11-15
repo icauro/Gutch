@@ -77,12 +77,24 @@ fn deserialize_artifact_profile<'de, D: serde::Deserializer<'de>>(
     Ok(profile)
 }
 
+fn deserialize_document_type<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<String, D::Error> {
+    super::deserialize_schema_marker(deserializer, "document type", CONTENT_REPO_FORMAT)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RepoManifest {
-    #[serde(rename = "document_type")]
+    #[serde(
+        rename = "document_type",
+        deserialize_with = "deserialize_document_type"
+    )]
     pub format: String,
-    #[serde(rename = "document_version")]
+    #[serde(
+        rename = "document_version",
+        deserialize_with = "super::deserialize_document_version"
+    )]
     pub format_version: String,
     #[serde(rename = "repository_name")]
     #[serde(default)]

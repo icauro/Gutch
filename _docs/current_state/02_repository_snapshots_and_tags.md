@@ -78,7 +78,9 @@ scanner's existing full-file hashes are reused; identity does not reread files.
 Already sorted entries avoid a second allocation and sort.
 
 Repository and snapshot metadata remain at `1.0.0`, as does product runtime
-metadata. Binary format versions are unchanged. During prerelease, identity
+metadata. Loading rejects any other `document_version` or
+`snapshot_metadata_version`, and a repository `document_type` other than
+`gutch_repo`. Binary format versions are unchanged. During prerelease, identity
 changes are applied directly without a format bump or compatibility layer.
 Repositories captured with the previous identity algorithm must be recaptured
 from source; blueprint identity validation still rejects mismatched IDs.

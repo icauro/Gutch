@@ -114,3 +114,49 @@ fn host_variant_rejects_requirements_that_could_never_match() {
         assert!(metadata.validate_structure().is_err(), "{requirement}");
     }
 }
+
+#[test]
+fn host_variants_that_can_match_one_host_are_rejected() {
+    let variant = |id: &str, requirements: &[&str]| SnapshotHostVariant {
+        variant_id: id.into(),
+        host_tag_requirements: requirements.iter().map(|r| r.to_string()).collect(),
+        launch_actions: vec![SnapshotLaunchAction {
+            action_name: "Play".into(),
+            executable_path: "Game.exe".into(),
+            command_arguments: Vec::new(),
+            working_directory_path: None,
+        }],
+        external_dependencies: Vec::new(),
+    };
+    let metadata = |variants| SnapshotProductMetadata {
+        document_version: PUBLIC_METADATA_FORMAT_VERSION.into(),
+        runtime: SnapshotRuntimeMetadata::HostVariants(SnapshotHostVariantRuntimeMetadata {
+            host_variants: variants,
+        }),
+    };
+    let overlapping = metadata(vec![
+        variant("linux", &["os=linux"]),
+        variant("x64", &["arch=x86_64"]),
+    ]);
+    assert!(overlapping.validate_structure().is_err());
+    let subset = metadata(vec![
+        variant("linux", &["os=linux"]),
+        variant("linux-x64", &["os=linux", "arch=x86_64"]),
+    ]);
+    assert!(subset.validate_structure().is_err());
+    let exclusive = metadata(vec![
+        variant("linux", &["os=linux"]),
+        variant("windows", &["os=windows", "arch=x86_64"]),
+    ]);
+    exclusive.validate_structure().unwrap();
+}
+
+#[test]
+fn snapshot_metadata_rejects_an_unsupported_version() {
+    let mut value = serde_json::to_value(
+        SnapshotManifest::new("id".into(), SnapshotTagSet::default()).metadata(),
+    )
+    .unwrap();
+    value["snapshot_metadata_version"] = "9.0.0".into();
+    assert!(serde_json::from_value::<SnapshotMetadata>(value).is_err());
+}

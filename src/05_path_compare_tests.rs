@@ -131,9 +131,48 @@ fn directory_never_matches_a_single_file_with_the_same_entry_name() {
     let root = tempfile::tempdir().unwrap();
     let expected = root.path().join("expected");
     fs::create_dir_all(&expected).unwrap();
-    fs::write(expected.join("a"), b"same").unwrap();
-    let actual = root.path().join("a");
+    fs::write(expected.join(r"ab"), b"same").unwrap();
+    let actual = root.path().join(r"ab");
     fs::write(&actual, b"same").unwrap();
 
     assert!(!compare_paths(&expected, &actual).unwrap().compare_passed);
+}
+
+#[test]
+fn escaping_link_targets_are_compared_not_fatal() {
+    let expected = tempfile::tempdir().unwrap();
+    let actual = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    let link = |root: &std::path::Path, target: &str| {
+        std::os::unix::fs::symlink(target, root.join("link")).is_ok()
+    };
+    #[cfg(windows)]
+    let link = |root: &std::path::Path, target: &str| {
+        std::os::windows::fs::symlink_file(target, root.join("link")).is_ok()
+    };
+    if !link(expected.path(), "../outside") || !link(actual.path(), "../elsewhere") {
+        return; // Symbolic links need extra privileges on some Windows hosts.
+    }
+    let result = compare_paths(expected.path(), actual.path()).unwrap();
+    assert_eq!(result.mismatched_files, ["link"]);
+    std::fs::remove_file(actual.path().join("link")).unwrap();
+    assert!(link(actual.path(), "../outside"));
+    assert!(
+        compare_paths(expected.path(), actual.path())
+            .unwrap()
+            .compare_passed
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_backslash_names_stay_distinct_from_nested_paths() {
+    let expected = tempfile::tempdir().unwrap();
+    let actual = tempfile::tempdir().unwrap();
+    std::fs::write(expected.path().join(r"a\b"), b"x").unwrap();
+    std::fs::create_dir(actual.path().join(r"ab")).unwrap();
+    std::fs::write(actual.path().join(r"ab").join("b"), b"x").unwrap();
+    let result = compare_paths(expected.path(), actual.path()).unwrap();
+    assert_eq!(result.missing_files, [r"a\b"]);
+    assert!(!result.compare_passed);
 }

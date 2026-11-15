@@ -32,7 +32,9 @@ identities, duplicate dependency identities, malformed variants, and runtime
 documents with unsupported fields.
 
 A document uses either direct all-host behavior or host variants. Installation
-selects exactly one matching host variant when variants are present. Host tags
+selects exactly one matching host variant when variants are present. Validation
+rejects variants that one host could match together: every pair must require
+different values for at least one shared tag key. Host tags
 come from the app and are not written back into product metadata. Creator
 editing always uses the complete raw document so inspection does not flatten or
 discard variants intended for other hosts.
