@@ -12,7 +12,6 @@ use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::env::temp_dir;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -159,15 +158,6 @@ pub fn dir_size(dir: &Path) -> u64 {
         .filter(|e| e.path().is_file())
         .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
         .sum()
-}
-
-pub fn temp_path(name: &str) -> PathBuf {
-    temp_dir().join(name)
-}
-
-pub fn recreate_dir(path: &Path) {
-    let _ = fs::remove_dir_all(path);
-    fs::create_dir_all(path).unwrap();
 }
 
 pub(crate) fn chunk_entries(mut entries: BTreeMap<String, ChunkIndexEntry>) -> ChunkIndexEntries {

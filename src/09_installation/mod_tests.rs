@@ -29,7 +29,6 @@ use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::sync::fetch;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::test_util::chunk_entries;
-use crate::test_util::temp_path;
 use crate::transfer::types::ArtifactDownload;
 use crate::transfer::types::TransferConcurrencyPolicy;
 use std::collections::BTreeMap;
@@ -146,8 +145,8 @@ fn direct_bundle_urls_reject_duplicate_artifact_ids() {
 
 #[test]
 fn resolved_snapshot_state_uses_product_runtime() {
-    let root = temp_path("gutch_resolved_snapshot_launch_state");
-    let _ = fs::remove_dir_all(&root);
+    let root_temp = tempfile::tempdir().unwrap();
+    let root = root_temp.path().join("resolved_snapshot_launch_state");
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "test").unwrap();
     let mut tags = SnapshotTagSet::default();
@@ -201,8 +200,8 @@ fn resolved_snapshot_state_uses_product_runtime() {
 
 #[test]
 fn repair_snapshot_ops_keeps_added_files_when_requested() {
-    let root = temp_path("gutch_repair_keep_added_files");
-    let _ = fs::remove_dir_all(&root);
+    let root_temp = tempfile::tempdir().unwrap();
+    let root = root_temp.path().join("repair_keep_added_files");
     let destination_dir = root.join("destination");
     let staging_dir = root.join("staging");
     fs::create_dir_all(&destination_dir).unwrap();
@@ -226,13 +225,12 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
     assert_eq!(result.extra_file_count, 1);
     assert_eq!(result.removed_extra_file_count, 0);
     assert!(destination_dir.join("mod.txt").exists());
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn repair_snapshot_ops_full_repair_deletes_added_files() {
-    let root = temp_path("gutch_repair_delete_added_files");
-    let _ = fs::remove_dir_all(&root);
+    let root_temp = tempfile::tempdir().unwrap();
+    let root = root_temp.path().join("repair_delete_added_files");
     let destination_dir = root.join("destination");
     let staging_dir = root.join("staging");
     fs::create_dir_all(destination_dir.join("mods")).unwrap();
@@ -257,13 +255,12 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
     assert_eq!(result.removed_extra_file_count, 2);
     assert!(!destination_dir.join("mods").exists());
     assert!(!destination_dir.join("mods").join("mod.txt").exists());
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn repair_plan_only_requires_bundles_for_affected_files() {
-    let root = temp_path("gutch_repair_plan_bundle_subset");
-    let _ = fs::remove_dir_all(&root);
+    let root_temp = tempfile::tempdir().unwrap();
+    let root = root_temp.path().join("repair_plan_bundle_subset");
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "test").unwrap();
 
@@ -345,8 +342,6 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     assert_eq!(plan.missing_file_count, 0);
     assert_eq!(plan.corrupt_file_count, 1);
     assert_eq!(plan.required_artifact_ids, vec![test_hash("bundle-a")]);
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]

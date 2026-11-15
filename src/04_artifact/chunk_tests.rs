@@ -2,7 +2,6 @@ use super::*;
 use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::ChunkSizingProfile;
 use crate::progress::OperationControl;
-use crate::test_util;
 use std::fs;
 
 #[test]
@@ -102,8 +101,8 @@ fn test_chunks_have_increasing_offsets() {
 
 #[test]
 fn test_chunk_file_streaming_matches_in_memory_chunking() {
-    let dir = test_util::temp_path("gutch_chunk_streaming_match");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
     let path = dir.join("sample.bin");
     let data = b"streaming chunk comparison payload ".repeat(4000);
     fs::write(&path, &data).unwrap();
@@ -128,14 +127,12 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
         assert_eq!(left.hash, right.hash);
         assert_eq!(left.size, right.size);
     }
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
-    let dir = test_util::temp_path("gutch_chunk_streaming_file_hash");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
     let path = dir.join("sample.bin");
     let data = b"streaming full file hash payload ".repeat(4000);
     fs::write(&path, &data).unwrap();
@@ -154,14 +151,12 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
     assert_eq!(timings.boundary_scan_bytes, data.len() as u64);
     assert_eq!(timings.hash_judgment_bytes, data.len() as u64);
     assert!(!scan.chunks.is_empty());
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn repeated_chunk_scans_have_identical_boundaries() {
-    let dir = test_util::temp_path("gutch_parallel_chunk_hashing");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
     let path = dir.join("sample.bin");
     let data = b"parallel chunk hashing payload with varied boundaries ".repeat(150_000);
     fs::write(&path, &data).unwrap();
@@ -191,8 +186,6 @@ fn repeated_chunk_scans_have_identical_boundaries() {
         assert_eq!(serial_chunk.hash, parallel_chunk.hash);
         assert_eq!(serial_chunk.size, parallel_chunk.size);
     }
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]

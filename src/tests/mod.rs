@@ -68,13 +68,13 @@ fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairCla
 
 #[test]
 fn test_apply_snapshot_ops_reuses_verified_source_destination() {
-    let root = test_util::temp_path("gutch_test_apply_snapshot_ops");
+    let root_temp = tempfile::tempdir().unwrap();
+    let root = root_temp.path().to_path_buf();
     let v1_dir = root.join("v1");
     let v2_dir = root.join("v2");
     let repo_dir = root.join("repo");
     let destination_dir = root.join("destination");
     let staging_dir = root.join(".staging");
-    let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&v1_dir).unwrap();
     fs::create_dir_all(&v2_dir).unwrap();
 
@@ -152,14 +152,12 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
         "verification errors: {:?}",
         verify_errors
     );
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
-    let repo_root = test_util::temp_path("gutch_test_gutch_repo_layout");
-    let _ = fs::remove_dir_all(&repo_root);
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("test_gutch_repo_layout");
     let paths = RepoPaths::from_repo_root(&repo_root);
 
     let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
@@ -168,14 +166,12 @@ fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
     assert!(paths.repo_metadata_path.exists());
     assert!(paths.snapshots_root.exists());
     assert!(paths.bundles_root.exists());
-
-    let _ = fs::remove_dir_all(&repo_root);
 }
 
 #[test]
 fn test_verify_directory_missing_file() {
-    let dir = test_util::temp_path("gutch_test_verify");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let fm = FileManifest {
         path: "nonexistent.txt".to_string(),
@@ -192,14 +188,12 @@ fn test_verify_directory_missing_file() {
     let errors = verify_test_directory(&vm, &dir);
     assert!(!errors.is_empty());
     assert!(errors[0].contains("missing"));
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn test_verify_directory_reports_extra_file() {
-    let dir = test_util::temp_path("gutch_test_verify_extra");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     fs::write(dir.join("expected.txt"), b"hello world").unwrap();
     fs::write(dir.join("extra.log"), b"left behind").unwrap();
@@ -223,14 +217,12 @@ fn test_verify_directory_reports_extra_file() {
         "expected extra file error, got {:?}",
         errors
     );
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn test_classify_directory_separates_missing_corrupt_and_extra() {
-    let dir = test_util::temp_path("gutch_test_classify_directory");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     fs::write(dir.join("healthy.txt"), b"healthy file").unwrap();
     fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
@@ -257,17 +249,15 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     );
     assert_eq!(classification.extra_files.len(), 1);
     assert_eq!(classification.extra_files[0].path, "notes.tmp");
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 #[ignore = "writes about 200 MB; run with --ignored as a benchmark"]
 fn test_large_game_build_200mb() {
-    let root = test_util::temp_path("gutch_test_200mb");
-    let artifacts_dir = test_util::temp_path("gutch_test_200mb_artifacts");
-    test_util::recreate_dir(&root);
-    test_util::recreate_dir(&artifacts_dir);
+    let root_temp = tempfile::tempdir().unwrap();
+    let root = root_temp.path().to_path_buf();
+    let artifacts_dir_temp = tempfile::tempdir().unwrap();
+    let artifacts_dir = artifacts_dir_temp.path().to_path_buf();
 
     for sub in &["audio", "textures", "data"] {
         fs::create_dir_all(root.join(sub)).unwrap();
@@ -347,7 +337,8 @@ fn test_large_game_build_200mb() {
     }
     let artifacts_total = test_util::dir_size(&artifacts_dir);
 
-    let repo_root = test_util::temp_path("gutch_test_200mb_repo");
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("test_200mb_repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_gutch_repo_layout(&repo_paths, "200mb-test").unwrap();
     write_snapshot_manifest_artifacts(
@@ -366,8 +357,8 @@ fn test_large_game_build_200mb() {
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
     let t2 = Instant::now();
-    let out_dir = test_util::temp_path("gutch_test_200mb_reconstructed");
-    let _ = fs::remove_dir_all(&out_dir);
+    let out_dir_temp = tempfile::tempdir().unwrap();
+    let out_dir = out_dir_temp.path().join("test_200mb_reconstructed");
     reconstruct_snapshot(InstallationRequest {
         repo_path: repo_root.clone(),
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
@@ -427,8 +418,4 @@ fn test_large_game_build_200mb() {
         gen_ms + build_ms + recon_ms + verify_ms
     );
     println!();
-    let _ = fs::remove_dir_all(&root);
-    let _ = fs::remove_dir_all(&artifacts_dir);
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&out_dir);
 }

@@ -7,7 +7,6 @@ use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::CancellationHook;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
-use crate::test_util;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -63,8 +62,8 @@ fn verify_fast(
 
 #[test]
 fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
-    let missing_dir = test_util::temp_path("gutch_verify_pre_cancelled_missing");
-    let _ = fs::remove_dir_all(&missing_dir);
+    let missing_dir_temp = tempfile::tempdir().unwrap();
+    let missing_dir = missing_dir_temp.path().join("verify_pre_cancelled_missing");
     let result = classify_directory(VerifyRequest {
         snapshot_manifest: &empty_manifest(),
         dir: &missing_dir,
@@ -81,8 +80,8 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
 
 #[test]
 fn verify_contiguous_chunks_detects_corruption() {
-    let dir = test_util::temp_path("gutch_verify_contiguous_test");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let chunk_a_data = b"AAAAA";
     let chunk_b_data = b"BBBBB";
@@ -121,14 +120,12 @@ fn verify_contiguous_chunks_detects_corruption() {
     fs::write(dir.join("data.bin"), &corrupted).unwrap();
     let (errors, _) = verify_fast(&manifest, &dir).unwrap();
     assert!(!errors.is_empty(), "expected corruption errors");
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn verify_contiguous_chunks_single_chunk() {
-    let dir = test_util::temp_path("gutch_verify_single_chunk");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let data = b"single chunk content here";
     let file_hash = ChunkHash::of(data);
@@ -148,14 +145,12 @@ fn verify_contiguous_chunks_single_chunk() {
     });
     let (errors, _) = verify_fast(&manifest, &dir).unwrap();
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn verify_default_fast_mode_skips_chunk_hashing() {
-    let dir = test_util::temp_path("gutch_verify_fast_mode");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let data = b"fast mode content";
     let file_hash = ChunkHash::of(data);
@@ -178,14 +173,12 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     assert_eq!(timings.verify_mode, VerifyMode::Fast);
     assert_eq!(timings.chunk_hash_bytes, 0);
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn expected_entry_classification_ignores_unrelated_extra_files() {
-    let dir = test_util::temp_path("gutch_verify_expected_entries_only");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let expected = b"expected";
     fs::write(dir.join("expected.bin"), b"corrupt!").unwrap();
@@ -213,13 +206,12 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
 
     assert_eq!(classification.corrupt_files.len(), 1);
     assert!(classification.extra_files.is_empty());
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn verify_strict_mode_checks_chunk_hashing() {
-    let dir = test_util::temp_path("gutch_verify_strict_mode");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let chunk_a_data = b"AAAAA";
     let chunk_b_data = b"BBBBB";
@@ -268,14 +260,12 @@ fn verify_strict_mode_checks_chunk_hashing() {
         "strict mode should report chunk hash mismatches, got: {:?}",
         strict_errors
     );
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn verify_rejects_manifest_path_traversal() {
-    let dir = test_util::temp_path("gutch_verify_path_traversal");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let mut manifest = empty_manifest();
     manifest.push_file(FileManifest {
@@ -289,14 +279,12 @@ fn verify_rejects_manifest_path_traversal() {
 
     let error = verify_fast(&manifest, &dir).unwrap_err();
     assert!(matches!(error, crate::Error::InvalidPath { .. }));
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn verify_with_hints_records_runtime_plan() {
-    let dir = test_util::temp_path("gutch_verify_runtime_plan");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
 
     let data = b"runtime plan content";
     let file_hash = ChunkHash::of(data);
@@ -334,8 +322,6 @@ fn verify_with_hints_records_runtime_plan() {
         timings.total
             >= timings.prepare_wall + timings.verify_files_wall + timings.extra_file_scan_wall
     );
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[cfg(unix)]
@@ -343,8 +329,8 @@ fn verify_with_hints_records_runtime_plan() {
 fn verify_inventory_supports_symlinked_parent_inside_root() {
     use std::os::unix::fs::symlink;
 
-    let dir = test_util::temp_path("gutch_verify_inventory_symlink_parent");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
     fs::create_dir(dir.join("real")).unwrap();
     fs::write(dir.join("real/data.bin"), b"symlink parent").unwrap();
     symlink("real", dir.join("link")).unwrap();
@@ -380,14 +366,12 @@ fn verify_inventory_supports_symlinked_parent_inside_root() {
 
     let (errors, _) = verify_fast(&manifest, &dir).unwrap();
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn parallel_verification_preserves_issue_order_across_worker_counts() {
-    let dir = test_util::temp_path("gutch_verify_parallel_issue_order");
-    test_util::recreate_dir(&dir);
+    let dir_temp = tempfile::tempdir().unwrap();
+    let dir = dir_temp.path().to_path_buf();
     let mut manifest = empty_manifest();
     // Include equal-sized entries and reverse manifest order to exercise both sort keys.
     for (name, size) in [("z.bin", 32), ("b.bin", 64), ("a.bin", 64), ("c.bin", 128)] {

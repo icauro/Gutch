@@ -101,7 +101,8 @@ mod snapshot_blueprint_tests {
 
     #[test]
     fn version_one_blueprint_round_trips_all_entry_kinds() {
-        let path = crate::test_util::temp_path("gutch_entry_blueprint_roundtrip");
+        let path_temp = tempfile::tempdir().unwrap();
+        let path = path_temp.path().join("entry_blueprint_roundtrip");
         let blueprint = SnapshotBlueprint {
             entries: all_entries(),
         };
@@ -118,7 +119,8 @@ mod snapshot_blueprint_tests {
 
     #[test]
     fn blueprint_rejects_unknown_entry_kind() {
-        let path = crate::test_util::temp_path("gutch_entry_blueprint_bad_kind");
+        let path_temp = tempfile::tempdir().unwrap();
+        let path = path_temp.path().join("entry_blueprint_bad_kind");
         write_snapshot_blueprint_binary(
             &path,
             &SnapshotBlueprint {

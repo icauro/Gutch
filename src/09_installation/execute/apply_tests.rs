@@ -26,7 +26,6 @@ use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::runtime::RuntimeResourceHints;
 use crate::test_util::chunk_entries;
 use crate::test_util::loose_bytes;
-use crate::test_util::temp_path;
 use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::http::build_download_client;
 use crate::transfer::progress::FetchTransferProgress;
@@ -139,16 +138,16 @@ fn snapshot_manifest_with_two_chunks(
 
 #[test]
 fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
-    let source_root = temp_path("gutch_pipeline_copy_source");
-    let destination = temp_path("gutch_pipeline_copy_destination");
-    let _ = fs::remove_dir_all(&source_root);
-    let _ = fs::remove_dir_all(&destination);
+    let source_root_temp = tempfile::tempdir().unwrap();
+    let source_root = source_root_temp.path().join("pipeline_copy_source");
+    let destination_temp = tempfile::tempdir().unwrap();
+    let destination = destination_temp.path().join("pipeline_copy_destination");
     fs::create_dir_all(&source_root).unwrap();
     fs::write(source_root.join("game.exe"), b"game").unwrap();
     let source_manifest = snapshot_manifest_with_file("source", &test_hash(b"game"));
     let snapshot_manifest = snapshot_manifest_with_file("snapshot", &test_hash(b"game"));
-    let repo_root = temp_path("gutch_pipeline_copy_repo");
-    let _ = fs::remove_dir_all(&repo_root);
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("pipeline_copy_repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
 
     let plan = build_reconstruct_pipeline_plan(
@@ -192,24 +191,20 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
     )
     .unwrap();
     assert_eq!(fs::read(destination.join("game.exe")).unwrap(), b"game");
-
-    let _ = fs::remove_dir_all(&source_root);
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
 fn pipeline_plan_reconstructs_changed_source_file_from_bundles() {
-    let source_root = temp_path("gutch_pipeline_rebuild_source");
-    let _ = fs::remove_dir_all(&source_root);
+    let source_root_temp = tempfile::tempdir().unwrap();
+    let source_root = source_root_temp.path().join("pipeline_rebuild_source");
     fs::create_dir_all(&source_root).unwrap();
     fs::write(source_root.join("game.exe"), b"old!").unwrap();
     let source_manifest =
         snapshot_manifest_with_chunk("source", &test_hash(b"old!"), test_hash(b"old!"));
     let snapshot_manifest =
         snapshot_manifest_with_chunk("snapshot", &test_hash(b"game"), test_hash(b"game"));
-    let repo_root = temp_path("gutch_pipeline_rebuild_repo");
-    let _ = fs::remove_dir_all(&repo_root);
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("pipeline_rebuild_repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
 
     let plan = build_reconstruct_pipeline_plan(
@@ -227,15 +222,12 @@ fn pipeline_plan_reconstructs_changed_source_file_from_bundles() {
     assert_eq!(plan.required_bundle_count, 1);
     assert_eq!(plan.reused_source_chunk_count, 0);
     assert!(matches!(plan.jobs[0], ReconstructJob::Artifact(_)));
-
-    let _ = fs::remove_dir_all(&source_root);
-    let _ = fs::remove_dir_all(&repo_root);
 }
 
 #[test]
 fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
-    let source_root = temp_path("gutch_pipeline_mixed_source");
-    let _ = fs::remove_dir_all(&source_root);
+    let source_root_temp = tempfile::tempdir().unwrap();
+    let source_root = source_root_temp.path().join("pipeline_mixed_source");
     fs::create_dir_all(&source_root).unwrap();
     fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
 
@@ -254,8 +246,8 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
         shared_chunk_hash.clone(),
         snapshot_only_chunk_hash.clone(),
     );
-    let repo_root = temp_path("gutch_pipeline_mixed_repo");
-    let _ = fs::remove_dir_all(&repo_root);
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("pipeline_mixed_repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     let chunk_index = ChunkIndex {
         entries: chunk_entries(BTreeMap::from([(
@@ -294,19 +286,18 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
             .iter()
             .any(|job| matches!(job, ReconstructJob::Artifact(_)))
     );
-
-    let _ = fs::remove_dir_all(&source_root);
-    let _ = fs::remove_dir_all(&repo_root);
 }
 
 #[test]
 fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
-    let source_root = temp_path("gutch_pipeline_mixed_loose_source");
-    let repo_root = temp_path("gutch_pipeline_mixed_loose_repo");
-    let destination = temp_path("gutch_pipeline_mixed_loose_destination");
-    let _ = fs::remove_dir_all(&source_root);
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&destination);
+    let source_root_temp = tempfile::tempdir().unwrap();
+    let source_root = source_root_temp.path().join("pipeline_mixed_loose_source");
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("pipeline_mixed_loose_repo");
+    let destination_temp = tempfile::tempdir().unwrap();
+    let destination = destination_temp
+        .path()
+        .join("pipeline_mixed_loose_destination");
     fs::create_dir_all(&source_root).unwrap();
     fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
@@ -403,18 +394,14 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     )
     .unwrap();
     assert_eq!(fs::read(destination.join("game.exe")).unwrap(), b"gamenew!");
-
-    let _ = fs::remove_dir_all(&source_root);
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
 fn pipeline_reconstructs_from_loose_chunk_artifact() {
-    let repo_root = temp_path("gutch_pipeline_loose_repo");
-    let destination = temp_path("gutch_pipeline_loose_destination");
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&destination);
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("pipeline_loose_repo");
+    let destination_temp = tempfile::tempdir().unwrap();
+    let destination = destination_temp.path().join("pipeline_loose_destination");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
 
@@ -475,16 +462,14 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
 
     assert_eq!(result.0.reconstruct_result.required_artifact_count, 1);
     assert_eq!(fs::read(destination.join("game.exe")).unwrap(), b"game");
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
 fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
-    let repo_root = temp_path("gutch_pipeline_bundled_repo");
-    let destination = temp_path("gutch_pipeline_bundled_destination");
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&destination);
+    let repo_root_temp = tempfile::tempdir().unwrap();
+    let repo_root = repo_root_temp.path().join("pipeline_bundled_repo");
+    let destination_temp = tempfile::tempdir().unwrap();
+    let destination = destination_temp.path().join("pipeline_bundled_destination");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_gutch_repo_layout(&repo_paths, "bundled-test").unwrap();
 
@@ -626,8 +611,6 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         fs::read(destination.join("second.bin")).unwrap(),
         b"33331111"
     );
-    let _ = fs::remove_dir_all(&repo_root);
-    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
