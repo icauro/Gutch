@@ -14,6 +14,8 @@ use super::inventory::list_repo_snapshot_ids;
 use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::profiles::CompressionProfile;
 use crate::filesystem::constraints::validate_paths;
+use crate::repo::artifacts::RequiredArtifacts;
+use crate::repo::artifacts::classify_required_artifacts;
 use crate::repo::artifacts::required_artifacts;
 use crate::repo::coordination;
 use crate::repo::index::ChunkIndex;
@@ -150,14 +152,21 @@ fn verify_snapshot_artifacts_cached(
     mode: RepoArtifactVerification,
     verified: &mut HashMap<ArtifactRef, std::result::Result<(), String>>,
 ) -> Result<SnapshotArtifactVerifyResult> {
-    let required_artifacts = required_artifacts(snapshot_manifest, chunk_index)?;
+    let RequiredArtifacts {
+        artifacts: required_artifacts,
+        unindexed_chunks,
+    } = classify_required_artifacts(snapshot_manifest, chunk_index)?;
     let required_bundle_count = required_artifacts
         .iter()
         .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
         .count();
 
     let mut missing_bundles = Vec::new();
-    let mut missing_artifacts = Vec::new();
+    // Unindexed chunks cannot be located in any artifact; report them by hash.
+    let mut missing_artifacts = unindexed_chunks
+        .iter()
+        .map(|hash| format!("unindexed chunk {hash}"))
+        .collect::<Vec<_>>();
     let mut corrupt_bundles = Vec::new();
     let mut corrupt_artifacts = Vec::new();
 
@@ -208,7 +217,7 @@ fn verify_snapshot_artifacts_cached(
         ok,
         check_passed,
         required_bundle_count,
-        required_artifact_count: required_artifacts.len(),
+        required_artifact_count: required_artifacts.len() + unindexed_chunks.len(),
         missing_bundle_count: missing_bundles.len(),
         missing_bundles,
         missing_artifact_count: missing_artifacts.len(),

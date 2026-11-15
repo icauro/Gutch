@@ -121,7 +121,7 @@ fn with_repository_transaction<T>(
     if pending.exists() {
         if !write {
             return Err(Error::repository(
-                "repository publication interrupted; run repo regenerate-chunk-map or retry a mutation to recover",
+                "repository publication interrupted; run `gutch repo rebuild-index --apply` or retry any repository change to recover",
             ));
         }
         restore_committed(&root, &journal)?;
@@ -160,7 +160,13 @@ fn with_repository_transaction<T>(
         }
         Err(error) => {
             DEFERRED_ARTIFACT_DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
-            restore_committed(&root, &journal)?;
+            // Keep the original failure visible. If rollback fails too, the
+            // pending marker stays so the next access retries the restore.
+            if let Err(restore_error) = restore_committed(&root, &journal) {
+                return Err(Error::repository(format!(
+                    "{error}; restoring the last committed repository metadata also failed: {restore_error}"
+                )));
+            }
             fs::remove_file(&pending)?;
             Err(error)
         }

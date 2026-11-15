@@ -27,17 +27,11 @@ pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> 
     if !snapshot_dir.exists() {
         return Ok(());
     }
-    let staged_snapshot_dir = repo_paths
-        .repo_root
-        .join(format!(".deleting-snapshot-{snapshot_id}"));
-    if staged_snapshot_dir.exists() {
-        return Err(crate::Error::repository(format!(
-            "staged snapshot deletion already exists at {}",
-            staged_snapshot_dir.display()
-        )));
-    }
-    fs::rename(snapshot_dir, &staged_snapshot_dir)?;
-    fs::remove_dir_all(staged_snapshot_dir)?;
+    // Remove in place: a partly removed directory is simply removed again on
+    // retry, where a staged rename would block every later attempt.
+    fs::remove_dir_all(snapshot_dir).map_err(|error| {
+        crate::Error::io_context("removing snapshot directory", snapshot_dir, error)
+    })?;
     Ok(())
 }
 

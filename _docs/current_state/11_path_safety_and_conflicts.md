@@ -92,14 +92,23 @@ input before allocating arrays or strings.
 
 Repo initialization assesses the destination first. A non-directory is
 rejected, while a nonempty directory or existing repo requires explicit
-confirmation. Forced initialization removes only recognized Gutch-owned
-artifacts and preserves unrelated files.
+confirmation. An unreadable or invalid repo manifest is reported as such and
+can be replaced by forced initialization. Forced initialization removes only
+recognized Gutch-owned artifacts and preserves unrelated files.
 
-Snapshot deletion is scoped to the selected snapshot directory. Before removing
+Snapshot deletion is scoped to the selected snapshot directory; deleting an
+unknown snapshot ID reports that it was not found. Before removing
 it, cleanup resolves all surviving snapshot references through the chunk index
 and checks artifact availability. An incomplete index or missing required
 artifact stops deletion. Cleanup removes only layout-owned artifacts that no
 remaining snapshot references.
+
+Repo status and selected-snapshot verification count a chunk without an index
+entry as a missing artifact instead of aborting; verification of unselected
+snapshots still rejects incomplete chunk references. If repository work fails
+and restoring the last committed metadata also fails, both errors are reported
+and the pending-publication marker remains so the next repository change or
+`gutch repo rebuild-index --apply` recovers.
 
 ## Pull Conflict Policies
 

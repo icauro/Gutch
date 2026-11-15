@@ -43,28 +43,51 @@ pub(crate) fn required_artifacts(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &ChunkIndex,
 ) -> Result<HashSet<ArtifactRef>> {
-    snapshot_manifest
+    let required = classify_required_artifacts(snapshot_manifest, chunk_index)?;
+    if let Some(chunk_hash) = required.unindexed_chunks.first() {
+        return Err(Error::repository(format!(
+            "missing chunk index entry for required chunk '{chunk_hash}'"
+        )));
+    }
+    Ok(required.artifacts)
+}
+
+/// Artifacts a snapshot needs, with the chunks the index cannot place kept apart.
+pub(crate) struct RequiredArtifacts {
+    pub artifacts: HashSet<ArtifactRef>,
+    /// Sorted, distinct chunk hashes that have no chunk index entry.
+    pub unindexed_chunks: Vec<String>,
+}
+
+/// Like [`required_artifacts`], but an unindexed chunk is reported as missing
+/// content instead of aborting, so status and verify can still describe the
+/// repository. A size disagreement is corrupt metadata and still fails.
+pub(crate) fn classify_required_artifacts(
+    snapshot_manifest: &SnapshotManifest,
+    chunk_index: &ChunkIndex,
+) -> Result<RequiredArtifacts> {
+    let mut artifacts = HashSet::new();
+    let mut unindexed_chunks = std::collections::BTreeSet::new();
+    for chunk_ref in snapshot_manifest
         .files()
         .flat_map(|file| file.chunks.iter())
-        .map(|chunk_ref| {
-            let entry = chunk_index
-                .entries
-                .get_hash(&chunk_ref.chunk_hash)
-                .ok_or_else(|| {
-                    Error::repository(format!(
-                        "missing chunk index entry for required chunk '{}'",
-                        chunk_ref.chunk_hash
-                    ))
-                })?;
-            if entry.raw_size != chunk_ref.raw_size {
-                return Err(Error::repository(format!(
-                    "chunk index size disagrees with snapshot for '{}'",
-                    chunk_ref.chunk_hash
-                )));
-            }
-            Ok(ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry))
-        })
-        .collect()
+    {
+        let Some(entry) = chunk_index.entries.get_hash(&chunk_ref.chunk_hash) else {
+            unindexed_chunks.insert(chunk_ref.chunk_hash.to_string());
+            continue;
+        };
+        if entry.raw_size != chunk_ref.raw_size {
+            return Err(Error::repository(format!(
+                "chunk index size disagrees with snapshot for '{}'",
+                chunk_ref.chunk_hash
+            )));
+        }
+        artifacts.insert(ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry));
+    }
+    Ok(RequiredArtifacts {
+        artifacts,
+        unindexed_chunks: unindexed_chunks.into_iter().collect(),
+    })
 }
 
 pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Result<()> {

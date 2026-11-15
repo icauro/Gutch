@@ -99,7 +99,31 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     let paths = RepoPaths::from_repo_root(repo_root);
 
     if paths.repo_metadata_path.exists() {
-        let status = read_repo_status(repo_root)?;
+        // An unreadable manifest is what `init --force` replaces, so classify it
+        // here instead of failing the assessment. I/O failures still propagate.
+        let manifest_error = match crate::repo::paths::load_gutch_repo_manifest(repo_root) {
+            Ok(_) => None,
+            Err(error @ (Error::Io(_) | Error::IoContext { .. } | Error::Cancelled)) => {
+                return Err(error);
+            }
+            Err(error) => Some(error.to_string()),
+        };
+        let status = match manifest_error {
+            None => read_repo_status(repo_root)?,
+            Some(error) => {
+                return Ok(RepoInitAssessment {
+                    path,
+                    path_kind: RepoInitPathKind::InvalidManifest,
+                    requires_confirmation: true,
+                    risks: vec![invalid_manifest_risk(Some(&error))],
+                    entry_count,
+                    repo_name: None,
+                    snapshot_count: None,
+                    bundle_count: None,
+                    linked: None,
+                });
+            }
+        };
         if status.is_repo {
             return Ok(RepoInitAssessment {
                 path,

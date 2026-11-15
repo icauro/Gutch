@@ -16,6 +16,8 @@ use crate::repo::cleanup::remove_snapshot_from_repo;
 use crate::repo::coordination;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::repo::snapshot_manifests::validate_snapshot_id;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use std::collections::BTreeMap;
 
@@ -36,6 +38,16 @@ pub fn delete_repo_snapshot_and_cleanup(
     let operation_root = (repo_root).to_path_buf();
     coordination::write(&operation_root, || {
         control.checkpoint()?;
+        validate_snapshot_id(snapshot_id)?;
+        let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
+        // Checked inside the write transaction so a concurrent delete cannot race it.
+        // The directory, not its metadata file, marks a partly deleted snapshot.
+        let metadata_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
+        if !metadata_path.parent().is_some_and(Path::exists) {
+            return Err(crate::Error::repository(format!(
+                "snapshot not found in repo: {snapshot_id}"
+            )));
+        }
         // Total matches cleanup_orphan_artifacts_in_repo.
         const TOTAL: usize = 1000;
 

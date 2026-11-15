@@ -709,3 +709,45 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn force_init_replaces_an_unparsable_manifest() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join(crate::manifest::REPO_METADATA_FILE),
+        b"{not json",
+    )
+    .unwrap();
+    let assessment = crate::repo::init_policy::assess_repo_init_path(temp.path()).unwrap();
+    assert_eq!(
+        assessment.path_kind,
+        crate::repo::init_policy::RepoInitPathKind::InvalidManifest
+    );
+    let options = |force| crate::repo::init_policy::RepoInitOptions {
+        force,
+        constraints: Default::default(),
+    };
+    assert!(crate::repo::init_policy::initialize_repo(temp.path(), options(false)).is_err());
+    crate::repo::init_policy::initialize_repo(temp.path(), options(true)).unwrap();
+    load_gutch_repo_manifest(temp.path()).unwrap();
+}
+
+#[test]
+fn deleting_a_missing_snapshot_reports_not_found() {
+    let temp = tempfile::tempdir().unwrap();
+    crate::repo::init_policy::initialize_repo(
+        temp.path(),
+        crate::repo::init_policy::RepoInitOptions {
+            force: false,
+            constraints: Default::default(),
+        },
+    )
+    .unwrap();
+    let error = crate::repo::snapshots::delete_repo_snapshot_and_cleanup(
+        temp.path(),
+        &"a".repeat(64),
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("snapshot not found"), "{error}");
+}

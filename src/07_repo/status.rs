@@ -15,7 +15,8 @@ use crate::artifact::hash::hash_hex;
 use crate::artifact::reference::ArtifactRef;
 use crate::manifest;
 use crate::manifest::REPO_METADATA_FILE;
-use crate::repo::artifacts::required_artifacts;
+use crate::repo::artifacts::RequiredArtifacts;
+use crate::repo::artifacts::classify_required_artifacts;
 use crate::repo::coordination;
 use crate::repo::index::load_chunk_index;
 use crate::repo::paths::RepoPaths;
@@ -176,7 +177,10 @@ fn check_snapshot_manifests(
         let snapshot_product_metadata_hash_b3 =
             serialize_snapshot_product_metadata_for_remote(&manifest)?
                 .map(|bytes| hash_hex(&blake3::hash(&bytes)));
-        let required_artifacts = required_artifacts(&manifest, &chunk_index)?;
+        let RequiredArtifacts {
+            artifacts: required_artifacts,
+            unindexed_chunks,
+        } = classify_required_artifacts(&manifest, &chunk_index)?;
         let required_bundle_count = required_artifacts
             .iter()
             .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
@@ -186,10 +190,12 @@ fn check_snapshot_manifests(
             .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
             .filter(|artifact| !available_artifacts.contains(*artifact))
             .count();
+        // An unindexed chunk has no known artifact, so it is missing content.
         let missing_artifact_count = required_artifacts
             .iter()
             .filter(|artifact| !available_artifacts.contains(*artifact))
-            .count();
+            .count()
+            + unindexed_chunks.len();
         let launch_readiness_error =
             if manifest.product_metadata.is_some() && manifest.launch.is_none() {
                 Some("No runtime target matches this host.".to_string())
@@ -205,7 +211,7 @@ fn check_snapshot_manifests(
             arch: summary.arch,
             file_count: manifest.file_count(),
             required_bundle_count,
-            required_artifact_count: required_artifacts.len(),
+            required_artifact_count: required_artifacts.len() + unindexed_chunks.len(),
             total_logical_size: manifest.total_logical_size,
             manifest_path: manifest_path.display().to_string(),
             missing_bundle_count,
