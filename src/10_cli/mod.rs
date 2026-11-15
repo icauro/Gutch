@@ -3,7 +3,6 @@
 pub(crate) mod arguments;
 pub(crate) mod bundle;
 pub(crate) mod command_support;
-pub(crate) mod config;
 pub(crate) mod dispatch;
 pub(crate) mod installation;
 pub(crate) mod output;

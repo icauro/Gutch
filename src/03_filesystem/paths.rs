@@ -226,21 +226,6 @@ pub(crate) fn require_disjoint_paths(left: &Path, right: &Path) -> Result<()> {
     }
     Ok(())
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExistingDestinationPathKind {
-    File,
-    Directory,
-    FileOrDirectory,
-}
-impl ExistingDestinationPathKind {
-    fn description(self) -> &'static str {
-        match self {
-            Self::File => "a file",
-            Self::Directory => "a directory",
-            Self::FileOrDirectory => "a file or directory",
-        }
-    }
-}
 /// Resolves manifest paths beneath one root while reusing the root's canonical path.
 ///
 /// The per-component checks are intentionally retained: an existing symlinked
@@ -418,58 +403,7 @@ fn ensure_existing_ancestors_stay_within_root(
     }
     Ok(())
 }
-pub fn resolve_existing_destination_path(
-    install_root: &Path,
-    relative: &str,
-    allow_root: bool,
-    expected_kind: ExistingDestinationPathKind,
-) -> Result<PathBuf> {
-    validate_manifest_relative_path(relative, allow_root)?;
-    let canonical_root = install_root
-        .canonicalize()
-        .map_err(|error| Error::InvalidPath {
-            path: install_root.to_path_buf(),
-            reason: format!("failed to resolve installation root: {error}"),
-        })?;
-    let candidate = if relative == "." {
-        canonical_root.clone()
-    } else {
-        canonical_root.join(relative)
-    };
-    let canonical_candidate = candidate
-        .canonicalize()
-        .map_err(|error| Error::InvalidPath {
-            path: candidate.clone(),
-            reason: if error.kind() == ErrorKind::NotFound {
-                "declared installation path does not exist".into()
-            } else {
-                format!("failed to resolve declared installation path: {error}")
-            },
-        })?;
-    if !canonical_candidate.starts_with(&canonical_root) {
-        return Err(Error::InvalidPath {
-            path: candidate,
-            reason: "declared installation path resolves outside the installation root".into(),
-        });
-    }
-    let valid_kind = match expected_kind {
-        ExistingDestinationPathKind::File => canonical_candidate.is_file(),
-        ExistingDestinationPathKind::Directory => canonical_candidate.is_dir(),
-        ExistingDestinationPathKind::FileOrDirectory => {
-            canonical_candidate.is_file() || canonical_candidate.is_dir()
-        }
-    };
-    if !valid_kind {
-        return Err(Error::InvalidPath {
-            path: canonical_candidate,
-            reason: format!(
-                "declared installation path is not {}",
-                expected_kind.description()
-            ),
-        });
-    }
-    Ok(canonical_candidate)
-}
+
 pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Result<String> {
     let link_path = Path::new(relative_path);
     if target.is_absolute() {

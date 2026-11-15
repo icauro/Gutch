@@ -5,17 +5,14 @@
 
 // Shared values and operation control
 pub use crate::artifact::hash::ChunkHash;
-pub use crate::artifact::hash::hash_chunk;
-pub use crate::artifact::hash::hash_hex;
 pub use crate::error::Error;
 pub use crate::error::Result;
+pub use crate::error::metadata_conflict::MetadataFieldDifference;
 pub use crate::error::path_validation::{PathValidationFailure, PathViolation};
 pub use crate::error::promotion_diagnostics::{
     DiagnosticIoError, DirectoryPromotionDiagnostic, PromotionPathObservation, PromotionPathState,
     PromotionPhase, PromotionRecoveryAttempt, PromotionRecoveryOperation,
 };
-pub use crate::filesystem::paths::ExistingDestinationPathKind;
-pub use crate::filesystem::paths::resolve_existing_destination_path;
 pub use crate::profiling::{ProfileMode, ProfileSpanSummary, ProfileSummary, Profiler};
 pub use crate::progress::CancellationHook;
 pub use crate::progress::OperationControl;
@@ -81,9 +78,11 @@ pub use crate::capture::sources::configured::capture_snapshot_sources;
 pub use crate::capture::sources::configured::describe_snapshot_sources_capture_plan;
 pub use crate::capture::sources::configured::plan_snapshot_sources_capture;
 pub use crate::capture::sources::configured::plan_snapshot_sources_capture_with_context;
+pub use crate::capture::sources::discovery::SourceSnapshotCandidate;
+pub use crate::capture::sources::discovery::SourceSnapshotDisposition;
+pub use crate::capture::sources::discovery::discover_source_snapshots;
 pub use crate::capture::sources::plan_snapshot_captures;
 pub use crate::capture::sources::resolve_capture_sources;
-pub use crate::error::metadata_conflict::MetadataFieldDifference;
 
 // Installation
 pub use crate::installation::InstallationCorruptionPlan;
@@ -124,9 +123,6 @@ pub use crate::installation::verify_installation;
 
 // Repository operations and remote providers
 pub use crate::artifact::bundle::BundleTableEntry;
-pub use crate::capture::sources::discovery::SourceSnapshotCandidate;
-pub use crate::capture::sources::discovery::SourceSnapshotDisposition;
-pub use crate::capture::sources::discovery::discover_source_snapshots;
 pub use crate::repo::artifacts::inspect_bundle;
 pub use crate::repo::init_policy::RepoInitAssessment;
 pub use crate::repo::init_policy::RepoInitOptions;
@@ -140,7 +136,6 @@ pub use crate::repo::recovery::IndexRebuildResult;
 pub use crate::repo::recovery::rebuild_index;
 pub use crate::repo::snapshot_manifests::diff_repo_snapshots;
 pub use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots;
-pub use crate::repo::snapshot_manifests::snapshot_metadata_path;
 pub use crate::repo::snapshot_manifests::validate_snapshot_product_metadata_for_snapshots;
 pub use crate::repo::snapshots::RetagSnapshotResult;
 pub use crate::repo::snapshots::delete_repo_snapshot_and_cleanup;
@@ -197,11 +192,7 @@ pub use crate::transfer::types::ArtifactUrlProvider;
 pub use crate::transfer::types::TransferConcurrencyPolicy;
 pub use crate::transfer::types::TransferStats;
 
-// CLI hosting and local configuration
-pub use crate::cli::config::CliConfig;
-pub use crate::cli::config::TrackedRepo;
-pub use crate::cli::config::load_config;
-pub use crate::cli::config::save_config;
+// CLI hosting
 pub use crate::cli::requires_remote_provider;
 pub use crate::cli::run_from_args;
 pub use crate::cli::run_from_args_with_remote_provider;

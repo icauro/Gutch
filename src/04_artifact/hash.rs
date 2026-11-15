@@ -74,11 +74,11 @@ impl Display for ChunkHash {
     }
 }
 
-pub fn hash_chunk(data: &[u8]) -> blake3::Hash {
+pub(crate) fn hash_chunk(data: &[u8]) -> blake3::Hash {
     blake3::hash(data)
 }
 
-pub fn hash_hex(hash: &blake3::Hash) -> String {
+pub(crate) fn hash_hex(hash: &blake3::Hash) -> String {
     hash.to_hex().to_string()
 }
 

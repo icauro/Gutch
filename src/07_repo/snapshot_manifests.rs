@@ -59,7 +59,7 @@ pub(crate) fn validate_snapshot_id(snapshot_id: &str) -> Result<()> {
     }
 }
 
-pub fn snapshot_metadata_path(paths: &RepoPaths, snapshot_id: &str) -> Result<PathBuf> {
+pub(crate) fn snapshot_metadata_path(paths: &RepoPaths, snapshot_id: &str) -> Result<PathBuf> {
     validate_path_component(snapshot_id, "snapshot ID")?;
     Ok(paths
         .snapshots_root

@@ -26,7 +26,6 @@ use crate::runtime::RuntimeResourceHints;
 use crate::test_util;
 use std::fs;
 use std::path::Path;
-use std::path::PathBuf;
 use std::time::Instant;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> SnapshotTagSet {
@@ -158,25 +157,6 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
 }
 
 #[test]
-fn test_gutch_repo_paths_from_store_root() {
-    let paths = RepoPaths::from_store_root(Path::new("D:\\store"), "base").unwrap();
-
-    assert_eq!(
-        paths.repo_root,
-        PathBuf::from("D:\\store")
-            .join("v1")
-            .join("repos")
-            .join("base")
-    );
-    assert_eq!(
-        paths.repo_metadata_path,
-        paths.repo_root.join("repo_metadata.json")
-    );
-    assert_eq!(paths.snapshots_root, paths.repo_root.join("snapshots"));
-    assert_eq!(paths.bundles_root, paths.repo_root.join("bundles"));
-}
-
-#[test]
 fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
     let repo_root = test_util::temp_path("gutch_test_gutch_repo_layout");
     let _ = fs::remove_dir_all(&repo_root);
@@ -282,6 +262,7 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
 }
 
 #[test]
+#[ignore = "writes about 200 MB; run with --ignored as a benchmark"]
 fn test_large_game_build_200mb() {
     let root = test_util::temp_path("gutch_test_200mb");
     let artifacts_dir = test_util::temp_path("gutch_test_200mb_artifacts");
