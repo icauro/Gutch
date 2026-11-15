@@ -1,16 +1,15 @@
 //! Combined download and reconstruction, preserving one repository lock and pipeline.
 use crate::Result;
 use crate::artifact::reference::ArtifactRef;
-use crate::installation::contracts::{InstallationReconstructResult, SnapshotReconstructSource};
+use crate::installation::contracts::InstallationReconstructResult;
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
 use crate::installation::execute::publish::Publication;
-use crate::installation::prepare::{ReconstructInputs, prepare_reconstruction};
+use crate::installation::prepare::{
+    LoadedSnapshotSource, ReconstructInputs, prepare_reconstruction,
+};
 use crate::installation::staging::prepare_installation_destination;
-use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::coordination::write_with_control;
-use crate::repo::paths::RepoPaths;
-use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch::{
     build_fetch_result, prepare_snapshot_fetch, publish_fetched_snapshot,
@@ -37,11 +36,6 @@ pub struct SnapshotFetchAndReconstructRequest {
 pub struct SnapshotFetchAndReconstructResult {
     pub fetch_result: SnapshotFetchResult,
     pub reconstruct_result: InstallationReconstructResult,
-}
-
-struct ResolvedSnapshotSource {
-    source_manifest: Option<SnapshotManifest>,
-    source_destination_dir: Option<PathBuf>,
 }
 
 pub fn fetch_and_reconstruct_snapshot(
@@ -75,22 +69,18 @@ pub fn fetch_and_reconstruct_snapshot(
                 &request.fetch_request.repo_path,
                 &request.fetch_request.control,
             )?;
-            let resolved_source = resolve_snapshot_source(&request, &prepared.repo_paths)?;
+            let source = LoadedSnapshotSource::load(
+                &prepared.repo_paths,
+                request.source_snapshot_id.as_deref(),
+                request.source_dir.as_deref(),
+                &request.destination_dir,
+            )?;
             let reconstruction = prepare_reconstruction(ReconstructInputs {
                 snapshot_manifest: &prepared.snapshot_manifest,
                 chunk_index: &prepared.chunk_index,
                 repo_paths: &prepared.repo_paths,
                 existing_artifacts: &prepared.existing_artifacts,
-                source: resolved_source
-                    .source_manifest
-                    .as_ref()
-                    .zip(resolved_source.source_destination_dir.as_deref())
-                    .map(
-                        |(snapshot_manifest, destination_dir)| SnapshotReconstructSource {
-                            snapshot_manifest,
-                            destination_dir,
-                        },
-                    ),
+                source: source.as_ref().map(LoadedSnapshotSource::as_source),
                 runtime_hints: &request.runtime_hints,
                 control: &request.fetch_request.control,
             })?;
@@ -142,24 +132,4 @@ pub fn fetch_and_reconstruct_snapshot(
             })
         },
     )
-}
-
-fn resolve_snapshot_source(
-    request: &SnapshotFetchAndReconstructRequest,
-    repo_paths: &RepoPaths,
-) -> Result<ResolvedSnapshotSource> {
-    let source_manifest = match request.source_snapshot_id.as_ref() {
-        Some(source_snapshot_id) => Some(load_snapshot_manifest(repo_paths, source_snapshot_id)?),
-        None => None,
-    };
-    let source_destination_dir = source_manifest.as_ref().map(|_| {
-        request
-            .source_dir
-            .clone()
-            .unwrap_or_else(|| request.destination_dir.clone())
-    });
-    Ok(ResolvedSnapshotSource {
-        source_manifest,
-        source_destination_dir,
-    })
 }

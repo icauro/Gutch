@@ -61,9 +61,8 @@ pub struct InstallationPlanSummary {
     pub required_artifact_count: usize,
     pub retained_file_bytes: u64,
     pub source_reuse_bytes: u64,
+    /// An estimate: logical bytes only, without filesystem allocation or backup overhead.
     pub staging_file_bytes: u64,
-    /// Logical bytes only; filesystem allocation and backup overhead are not included.
-    pub staging_space_is_estimate: bool,
 }
 
 /// Inspect without changing the installation. Target entries, extras, and artifacts are each delivered in path/ID order.
@@ -165,7 +164,6 @@ pub fn visit_installation_plan(
             retained_file_bytes,
             source_reuse_bytes: source_reuse_bytes(&plan),
             staging_file_bytes: execution_manifest.files().map(|file| file.size).sum(),
-            staging_space_is_estimate: true,
         })
     })
 }

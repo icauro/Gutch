@@ -70,7 +70,6 @@ pub(crate) struct BundleBuildArtifact {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct BundleReadMetrics {
     pub(crate) raw_bytes: u64,
-    pub(crate) compressed_bytes: u64,
     pub(crate) read: Duration,
     pub(crate) decompress: Duration,
 }
@@ -572,7 +571,6 @@ impl<R: Read + Seek> BundleReader<R> {
 
         Ok(BundleReadMetrics {
             raw_bytes: expected_raw_size,
-            compressed_bytes: compressed_size,
             read,
             decompress,
         })

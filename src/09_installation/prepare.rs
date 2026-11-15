@@ -20,6 +20,37 @@ use crate::runtime::RuntimeResourceHints;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+/// A snapshot already present on disk whose unchanged files reconstruction may reuse.
+pub(super) struct LoadedSnapshotSource {
+    snapshot_manifest: SnapshotManifest,
+    directory: PathBuf,
+}
+
+impl LoadedSnapshotSource {
+    /// Loads the source snapshot when one is named; its files default to the destination.
+    pub(super) fn load(
+        repo_paths: &RepoPaths,
+        source_snapshot_id: Option<&str>,
+        source_dir: Option<&Path>,
+        destination_dir: &Path,
+    ) -> Result<Option<Self>> {
+        let Some(source_snapshot_id) = source_snapshot_id else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            snapshot_manifest: load_snapshot_manifest(repo_paths, source_snapshot_id)?,
+            directory: source_dir.unwrap_or(destination_dir).to_path_buf(),
+        }))
+    }
+
+    pub(super) fn as_source(&self) -> SnapshotReconstructSource<'_> {
+        SnapshotReconstructSource {
+            snapshot_manifest: &self.snapshot_manifest,
+            destination_dir: &self.directory,
+        }
+    }
+}
+
 pub(super) struct LoadedRepoSnapshot {
     pub repo_paths: RepoPaths,
     pub snapshot_manifest: SnapshotManifest,

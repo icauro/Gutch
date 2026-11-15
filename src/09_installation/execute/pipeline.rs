@@ -30,7 +30,7 @@ use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::progress::FetchTransferProgress;
 
 use super::handles::{OutputHandleCache, SourceHandleCache};
-use super::job_io::ReconstructedFileVerification;
+use super::job_io::ReconstructedFileSizeCheck;
 use super::jobs::{ReconstructJob, ReconstructPipelineFile, ReconstructPipelinePlan};
 use crate::installation::plan::build_artifact_priorities;
 
@@ -93,8 +93,9 @@ pub(crate) fn run_reconstruction_jobs(
         verify_files: true,
         ..ReconstructTimings::default()
     };
+    // Reconstruction checks output sizes only; chunk hashes were checked on write.
     let verify_timings = VerifyTimings {
-        verify_mode: VerifyMode::Fast,
+        verify_mode: VerifyMode::MetadataOnly,
         runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };
@@ -198,7 +199,6 @@ pub(crate) fn run_reconstruction_jobs(
         verify_started_at: None,
         verify_finished_at: None,
         verify_span: None,
-        verified_file_bytes: 0,
         reconstruct_timings,
         verify_timings,
     };
@@ -249,7 +249,6 @@ struct PipelineCoordinator<'a> {
     verify_started_at: Option<ProfileInstant>,
     verify_finished_at: Option<ProfileInstant>,
     verify_span: Option<ProfileSpan>,
-    verified_file_bytes: u64,
     reconstruct_timings: ReconstructTimings,
     verify_timings: VerifyTimings,
 }
@@ -411,11 +410,7 @@ impl PipelineCoordinator<'_> {
         self.completed_job_count += job_indices.len();
         self.update_backpressure();
         for timings in job_timings {
-            accumulate_pipeline_timings(
-                &mut self.reconstruct_timings,
-                &mut self.verify_timings,
-                timings,
-            );
+            accumulate_pipeline_timings(&mut self.reconstruct_timings, timings);
         }
         emit_reconstruct_progress(
             self.control,
@@ -444,7 +439,7 @@ impl PipelineCoordinator<'_> {
     fn complete_verification(
         &mut self,
         file_count: usize,
-        verification: ReconstructedFileVerification,
+        verification: ReconstructedFileSizeCheck,
     ) {
         self.work_queue.complete();
         self.completed_file_count += file_count;
@@ -456,7 +451,6 @@ impl PipelineCoordinator<'_> {
             .reconstruct_timings
             .file_verify_bytes
             .saturating_add(verification.bytes);
-        self.verified_file_bytes = self.verified_file_bytes.saturating_add(verification.bytes);
         emit_reconstruct_progress(
             self.control,
             "Reconstructing files",
@@ -526,11 +520,7 @@ impl PipelineCoordinator<'_> {
             .map(|(started_at, finished_at)| finished_at.saturating_duration_since(started_at))
             .unwrap_or_default();
         drop(self.verify_span.take());
-        self.verify_timings.file_hash += verify_elapsed;
-        self.verify_timings.file_hash_bytes = self
-            .verify_timings
-            .file_hash_bytes
-            .saturating_add(self.verified_file_bytes);
+        self.verify_timings.stat += verify_elapsed;
         emit_reconstruct_progress(
             self.control,
             "Reconstructing files",
@@ -740,7 +730,6 @@ fn ensure_empty_reconstruct_output_file(
 
 fn accumulate_pipeline_timings(
     reconstruct_timings: &mut ReconstructTimings,
-    verify_timings: &mut VerifyTimings,
     file_timings: &ReconstructTimings,
 ) {
     reconstruct_timings.artifact_read += file_timings.artifact_read;
@@ -760,7 +749,4 @@ fn accumulate_pipeline_timings(
     reconstruct_timings.file_verify_bytes += file_timings.file_verify_bytes;
     reconstruct_timings.file_write += file_timings.file_write;
     reconstruct_timings.file_write_bytes += file_timings.file_write_bytes;
-
-    verify_timings.file_hash += file_timings.file_verify;
-    verify_timings.file_hash_bytes += file_timings.file_verify_bytes;
 }

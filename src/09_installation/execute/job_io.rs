@@ -165,7 +165,6 @@ fn reconstruct_artifact_job(
             )?;
             let artifact_read_elapsed = read_metrics.read + read_metrics.decompress;
             timings.artifact_read = artifact_read_elapsed;
-            timings.artifact_read_compressed_bytes = read_metrics.compressed_bytes;
             timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
             timings.bundle_read = artifact_read_elapsed;
 
@@ -532,7 +531,7 @@ fn reconstruct_artifact_trace_args(
     ])
 }
 
-pub(crate) struct ReconstructedFileVerification {
+pub(crate) struct ReconstructedFileSizeCheck {
     pub(crate) elapsed: Duration,
     pub(crate) bytes: u64,
 }
@@ -542,11 +541,11 @@ pub(crate) struct ReconstructedFileVerification {
 // chunks tile it exactly. Rereading the output to hash it again would only
 // repeat that proof, so reconstruction checks just the size. Lost or damaged
 // writes after that point are what explicit `verify` detects.
-pub(crate) fn verify_reconstructed_output_file(
+pub(crate) fn check_reconstructed_output_size(
     file_plan: &ReconstructPipelineFile,
     output_path: &Path,
     control: &OperationControl,
-) -> Result<ReconstructedFileVerification> {
+) -> Result<ReconstructedFileSizeCheck> {
     control.checkpoint()?;
     let started_at = ProfileInstant::detailed(control.profiler());
     let actual_size = fs::metadata(output_path)
@@ -558,7 +557,7 @@ pub(crate) fn verify_reconstructed_output_file(
             actual_size, file_plan.size, file_plan.path
         )));
     }
-    Ok(ReconstructedFileVerification {
+    Ok(ReconstructedFileSizeCheck {
         elapsed: started_at.elapsed(),
         bytes: actual_size,
     })

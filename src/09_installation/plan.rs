@@ -570,6 +570,15 @@ pub(crate) fn resolve_metadata_updates(
     Ok(updates)
 }
 
+/// `whole * part / total`, assuming the subset compresses like the snapshot.
+fn proportional_estimate(whole: u64, part: u64, total: u64) -> u64 {
+    if total == 0 {
+        return 0;
+    }
+    let scaled = u128::from(whole) * u128::from(part) / u128::from(total);
+    u64::try_from(scaled).unwrap_or(u64::MAX)
+}
+
 fn subset_manifest_for_issues(
     snapshot_manifest: &SnapshotManifest,
     classification: &RepairClassification,
@@ -602,11 +611,31 @@ fn subset_manifest_for_issues(
         .cloned()
         .collect();
     subset.total_logical_size = subset.files().map(|file| file.size).sum();
-    subset.total_compressed_size_estimate = subset.total_logical_size / 2;
+    subset.total_compressed_size_estimate = proportional_estimate(
+        snapshot_manifest.total_compressed_size_estimate,
+        subset.total_logical_size,
+        snapshot_manifest.total_logical_size,
+    );
     if !affected_paths.is_empty() && subset.entries.is_empty() {
         return Err(Error::verify(
             "repair classification referenced entries that are not present in the snapshot manifest",
         ));
     }
     Ok(subset)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::proportional_estimate;
+
+    #[test]
+    fn repair_subset_estimate_scales_with_logical_size() {
+        assert_eq!(proportional_estimate(600, 25, 100), 150);
+        assert_eq!(proportional_estimate(600, 0, 100), 0);
+        assert_eq!(proportional_estimate(600, 0, 0), 0);
+        assert_eq!(
+            proportional_estimate(u64::MAX, u64::MAX, u64::MAX),
+            u64::MAX
+        );
+    }
 }

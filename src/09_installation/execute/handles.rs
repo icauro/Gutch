@@ -11,6 +11,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 pub(crate) const RECONSTRUCT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
+/// Open reused-source files kept for whole-file copies.
+const MAX_CACHED_SOURCE_HANDLES: usize = 64;
+/// Open output files shared by reconstruction workers.
+const MAX_OPEN_OUTPUT_HANDLES: usize = 256;
 
 /// One reconstruction worker owns this buffer. Success requires an explicit flush;
 /// failed or cancelled work discards buffered bytes instead of writing on drop.
@@ -145,7 +149,7 @@ impl SourceHandleCache {
             if let Some(file) = handles.get(path) {
                 Arc::clone(file)
             } else {
-                if handles.len() >= 64
+                if handles.len() >= MAX_CACHED_SOURCE_HANDLES
                     && let Some(key) = handles.keys().next().cloned()
                 {
                     handles.remove(&key);
@@ -234,7 +238,7 @@ impl OutputHandleCache {
             state: Mutex::new(OutputHandleCacheState {
                 handles: HashMap::new(),
                 lru: VecDeque::new(),
-                max_open: 256,
+                max_open: MAX_OPEN_OUTPUT_HANDLES,
                 initialized_files,
             }),
         }

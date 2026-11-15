@@ -9,7 +9,7 @@ use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::installation::contracts::SnapshotReconstructSource;
-use crate::installation::execute::job_io::verify_reconstructed_output_file;
+use crate::installation::execute::job_io::check_reconstructed_output_size;
 use crate::installation::execute::jobs::*;
 use crate::installation::execute::publish::Publication;
 use crate::installation::plan::*;
@@ -52,17 +52,17 @@ fn output_verification_checks_size_without_rereading_chunk_verified_bytes() {
     // Writers already hash-checked every chunk, so equal-size bytes pass here;
     // explicit `verify` remains the check for damage after the write.
     fs::write(&path, b"DATA").unwrap();
-    let verification = verify_reconstructed_output_file(&file_plan, &path, &control).unwrap();
+    let verification = check_reconstructed_output_size(&file_plan, &path, &control).unwrap();
     assert_eq!(verification.bytes, 4);
     for wrong_size in [&b"dat"[..], b"data!"] {
         fs::write(&path, wrong_size).unwrap();
         assert!(matches!(
-            verify_reconstructed_output_file(&file_plan, &path, &control),
+            check_reconstructed_output_size(&file_plan, &path, &control),
             Err(Error::Reconstruct(_))
         ));
     }
     assert!(
-        verify_reconstructed_output_file(&file_plan, &directory.path().join("missing"), &control)
+        check_reconstructed_output_size(&file_plan, &directory.path().join("missing"), &control)
             .is_err()
     );
 }
@@ -943,7 +943,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
             if !(corrupt || fail_output || wrong_size) {
                 for index in [0, 1] {
                     assert_eq!(fs::read(&paths[index]).unwrap(), bytes);
-                    verify_reconstructed_output_file(&files[index], &paths[index], &control)
+                    check_reconstructed_output_size(&files[index], &paths[index], &control)
                         .unwrap();
                 }
             }

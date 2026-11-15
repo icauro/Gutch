@@ -2,8 +2,7 @@
 
 use crate::Result;
 use crate::installation::contracts::{
-    InstallationReconstructResult, InstallationRequest, SnapshotReconstructSource,
-    SnapshotRepairResult,
+    InstallationReconstructResult, InstallationRequest, SnapshotRepairResult,
 };
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
@@ -11,13 +10,13 @@ use crate::installation::execute::publish::Publication;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::plan::inspect_installation_changes;
 use crate::installation::prepare::LoadedRepoSnapshot;
+use crate::installation::prepare::LoadedSnapshotSource;
 use crate::installation::prepare::load_repo_snapshot_manifest;
 use crate::installation::prepare::{ReconstructInputs, prepare_reconstruction};
 use crate::installation::staging::prepare_installation_destination;
 use crate::repo::artifacts::required_artifacts;
 use crate::repo::coordination::read_with_control;
 use crate::repo::index::load_chunk_index;
-use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::transfer::types::TransferConcurrencyPolicy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -95,33 +94,18 @@ pub fn install_snapshot_from_repo(
             })
             .cloned()
             .collect();
-        let source_manifest = match request.source_snapshot_id.as_ref() {
-            Some(source_snapshot_id) => {
-                Some(load_snapshot_manifest(&repo_paths, source_snapshot_id)?)
-            }
-            None => None,
-        };
-        let source_destination_dir = source_manifest.as_ref().map(|_| {
-            request
-                .source_dir
-                .clone()
-                .unwrap_or_else(|| request.destination_dir.clone())
-        });
-        let source = source_manifest
-            .as_ref()
-            .zip(source_destination_dir.as_ref())
-            .map(
-                |(source_manifest, source_destination_dir)| SnapshotReconstructSource {
-                    snapshot_manifest: source_manifest,
-                    destination_dir: source_destination_dir,
-                },
-            );
+        let source = LoadedSnapshotSource::load(
+            &repo_paths,
+            request.source_snapshot_id.as_deref(),
+            request.source_dir.as_deref(),
+            &request.destination_dir,
+        )?;
         let prepared = prepare_reconstruction(ReconstructInputs {
             snapshot_manifest: execution_manifest,
             chunk_index: &chunk_index,
             repo_paths: &repo_paths,
             existing_artifacts: &existing_artifacts,
-            source,
+            source: source.as_ref().map(LoadedSnapshotSource::as_source),
             runtime_hints: &request.runtime_hints,
             control: &request.control,
         })?;

@@ -1,9 +1,7 @@
 //! Worker memory admission, job dispatch and terminal job events.
 
 use super::handles::{OutputHandleCache, SourceHandleCache};
-use super::job_io::{
-    ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file,
-};
+use super::job_io::{ReconstructedFileSizeCheck, check_reconstructed_output_size, reconstruct_job};
 use super::jobs::{ReconstructJob, ReconstructPipelineFile};
 use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::ProfileInstant;
@@ -156,7 +154,7 @@ pub(crate) enum ReconstructJobEvent {
     },
     Verified {
         file_count: usize,
-        timings: ReconstructedFileVerification,
+        timings: ReconstructedFileSizeCheck,
     },
     Failed(Error),
 }
@@ -262,12 +260,12 @@ pub(crate) fn spawn_reconstruct_work(
                 })
             }
             ReconstructWorkItem::VerifyFiles(file_indices) => {
-                let mut timings = ReconstructedFileVerification {
+                let mut timings = ReconstructedFileSizeCheck {
                     elapsed: Duration::ZERO,
                     bytes: 0,
                 };
                 for &file_index in &file_indices {
-                    let file = verify_reconstructed_output_file(
+                    let file = check_reconstructed_output_size(
                         &context.file_plans[file_index],
                         &context.output_paths[file_index],
                         &context.control,

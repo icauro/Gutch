@@ -187,7 +187,6 @@ pub struct InstallationRepairPlanRequest {
     pub repo_path: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
-    pub remove_added_files: bool,
     pub runtime_hints: RuntimeResourceHints,
     pub control: OperationControl,
 }

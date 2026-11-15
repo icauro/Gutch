@@ -337,7 +337,6 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
         repo_path: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
-        remove_added_files: false,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
