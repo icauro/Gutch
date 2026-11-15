@@ -99,12 +99,8 @@ fn check_file_metadata(
     if metadata.permissions().readonly() != file_manifest.read_only {
         return corrupt(format!("read-only mismatch for file: {path}"));
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if (metadata.permissions().mode() & 0o111 != 0) != file_manifest.executable {
-            return corrupt(format!("executable mismatch for file: {path}"));
-        }
+    if cfg!(unix) && filesystem::is_executable(&metadata) != file_manifest.executable {
+        return corrupt(format!("executable mismatch for file: {path}"));
     }
     if metadata.len() != file_manifest.size {
         return corrupt(format!(

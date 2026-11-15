@@ -534,13 +534,9 @@ pub(crate) fn resolve_metadata_updates(
             SnapshotEntry::File(file)
                 if metadata.file_type().is_file() && metadata.len() == file.size =>
             {
-                let metadata_differs = metadata.permissions().readonly() != file.read_only;
-                #[cfg(unix)]
-                let metadata_differs = {
-                    use std::os::unix::fs::PermissionsExt;
-                    metadata_differs
-                        || (metadata.permissions().mode() & 0o111 != 0) != file.executable
-                };
+                let metadata_differs = metadata.permissions().readonly() != file.read_only
+                    || (cfg!(unix)
+                        && crate::filesystem::is_executable(&metadata) != file.executable);
                 if !metadata_differs {
                     false
                 } else {

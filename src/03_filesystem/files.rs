@@ -23,6 +23,20 @@ pub(crate) fn symlink_metadata_if_exists(path: &Path) -> std::io::Result<Option<
     }
 }
 
+/// True when any execute bit is set; always false where execute bits do not exist.
+pub(crate) fn is_executable(metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
 /// Read a file to bytes.
 pub(crate) fn read(path: &Path) -> Result<Vec<u8>, Error> {
     fs::read(path).io_context("reading file", path)

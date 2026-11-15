@@ -393,17 +393,6 @@ pub(crate) fn scan_directory_into_file_entries(
     }
 }
 
-#[cfg(unix)]
-fn is_executable(metadata: &Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    metadata.permissions().mode() & 0o111 != 0
-}
-
-#[cfg(not(unix))]
-fn is_executable(_metadata: &Metadata) -> bool {
-    false
-}
-
 struct ScanFileRequest<'a> {
     path: &'a Path,
     normalized_relative: String,
@@ -421,7 +410,7 @@ fn scan_file(request: ScanFileRequest<'_>) -> Result<FileBuildEntry> {
         control,
     } = request;
     let read_only = source_metadata.permissions().readonly();
-    let executable = is_executable(source_metadata);
+    let executable = crate::filesystem::is_executable(source_metadata);
     let (chunk_scan, chunk_timings) = scan_file_chunks(
         path,
         source_metadata.len(),
@@ -539,7 +528,7 @@ pub(crate) fn verify_source_inventory_stable(
                     size: entry.metadata.len(),
                     modified_at: entry.metadata.modified()?,
                     read_only: entry.metadata.permissions().readonly(),
-                    executable: is_executable(&entry.metadata),
+                    executable: crate::filesystem::is_executable(&entry.metadata),
                 })
             })
             .collect()
