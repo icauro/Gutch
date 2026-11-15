@@ -23,5 +23,5 @@ pub(crate) use status::RepoStatus;
 pub(crate) use status::read_repo_status;
 
 #[cfg(test)]
-#[path = "repo_tests.rs"]
+#[path = "mod_tests.rs"]
 mod tests;

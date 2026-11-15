@@ -1,3 +1,5 @@
+//! Binding a local repository to a remote one and listing or creating remotes.
+
 use super::provider::RemoteRepositoryCommandProvider;
 use super::provider::RemoteRepositorySummary;
 use super::provider::RemoteTagReferencesResult;

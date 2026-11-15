@@ -1,3 +1,5 @@
+//! Human-readable result tables and metrics.
+
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -352,7 +354,7 @@ pub(crate) struct WallTimingPhaseSummary {
 }
 
 pub(crate) fn build_timings_summary(
-    timings: &crate::capture::types::BuildTimings,
+    timings: &crate::capture::build::types::BuildTimings,
     mode: crate::profiling::ProfileMode,
 ) -> BuildTimingsSummary {
     let detailed = mode == crate::profiling::ProfileMode::Detailed;

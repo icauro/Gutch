@@ -1,3 +1,5 @@
+//! Scans a source tree into a stable inventory of files, directories and links.
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -8,9 +10,9 @@ use rayon::prelude::*;
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
-use crate::capture::progress::BuildProgressTracker;
-use crate::capture::types::BuildTimings;
-use crate::capture::types::ChunkPayload;
+use crate::capture::build::progress::BuildProgressTracker;
+use crate::capture::build::types::BuildTimings;
+use crate::capture::build::types::ChunkPayload;
 use crate::manifest;
 use crate::manifest::ChunkRef;
 use crate::manifest::DirectoryManifest;

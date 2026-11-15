@@ -7,7 +7,6 @@ pub(crate) mod config;
 pub(crate) mod dispatch;
 pub(crate) mod installation;
 pub(crate) mod output;
-pub(crate) mod path;
 pub(crate) mod progress;
 pub(crate) mod repo;
 pub(crate) mod repo_remote;
@@ -15,6 +14,7 @@ pub(crate) mod reporting;
 pub(crate) mod snapshot;
 pub(crate) mod snapshot_transfer;
 pub(crate) mod tags;
+pub(crate) mod tree;
 
 use std::sync::Arc;
 

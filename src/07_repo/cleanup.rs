@@ -1,3 +1,5 @@
+//! Snapshot removal and orphan artifact cleanup.
+
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;

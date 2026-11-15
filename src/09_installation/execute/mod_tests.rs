@@ -1,9 +1,9 @@
 use super::*;
 use crate::artifact::hash::hash_hex;
-use crate::installation::io::verify_reconstructed_output_file;
-use crate::installation::jobs::*;
+use crate::installation::contracts::SnapshotReconstructSource;
+use crate::installation::execute::job_io::verify_reconstructed_output_file;
+use crate::installation::execute::jobs::*;
 use crate::installation::plan::*;
-use crate::installation::types::SnapshotReconstructSource;
 use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotManifest;
@@ -154,7 +154,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: super::super::publish::Publication::ReplaceDirectory,
+            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: crate::artifact::profiles::CompressionProfile::default(),
             snapshot_manifest: &snapshot_manifest,
@@ -373,7 +373,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: super::super::publish::Publication::ReplaceDirectory,
+            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile,
             snapshot_manifest: &snapshot_manifest,
@@ -459,7 +459,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     assert_eq!(plan.required_artifacts, existing_artifacts);
     let result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: super::super::publish::Publication::ReplaceDirectory,
+            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: crate::artifact::profiles::CompressionProfile::for_algorithm(
                 crate::artifact::profiles::CompressionKind::Zstd,
@@ -613,7 +613,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: super::super::publish::Publication::ReplaceDirectory,
+            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile,
             snapshot_manifest: &snapshot_manifest,
@@ -736,7 +736,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     let control = OperationControl::default().with_replaced_progress(progress.clone());
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: super::super::publish::Publication::ReplaceDirectory,
+            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: compression,
             snapshot_manifest: &snapshot,
@@ -841,7 +841,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     }];
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: super::super::publish::Publication::ReplaceDirectory,
+            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: compression,
             snapshot_manifest: &snapshot,
@@ -874,8 +874,8 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
 #[test]
 fn artifact_jobs_write_only_verified_chunks_to_every_target() {
     use crate::artifact::hash::ChunkHash;
-    use crate::installation::handles::{OutputHandleCache, SourceHandleCache};
-    use crate::installation::io::{ReconstructJobRequest, reconstruct_job};
+    use crate::installation::execute::handles::{OutputHandleCache, SourceHandleCache};
+    use crate::installation::execute::job_io::{ReconstructJobRequest, reconstruct_job};
 
     let bytes = b"game";
     let hash = ChunkHash::of(bytes);

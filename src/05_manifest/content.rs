@@ -1,3 +1,5 @@
+//! Snapshot entries: files with their chunk references, directories and symlinks.
+
 use serde::Deserialize;
 use serde::Serialize;
 

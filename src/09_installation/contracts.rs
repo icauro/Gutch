@@ -1,3 +1,5 @@
+//! Installation requests, results and timings shared by the operations.
+
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;

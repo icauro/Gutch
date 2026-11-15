@@ -1,3 +1,5 @@
+//! Content-derived snapshot identity and source modification times.
+
 use std::path::Path;
 
 use crate::Error;

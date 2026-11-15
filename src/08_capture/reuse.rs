@@ -1,3 +1,5 @@
+//! Reuse state from the repository: known chunks and previous file manifests.
+
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
@@ -183,7 +185,7 @@ pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
 
 pub(crate) fn add_built_bundles_to_chunk_index(
     chunk_index: &mut crate::repo::index::ChunkIndex,
-    bundles: &[crate::capture::types::BuiltBundle],
+    bundles: &[crate::capture::build::types::BuiltBundle],
 ) -> Result<()> {
     let mut updates = Vec::new();
     for bundle in bundles {
@@ -207,7 +209,7 @@ pub(crate) fn add_built_bundles_to_chunk_index(
 
 pub(crate) fn add_built_loose_chunks_to_chunk_index(
     chunk_index: &mut crate::repo::index::ChunkIndex,
-    chunks: &[crate::capture::types::BuiltLooseChunk],
+    chunks: &[crate::capture::build::types::BuiltLooseChunk],
 ) -> Result<()> {
     let mut updates = Vec::new();
     for chunk in chunks {

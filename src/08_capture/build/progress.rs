@@ -1,3 +1,5 @@
+//! Progress counters for the build phase.
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;

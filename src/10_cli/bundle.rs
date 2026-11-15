@@ -1,3 +1,5 @@
+//! `bundle inspect` command.
+
 use std::path::PathBuf;
 
 pub(crate) fn inspect(bundle: PathBuf, repo: PathBuf) -> crate::Result<()> {

@@ -1,3 +1,5 @@
+//! Verification modes, timings and the issues a destination check reports.
+
 use std::time::Duration;
 
 use crate::runtime::RuntimePlan;

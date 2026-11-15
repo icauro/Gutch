@@ -1,3 +1,5 @@
+//! Content-defined chunking of files and byte slices with the selected chunker.
+
 use super::chunk_stream::ChunkBoundary;
 use super::chunk_stream::{BoundaryFinder, ChunkStream};
 use crate::profiling::ProfileInstant;

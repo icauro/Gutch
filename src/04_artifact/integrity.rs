@@ -1,3 +1,5 @@
+//! Whole-file hashing and full-file integrity checks, streamed or parallel by size.
+
 use crate::profiling::ProfileInstant;
 use std::cell::RefCell;
 use std::fs::File;

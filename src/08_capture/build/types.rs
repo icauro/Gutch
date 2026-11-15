@@ -1,3 +1,5 @@
+//! Build configuration, staged artifacts, chunk payloads and build results.
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;

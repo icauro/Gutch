@@ -50,5 +50,5 @@ pub struct SnapshotCaptureResult {
     pub generated_chunk_count: usize,
     pub reused_chunk_count: usize,
     pub new_chunk_count: usize,
-    pub(crate) build_timings: crate::capture::types::BuildTimings,
+    pub(crate) build_timings: crate::capture::build::types::BuildTimings,
 }

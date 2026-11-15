@@ -1,3 +1,5 @@
+//! Transfer contracts: artifact URLs, URL providers, concurrency policy and statistics.
+
 use crate::progress::OperationControl;
 use serde::{Deserialize, Serialize};
 

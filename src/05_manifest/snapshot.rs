@@ -1,3 +1,5 @@
+//! Snapshot manifest and metadata: product, runtime host variants and launch actions.
+
 use crate::artifact::profiles::Chunker;
 use serde::Deserialize;
 use serde::Serialize;

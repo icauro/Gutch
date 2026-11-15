@@ -1,3 +1,5 @@
+//! Repository initialization: risk assessment of the target path and confirmation policy.
+
 use std::path::Path;
 
 use serde::Deserialize;

@@ -1,3 +1,5 @@
+//! Chunk content hashes and their hex form.
+
 use crate::error::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

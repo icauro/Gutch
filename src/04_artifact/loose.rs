@@ -1,3 +1,5 @@
+//! Loose-chunk codec: one compressed chunk per artifact file.
+
 use crate::artifact::format;
 use crate::profiling::ProfileInstant;
 use std::io::Read;

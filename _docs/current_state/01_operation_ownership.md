@@ -115,13 +115,19 @@ to installation and consumes `sync` fetch preparation under one write lock.
 The public `api` module only re-exports owner operations and contracts; guarded
 reader implementation belongs to `repo/read`. CLI handlers import the owning
 modules directly; only hosts go through `api`.
-Keep phase types with their owner and tests beside the code they exercise.
+Keep phase types with their owner and tests beside the code they exercise; a
+separate test file is named after the file it tests (`x_tests.rs`, or
+`mod_tests.rs` for a folder's `mod.rs`). Each source file opens with a `//!`
+line naming its responsibility.
 Packaging profiles belong to `artifact/profiles`; codecs do not import manifest
 schemas. Manifest validation may consume artifact profiles, hashes and codecs.
-Installation `execute` owns staging and publication, `pipeline` coordinates
-artifact readiness and file verification, and `workers` owns memory admission,
-dispatch and terminal events. Keep cancellation, draining and handle-release
-ordering intact across these boundaries.
+Capture groups source selection under `capture/sources` and artifact packing
+under `capture/build`. Installation keeps its operations at the top level,
+`plan` and `prepare` choose the work, and `installation/execute` owns staging
+and publication: its `pipeline` coordinates artifact readiness and file
+verification, `workers` owns memory admission, dispatch and terminal events, and
+`job_io` reads, verifies and writes job data. Keep cancellation, draining and
+handle-release ordering intact across these boundaries.
 
 ## Public naming
 

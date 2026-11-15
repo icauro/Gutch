@@ -1,3 +1,5 @@
+//! Stored snapshot files: paths, loading, identity validation and comparison.
+
 use std::path::PathBuf;
 
 use crate::Result;

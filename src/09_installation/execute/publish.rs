@@ -1,14 +1,14 @@
 //! Installation publication policies. Selective publication is retryable, not a multi-file atomic commit.
-use super::plan::InstallationChanges;
-use super::types::SnapshotRepairResult;
+use super::entries::finalize_snapshot_entries;
 use crate::Error;
 use crate::Result;
-use crate::installation::entries::finalize_snapshot_entries;
+use crate::installation::contracts::SnapshotRepairResult;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::RepairIssue;
 use crate::installation::inspect::RepairIssueKind;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_expected_entries_with_marker_namespace_and_pool;
+use crate::installation::plan::InstallationChanges;
 use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::runtime::RuntimeResourceHints;
@@ -22,7 +22,7 @@ pub(crate) enum Publication<'a> {
     ReplaceDirectory,
     Selective {
         target: &'a SnapshotManifest,
-        changes: &'a super::plan::InstallationChanges,
+        changes: &'a crate::installation::plan::InstallationChanges,
         remove_extra_files: bool,
     },
 }
@@ -35,18 +35,18 @@ fn manifest_paths_set(snapshot_manifest: &SnapshotManifest) -> HashSet<&str> {
         .collect()
 }
 
-pub(super) struct FinalizeRepairRequest<'a> {
-    pub(super) snapshot_manifest: &'a SnapshotManifest,
-    pub(super) destination_dir: &'a Path,
-    pub(super) staging_dir: &'a Path,
-    pub(super) remove_added_files: bool,
-    pub(super) runtime_hints: &'a RuntimeResourceHints,
-    pub(super) repair_plan: &'a InstallationChanges,
-    pub(super) control: &'a crate::progress::OperationControl,
-    pub(super) operation_pool: Option<&'a ThreadPool>,
+pub(crate) struct FinalizeRepairRequest<'a> {
+    pub(crate) snapshot_manifest: &'a SnapshotManifest,
+    pub(crate) destination_dir: &'a Path,
+    pub(crate) staging_dir: &'a Path,
+    pub(crate) remove_added_files: bool,
+    pub(crate) runtime_hints: &'a RuntimeResourceHints,
+    pub(crate) repair_plan: &'a InstallationChanges,
+    pub(crate) control: &'a crate::progress::OperationControl,
+    pub(crate) operation_pool: Option<&'a ThreadPool>,
 }
 
-pub(super) fn finalize_repair_result_after_reconstruction(
+pub(crate) fn finalize_repair_result_after_reconstruction(
     request: FinalizeRepairRequest<'_>,
 ) -> Result<SnapshotRepairResult> {
     let FinalizeRepairRequest {

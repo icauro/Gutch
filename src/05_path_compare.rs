@@ -1,3 +1,5 @@
+//! Compares two physical directory trees by kind, content and link target.
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;

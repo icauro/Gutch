@@ -1,3 +1,5 @@
+//! Push: plans and uploads local snapshots and artifacts to the remote.
+
 use super::RemoteProgress;
 use super::hashes_differ;
 use super::link::linked_remote_repo_id;

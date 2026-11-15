@@ -503,4 +503,5 @@ fn accumulate_timings(total: &mut VerifyTimings, add: &VerifyTimings) {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod tests;

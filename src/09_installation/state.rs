@@ -1,6 +1,8 @@
-use super::types::ResolvedSnapshotOperationState;
+//! Resolves the stored snapshot state an operation targets.
+
 use crate::Error;
 use crate::Result;
+use crate::installation::contracts::ResolvedSnapshotOperationState;
 
 pub fn resolve_snapshot_state(
     repo_root: &std::path::Path,

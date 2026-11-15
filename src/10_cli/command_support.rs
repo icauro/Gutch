@@ -1,3 +1,5 @@
+//! Shared CLI helpers: report statistics, artifact URL parsing and confirmation prompts.
+
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;

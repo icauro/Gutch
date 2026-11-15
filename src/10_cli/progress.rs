@@ -1,3 +1,5 @@
+//! Terminal progress rendering.
+
 use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,3 +1,5 @@
+//! `installation` command handlers.
+
 use crate::cli::command_support::InstallationVerifyStats;
 use crate::cli::command_support::SnapshotReconstructStats;
 use crate::cli::command_support::{

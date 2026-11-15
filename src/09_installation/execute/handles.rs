@@ -9,11 +9,11 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub(super) const RECONSTRUCT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
+pub(crate) const RECONSTRUCT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
 
 /// One reconstruction worker owns this buffer. Success requires an explicit flush;
 /// failed or cancelled work discards buffered bytes instead of writing on drop.
-pub(super) struct ReconstructionOutputWriter<'a> {
+pub(crate) struct ReconstructionOutputWriter<'a> {
     outputs: &'a OutputHandleCache,
     handles: HashMap<usize, Arc<File>>,
     control: &'a OperationControl,
@@ -24,7 +24,7 @@ pub(super) struct ReconstructionOutputWriter<'a> {
 }
 
 impl<'a> ReconstructionOutputWriter<'a> {
-    pub(super) fn new(outputs: &'a OutputHandleCache, control: &'a OperationControl) -> Self {
+    pub(crate) fn new(outputs: &'a OutputHandleCache, control: &'a OperationControl) -> Self {
         Self {
             outputs,
             handles: HashMap::new(),
@@ -35,7 +35,7 @@ impl<'a> ReconstructionOutputWriter<'a> {
         }
     }
 
-    pub(super) fn write(&mut self, file_index: usize, offset: u64, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn write(&mut self, file_index: usize, offset: u64, bytes: &[u8]) -> Result<()> {
         self.control.checkpoint()?;
         if !self.bytes.is_empty()
             && (self.file_index != file_index
@@ -65,7 +65,7 @@ impl<'a> ReconstructionOutputWriter<'a> {
         Ok(())
     }
 
-    pub(super) fn write_unbuffered(
+    pub(crate) fn write_unbuffered(
         &mut self,
         file_index: usize,
         offset: u64,
@@ -82,7 +82,7 @@ impl<'a> ReconstructionOutputWriter<'a> {
         )
     }
 
-    pub(super) fn flush(&mut self) -> Result<()> {
+    pub(crate) fn flush(&mut self) -> Result<()> {
         if self.bytes.is_empty() {
             return Ok(());
         }
@@ -117,7 +117,7 @@ impl<'a> ReconstructionOutputWriter<'a> {
     }
 }
 
-pub(super) struct OutputHandleCache {
+pub(crate) struct OutputHandleCache {
     output_paths: Arc<Vec<PathBuf>>,
     output_sizes: Arc<Vec<u64>>,
     independent_handles: Vec<bool>,
@@ -126,7 +126,7 @@ pub(super) struct OutputHandleCache {
 }
 
 #[derive(Default)]
-pub(super) struct SourceHandleCache {
+pub(crate) struct SourceHandleCache {
     handles: Mutex<HashMap<PathBuf, Arc<Mutex<SourceReadHandle>>>>,
 }
 struct SourceReadHandle {
@@ -135,7 +135,7 @@ struct SourceReadHandle {
 }
 
 impl SourceHandleCache {
-    pub(super) fn read_range(
+    pub(crate) fn read_range(
         &self,
         path: &std::path::Path,
         offset: u64,
@@ -197,11 +197,11 @@ const SMALL_SHARED_OUTPUT_HANDLE_CACHE_LIMIT: usize = 64;
 const INDEPENDENT_OUTPUT_MIN_BYTES: u64 = 64 * 1024 * 1024;
 
 impl OutputHandleCache {
-    pub(super) fn output_path(&self, file_index: usize) -> &std::path::Path {
+    pub(crate) fn output_path(&self, file_index: usize) -> &std::path::Path {
         &self.output_paths[file_index]
     }
 
-    pub(super) fn new(
+    pub(crate) fn new(
         output_paths: Arc<Vec<PathBuf>>,
         output_sizes: Arc<Vec<u64>>,
         producer_counts: &[usize],
@@ -312,7 +312,7 @@ impl OutputHandleCache {
     }
 }
 
-pub(super) fn cached_target_handle(
+pub(crate) fn cached_target_handle(
     output_handles: &OutputHandleCache,
     target_handles: &mut HashMap<usize, Arc<File>>,
     file_index: usize,
@@ -349,7 +349,7 @@ pub(super) fn cached_target_handle(
 }
 
 #[cfg(windows)]
-pub(super) fn write_file_at(
+pub(crate) fn write_file_at(
     file: &File,
     offset: u64,
     bytes: &[u8],
@@ -370,7 +370,7 @@ pub(super) fn write_file_at(
 }
 
 #[cfg(unix)]
-pub(super) fn write_file_at(
+pub(crate) fn write_file_at(
     file: &File,
     offset: u64,
     bytes: &[u8],
@@ -391,7 +391,7 @@ pub(super) fn write_file_at(
 }
 
 #[cfg(not(any(unix, windows)))]
-pub(super) fn write_file_at(
+pub(crate) fn write_file_at(
     file: &File,
     offset: u64,
     bytes: &[u8],

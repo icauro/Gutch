@@ -1,3 +1,5 @@
+//! Bundle codec: builds, writes, reads and verifies multi-chunk bundle artifacts.
+
 use super::binary_io::{read_exact_array, read_u32};
 use crate::profiling::ProfileInstant;
 #[cfg(test)]

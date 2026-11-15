@@ -131,7 +131,7 @@ promotion can leave some entries repaired and others unchanged; retry inspects
 that state and repairs what remains. Cancellation is deferred during publication,
 but this does not turn failures into rollback. Directory replacement uses the
 shared backup/recovery primitive in `03_filesystem/directory.rs`; repository snapshot
-metadata uses that primitive too. Selective policy lives in `09_installation/publish.rs`.
+metadata uses that primitive too. Selective policy lives in `09_installation/execute/publish.rs`.
 
 ## Failure Boundaries
 

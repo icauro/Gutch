@@ -1,3 +1,5 @@
+//! Loads the snapshot and verifies reusable sources before planning.
+
 use std::path::Path;
 
 use crate::Result;
@@ -40,13 +42,13 @@ pub(crate) struct ReconstructionInputs<'a> {
     pub chunk_index: &'a crate::repo::index::ChunkIndex,
     pub repo_paths: &'a RepoPaths,
     pub existing_artifacts: &'a std::collections::HashSet<crate::artifact::reference::ArtifactRef>,
-    pub source: Option<super::types::SnapshotReconstructSource<'a>>,
+    pub source: Option<crate::installation::contracts::SnapshotReconstructSource<'a>>,
     pub runtime_hints: &'a crate::runtime::RuntimeResourceHints,
     pub control: &'a crate::progress::OperationControl,
 }
 
 pub(crate) struct PreparedReconstruction {
-    pub plan: super::jobs::ReconstructPipelinePlan,
+    pub plan: crate::installation::execute::jobs::ReconstructPipelinePlan,
     pub source_directory: Option<std::path::PathBuf>,
 }
 
@@ -57,19 +59,22 @@ pub(crate) fn prepare_reconstruction(
         .source
         .as_ref()
         .map(|source| source.destination_dir.to_path_buf());
-    let verified_source =
-        super::apply::resolve_verified_source(inputs.source, inputs.runtime_hints, inputs.control)?;
+    let verified_source = crate::installation::source::resolve_verified_source(
+        inputs.source,
+        inputs.runtime_hints,
+        inputs.control,
+    )?;
     let _plan_span = inputs
         .control
         .profile_span("installation.reconstruct.prepare.plan");
-    let plan = super::plan::build_reconstruct_pipeline_plan(
+    let plan = crate::installation::plan::build_reconstruct_pipeline_plan(
         inputs.snapshot_manifest,
         inputs.chunk_index,
         inputs.repo_paths,
         inputs.existing_artifacts,
         verified_source
             .as_ref()
-            .map(super::apply::VerifiedSource::source),
+            .map(crate::installation::source::VerifiedSource::source),
     )?;
     Ok(PreparedReconstruction {
         plan,

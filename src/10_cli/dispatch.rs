@@ -1,7 +1,9 @@
+//! Routes a parsed command to its family handler.
+
 use crate::cli::Cli;
 use crate::cli::Commands;
 use crate::cli::bundle;
-use crate::cli::path;
+use crate::cli::tree;
 
 pub(crate) fn run(
     cli: Cli,
@@ -68,7 +70,7 @@ pub(crate) fn run(
                 expected,
                 actual,
                 stats_json_out,
-            } => path::compare(expected, actual, stats_json_out),
+            } => tree::compare(expected, actual, stats_json_out),
         },
     }
 }

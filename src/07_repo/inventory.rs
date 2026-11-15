@@ -1,3 +1,5 @@
+//! Listing of stored snapshots and artifact files.
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 

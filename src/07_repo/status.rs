@@ -1,3 +1,5 @@
+//! Repository status and health checks of stored snapshots.
+
 use std::collections::HashSet;
 use std::path::Path;
 

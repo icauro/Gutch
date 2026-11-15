@@ -1,7 +1,11 @@
+//! Worker memory admission, job dispatch and terminal job events.
+
 use super::handles::{OutputHandleCache, SourceHandleCache};
-use super::io::{ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file};
+use super::job_io::{
+    ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file,
+};
 use super::jobs::{ReconstructJob, ReconstructPipelineFile};
-use super::types::ReconstructTimings;
+use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::ProfileInstant;
 use crate::progress::OperationControl;
 use crate::{Error, Result};
@@ -15,7 +19,7 @@ const MAX_VERIFICATION_BATCH_BYTES: u64 = 1024 * 1024;
 const MAX_SOURCE_BATCH_JOBS: usize = 32;
 const MAX_SOURCE_BATCH_BYTES: u64 = 64 * 1024;
 
-pub(super) enum ReconstructWorkItem {
+pub(crate) enum ReconstructWorkItem {
     Jobs(std::ops::Range<usize>),
     VerifyFiles(Vec<usize>),
 }
@@ -23,20 +27,20 @@ pub(super) enum ReconstructWorkItem {
 /// Tracks only runnable and dispatched work. Jobs waiting for downloads are
 /// owned by the artifact scheduler and enter this queue when ready.
 #[derive(Default)]
-pub(super) struct ReconstructionWorkQueue {
-    pub(super) ready: std::collections::VecDeque<(ReconstructWorkItem, ProfileInstant)>,
+pub(crate) struct ReconstructionWorkQueue {
+    pub(crate) ready: std::collections::VecDeque<(ReconstructWorkItem, ProfileInstant)>,
     // Decremented when the coordinator consumes one terminal event, including failure.
-    pub(super) in_flight: usize,
+    pub(crate) in_flight: usize,
 }
 
-pub(super) struct AdmittedReconstructionWork {
-    pub(super) work: ReconstructWorkItem,
-    pub(super) permit: crate::runtime::MemoryPermit,
-    pub(super) queued_at: ProfileInstant,
+pub(crate) struct AdmittedReconstructionWork {
+    pub(crate) work: ReconstructWorkItem,
+    pub(crate) permit: crate::runtime::MemoryPermit,
+    pub(crate) queued_at: ProfileInstant,
 }
 
 impl ReconstructionWorkQueue {
-    pub(super) fn admit_next(
+    pub(crate) fn admit_next(
         &mut self,
         jobs: &[ReconstructJob],
         file_plans: &[ReconstructPipelineFile],
@@ -134,12 +138,12 @@ impl ReconstructionWorkQueue {
         }
     }
 
-    pub(super) fn complete(&mut self) {
+    pub(crate) fn complete(&mut self) {
         self.in_flight -= 1;
     }
 }
 
-pub(super) enum ReconstructJobEvent {
+pub(crate) enum ReconstructJobEvent {
     Completed {
         job_indices: std::ops::Range<usize>,
         timings: Vec<ReconstructTimings>,
@@ -151,19 +155,19 @@ pub(super) enum ReconstructJobEvent {
     Failed(Error),
 }
 
-pub(super) struct ReconstructWorkContext {
-    pub(super) memory: Arc<crate::runtime::MemoryBudget>,
-    pub(super) source_handles: SourceHandleCache,
-    pub(super) jobs: Arc<Vec<ReconstructJob>>,
-    pub(super) file_plans: Arc<Vec<ReconstructPipelineFile>>,
-    pub(super) output_paths: Arc<Vec<PathBuf>>,
-    pub(super) output_handles: Arc<OutputHandleCache>,
-    pub(super) compression_profile: Arc<crate::artifact::profiles::CompressionProfile>,
-    pub(super) control: OperationControl,
-    pub(super) reconstruct_worker_count: usize,
+pub(crate) struct ReconstructWorkContext {
+    pub(crate) memory: Arc<crate::runtime::MemoryBudget>,
+    pub(crate) source_handles: SourceHandleCache,
+    pub(crate) jobs: Arc<Vec<ReconstructJob>>,
+    pub(crate) file_plans: Arc<Vec<ReconstructPipelineFile>>,
+    pub(crate) output_paths: Arc<Vec<PathBuf>>,
+    pub(crate) output_handles: Arc<OutputHandleCache>,
+    pub(crate) compression_profile: Arc<crate::artifact::profiles::CompressionProfile>,
+    pub(crate) control: OperationControl,
+    pub(crate) reconstruct_worker_count: usize,
 }
 
-pub(super) fn dispatch_ready_work(
+pub(crate) fn dispatch_ready_work(
     pool: &ThreadPool,
     work_queue: &mut ReconstructionWorkQueue,
     work_context: &Arc<ReconstructWorkContext>,
@@ -194,7 +198,7 @@ pub(super) fn dispatch_ready_work(
     Ok(())
 }
 
-pub(super) fn spawn_reconstruct_work(
+pub(crate) fn spawn_reconstruct_work(
     pool: &ThreadPool,
     work_item: ReconstructWorkItem,
     context: &Arc<ReconstructWorkContext>,
@@ -227,7 +231,7 @@ pub(super) fn spawn_reconstruct_work(
         let result = catch_unwind(AssertUnwindSafe(|| match work_item {
             ReconstructWorkItem::Jobs(job_indices) => {
                 let timings = if job_indices.len() > 1 {
-                    super::io::reconstruct_source_chunk_batch(
+                    super::job_io::reconstruct_source_chunk_batch(
                         &context.jobs[job_indices.clone()],
                         &context.output_handles,
                         &context.source_handles,
@@ -236,7 +240,7 @@ pub(super) fn spawn_reconstruct_work(
                 } else {
                     let mut timings = Vec::with_capacity(job_indices.len());
                     for job_index in job_indices.clone() {
-                        timings.push(reconstruct_job(super::io::ReconstructJobRequest {
+                        timings.push(reconstruct_job(super::job_io::ReconstructJobRequest {
                             job: &context.jobs[job_index],
                             file_plans: &context.file_plans,
                             output_paths: &context.output_paths,

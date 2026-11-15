@@ -1,3 +1,5 @@
+//! Deliberate destination corruption for tests and benchmarks.
+
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -10,9 +12,9 @@ use std::path::PathBuf;
 use crate::Result;
 use crate::filesystem::paths::resolve_manifest_relative_path;
 
-use super::types::InstallationCorruptionOperation;
-use super::types::InstallationCorruptionRequest;
-use super::types::InstallationCorruptionResult;
+use crate::installation::contracts::InstallationCorruptionOperation;
+use crate::installation::contracts::InstallationCorruptionRequest;
+use crate::installation::contracts::InstallationCorruptionResult;
 
 /// Apply an explicit corruption plan to a reconstructed destination.
 ///
@@ -120,8 +122,8 @@ fn set_read_only(root: &Path, relative: &str, read_only: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::installation::types::InstallationCorruptionOperation;
-    use crate::installation::types::InstallationCorruptionPlan;
+    use crate::installation::contracts::InstallationCorruptionOperation;
+    use crate::installation::contracts::InstallationCorruptionPlan;
 
     #[test]
     fn applies_deterministic_file_corruption_operations() {

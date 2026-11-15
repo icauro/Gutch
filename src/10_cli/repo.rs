@@ -1,3 +1,5 @@
+//! `repo` command handlers.
+
 use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::command_support::prompt_yes_no;

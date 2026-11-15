@@ -1,3 +1,5 @@
+//! `snapshot` command handlers.
+
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::SnapshotCommands;
 use crate::cli::command_support::SnapshotCaptureManyStats;
@@ -156,7 +158,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> c
             }
             let results = crate::capture::sources::capture_snapshots(requests)?;
             if let Some(source_root) = source_root {
-                crate::capture::source_config::initialize_source_config(&source_root)?;
+                crate::capture::sources::config::initialize_source_config(&source_root)?;
             }
             let mut snapshot_stats = Vec::with_capacity(results.len());
             for (result, source) in results.iter().zip(&sources) {

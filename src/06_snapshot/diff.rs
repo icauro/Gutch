@@ -1,3 +1,5 @@
+//! Entry-level comparison of two snapshots.
+
 use std::collections::BTreeMap;
 
 use crate::Result;

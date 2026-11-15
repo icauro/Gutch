@@ -1,3 +1,5 @@
+//! Binary encoding of the snapshot blueprint (the stored entry list).
+
 use crate::artifact::{format::SNAPSHOT_BLUEPRINT_MAGIC, metadata};
 use crate::manifest::snapshot::SnapshotBlueprint;
 use crate::{Result, manifest};

@@ -1,3 +1,5 @@
+//! Chunk index entry storage and lookup.
+
 use super::ChunkIndexEntry;
 use crate::artifact::hash::ChunkHash;
 

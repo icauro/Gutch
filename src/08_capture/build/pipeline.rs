@@ -1,3 +1,5 @@
+//! Chunks, deduplicates and packs scanned files into staged bundles and loose chunks.
+
 use crate::profiling::ProfileInstant;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -8,25 +10,25 @@ use std::sync::Arc;
 use rayon::ThreadPool;
 use rayon::prelude::*;
 
+use super::progress::BuildProgressTracker;
+use super::types::BuildConfig;
+use super::types::BuildResult;
+use super::types::BuildTimings;
+use super::types::BuiltBundle;
+use super::types::BuiltLooseChunk;
+use super::types::ChunkPayload;
+use super::types::ChunkPayloadReader;
+use super::types::StagedArtifactFile;
 use crate::Result;
 use crate::artifact::bundle::write_bundle_to_staging;
 use crate::artifact::compression as compress;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
-use crate::capture::progress::BuildProgressTracker;
 use crate::capture::scan::ChunkPlacementKey;
 use crate::capture::scan::ScanDirectoryOptions;
 use crate::capture::scan::SourceInventory;
 use crate::capture::scan::collect_scanned_chunks;
 use crate::capture::scan::scan_source_inventory;
-use crate::capture::types::BuildConfig;
-use crate::capture::types::BuildResult;
-use crate::capture::types::BuildTimings;
-use crate::capture::types::BuiltBundle;
-use crate::capture::types::BuiltLooseChunk;
-use crate::capture::types::ChunkPayload;
-use crate::capture::types::ChunkPayloadReader;
-use crate::capture::types::StagedArtifactFile;
 use crate::manifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -62,7 +64,7 @@ impl BundleSizingPolicy {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+#[path = "pipeline_tests.rs"]
 mod tests;
 
 impl Default for BundleSizingPolicy {

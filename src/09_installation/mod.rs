@@ -1,42 +1,45 @@
 //! Installation inspection, planning, reconstruction, repair, and publication.
+//!
+//! Operations (`install`, `verify`, `repair`, `corrupt`, `fetch`, `preview`,
+//! `state`) sit at this level; `plan` and `prepare` choose the work, and
+//! `execute` stages, writes, verifies and publishes it.
 
-pub(crate) mod apply;
+pub(crate) mod contracts;
 mod corrupt;
-mod entries;
 pub(crate) mod execute;
 pub(crate) mod fetch;
-mod handles;
 pub(crate) mod inspect;
 pub(crate) mod install;
-mod io;
-pub(crate) mod jobs;
-mod pipeline;
 pub(crate) mod plan;
 pub(crate) mod prepare;
 pub(crate) mod preview;
-pub(crate) mod publish;
 mod repair;
+pub(crate) mod source;
+pub(crate) mod staging;
 pub(crate) mod state;
-pub(crate) mod types;
-mod workers;
+mod verify;
 
-pub use apply::reconstruct_snapshot;
-pub use apply::verify_installation;
+pub use contracts::InstallationCorruptionPlan;
+pub use contracts::InstallationCorruptionRequest;
+pub use contracts::InstallationReconstructResult;
+pub use contracts::InstallationRepairPlanRequest;
+pub use contracts::InstallationRepairPlanResult;
+pub use contracts::InstallationRepairRequest;
+pub use contracts::InstallationRepairResult;
+pub use contracts::InstallationRequest;
+pub use contracts::InstallationVerifyRequest;
+pub use contracts::InstallationVerifyResult;
+pub use contracts::ReconstructTimings;
+pub use contracts::ResolvedSnapshotOperationState;
+pub use contracts::SnapshotReconstructResult;
+pub use contracts::SnapshotRepairResult;
 pub use corrupt::corrupt_installation;
+pub use install::reconstruct_snapshot;
 pub use repair::plan_installation_repair;
 pub use repair::repair_installation;
 pub use state::resolve_snapshot_state;
-pub use types::InstallationCorruptionPlan;
-pub use types::InstallationCorruptionRequest;
-pub use types::InstallationReconstructResult;
-pub use types::InstallationRepairPlanRequest;
-pub use types::InstallationRepairPlanResult;
-pub use types::InstallationRepairRequest;
-pub use types::InstallationRepairResult;
-pub use types::InstallationRequest;
-pub use types::InstallationVerifyRequest;
-pub use types::InstallationVerifyResult;
-pub use types::ReconstructTimings;
-pub use types::ResolvedSnapshotOperationState;
-pub use types::SnapshotReconstructResult;
-pub use types::SnapshotRepairResult;
+pub use verify::verify_installation;
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

@@ -1,3 +1,5 @@
+//! Repository layout, artifact paths, the repository manifest and local repository config.
+
 use std::path::Path;
 use std::path::PathBuf;
 

@@ -1,3 +1,5 @@
+//! Summaries of the tags across stored snapshots.
+
 use crate::manifest;
 
 #[derive(Debug, Clone)]

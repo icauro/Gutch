@@ -1,3 +1,5 @@
+//! Deterministic test data: seeded files, sources and repository fixtures.
+
 use std::io::Write;
 
 pub enum Seed {

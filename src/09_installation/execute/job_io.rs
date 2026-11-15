@@ -1,6 +1,8 @@
+//! Reads, verifies and writes each reconstruction job's data.
+
 use super::handles::ReconstructionOutputWriter;
 use super::handles::{OutputHandleCache, SourceHandleCache, cached_target_handle, write_file_at};
-use super::types::SnapshotReconstructSource;
+use crate::installation::contracts::SnapshotReconstructSource;
 use crate::profiling::ProfileInstant;
 use std::collections::HashMap;
 use std::fs::File;
@@ -20,20 +22,20 @@ use super::jobs::ReconstructTarget;
 use super::jobs::SourceChunkLocation;
 use crate::Error;
 use crate::Result;
-use crate::installation::types::ReconstructTimings;
+use crate::installation::contracts::ReconstructTimings;
 use crate::progress::OperationControl;
 
-pub(super) struct ReconstructJobRequest<'a> {
-    pub(super) job: &'a ReconstructJob,
-    pub(super) file_plans: &'a [ReconstructPipelineFile],
-    pub(super) output_paths: &'a [PathBuf],
-    pub(super) output_handles: &'a OutputHandleCache,
-    pub(super) source_handles: &'a SourceHandleCache,
-    pub(super) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
-    pub(super) control: &'a OperationControl,
+pub(crate) struct ReconstructJobRequest<'a> {
+    pub(crate) job: &'a ReconstructJob,
+    pub(crate) file_plans: &'a [ReconstructPipelineFile],
+    pub(crate) output_paths: &'a [PathBuf],
+    pub(crate) output_handles: &'a OutputHandleCache,
+    pub(crate) source_handles: &'a SourceHandleCache,
+    pub(crate) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
+    pub(crate) control: &'a OperationControl,
 }
 
-pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<ReconstructTimings> {
+pub(crate) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<ReconstructTimings> {
     let ReconstructJobRequest {
         job,
         file_plans,
@@ -262,7 +264,7 @@ fn reconstruct_source_chunk_job(
 // Workers admit a nonempty source-only group of at most 64 KiB. That buffer
 // and the bounded output buffer fit within the existing 1 MiB source-I/O
 // reservation. Never read across excluded source ranges.
-pub(super) fn reconstruct_source_chunk_batch(
+pub(crate) fn reconstruct_source_chunk_batch(
     jobs: &[ReconstructJob],
     output_handles: &OutputHandleCache,
     source_handles: &SourceHandleCache,
@@ -536,9 +538,9 @@ fn reconstruct_artifact_trace_args(
     ])
 }
 
-pub(super) struct ReconstructedFileVerification {
-    pub(super) elapsed: Duration,
-    pub(super) bytes: u64,
+pub(crate) struct ReconstructedFileVerification {
+    pub(crate) elapsed: Duration,
+    pub(crate) bytes: u64,
 }
 
 // Every reconstruction writer hash-checks each chunk (or, for whole-file
@@ -546,7 +548,7 @@ pub(super) struct ReconstructedFileVerification {
 // chunks tile it exactly. Rereading the output to hash it again would only
 // repeat that proof, so reconstruction checks just the size. Lost or damaged
 // writes after that point are what explicit `verify` detects.
-pub(super) fn verify_reconstructed_output_file(
+pub(crate) fn verify_reconstructed_output_file(
     file_plan: &ReconstructPipelineFile,
     output_path: &Path,
     control: &OperationControl,
@@ -568,7 +570,7 @@ pub(super) fn verify_reconstructed_output_file(
     })
 }
 
-pub(super) fn build_source_chunk_locations(
+pub(crate) fn build_source_chunk_locations(
     source: SnapshotReconstructSource<'_>,
     required_chunks: Option<&std::collections::HashSet<crate::artifact::hash::ChunkHash>>,
 ) -> Result<HashMap<crate::artifact::hash::ChunkHash, SourceChunkLocation>> {

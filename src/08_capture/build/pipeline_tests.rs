@@ -266,7 +266,7 @@ fn memory_admission_keeps_capture_results_in_input_order() {
 
 #[test]
 fn payload_reader_seeks_switches_sources_and_detects_mutation() {
-    use crate::capture::types::ChunkPayloadReader;
+    use super::super::types::ChunkPayloadReader;
     let temp = tempfile::tempdir().unwrap();
     let first = temp.path().join("first");
     let second = temp.path().join("second");

@@ -1,3 +1,5 @@
+//! Creates directories and symlinks before writing and finalizes entry attributes after.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -11,7 +13,7 @@ use crate::Result;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 
-pub(super) fn prepare_snapshot_entries(
+pub(crate) fn prepare_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
     output_dir: &Path,
     control: &OperationControl,
@@ -189,7 +191,7 @@ fn relative_link_text(link_path: &str, target_path: &str) -> PathBuf {
     relative
 }
 
-pub(super) fn finalize_snapshot_entries(
+pub(crate) fn finalize_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
     output_dir: &Path,
     control: &OperationControl,
@@ -475,7 +477,7 @@ fn finalize_directory_trace_args(
 }
 
 /// Apply the metadata represented by the manifest, including clearing old flags.
-pub(super) fn apply_entry_permissions(
+pub(crate) fn apply_entry_permissions(
     path: &Path,
     read_only: bool,
     executable: Option<bool>,

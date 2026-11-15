@@ -1,11 +1,13 @@
+//! Plans a single capture and describes it before execution.
+
 use std::path::Path;
 
-use crate::capture::source_operations::SourceSnapshotOperationCandidate;
-use crate::capture::source_operations::build_source_snapshot_ops_candidate_with_modified_at;
+use crate::capture::sources::discovery::SourceSnapshotOperationCandidate;
+use crate::capture::sources::discovery::build_source_snapshot_ops_candidate_with_modified_at;
 use crate::manifest::SnapshotTagSet;
 use crate::repo::Result;
 
-use super::contracts::SnapshotCapturePlan;
+use crate::capture::contracts::SnapshotCapturePlan;
 impl SnapshotCapturePlan {
     pub fn from_candidate(candidate: SourceSnapshotOperationCandidate) -> Self {
         Self {

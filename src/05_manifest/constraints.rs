@@ -1,3 +1,5 @@
+//! Repository constraints, including the snapshot tag rules new captures must satisfy.
+
 use serde::{Deserialize, Serialize};
 
 pub use crate::filesystem::constraints::FilesystemTarget;

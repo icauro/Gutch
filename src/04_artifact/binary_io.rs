@@ -1,3 +1,5 @@
+//! Little-endian readers and writers shared by the binary artifact and index codecs.
+
 use crate::artifact::hash::ChunkHash;
 use crate::{Error, Result};
 use std::io::{Read, Write};

@@ -1,3 +1,5 @@
+//! `repo remote` command handlers: push, pull and linking.
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

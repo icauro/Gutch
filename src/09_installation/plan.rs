@@ -1,12 +1,14 @@
-use super::io::build_source_chunk_locations;
-use super::jobs::{
-    ReconstructArtifactChunk, ReconstructArtifactJob, ReconstructJob, ReconstructPipelineFile,
-    ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget, SourceChunkLocation,
-};
-use super::types::SnapshotReconstructSource;
+//! Turns destination differences into reconstruction jobs and change lists.
+
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
+use crate::installation::contracts::SnapshotReconstructSource;
+use crate::installation::execute::job_io::build_source_chunk_locations;
+use crate::installation::execute::jobs::{
+    ReconstructArtifactChunk, ReconstructArtifactJob, ReconstructJob, ReconstructPipelineFile,
+    ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget, SourceChunkLocation,
+};
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory_with_marker_namespace_and_pool;
@@ -370,7 +372,7 @@ pub(crate) fn inspect_installation_changes(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: Option<&crate::repo::index::ChunkIndex>,
     destination_dir: &Path,
-    inspection: super::inspect::VerifyMode,
+    inspection: crate::installation::inspect::VerifyMode,
     runtime_hints: &RuntimeResourceHints,
     control: &crate::progress::OperationControl,
     operation_pool: Option<&ThreadPool>,
@@ -386,7 +388,7 @@ pub(crate) fn inspect_installation_changes(
         "installation.repair.verify",
         operation_pool,
     )?;
-    let updates = if inspection == super::inspect::VerifyMode::MetadataOnly {
+    let updates = if inspection == crate::installation::inspect::VerifyMode::MetadataOnly {
         Vec::new()
     } else {
         resolve_metadata_updates(

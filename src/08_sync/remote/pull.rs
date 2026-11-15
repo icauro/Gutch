@@ -1,3 +1,5 @@
+//! Pull: plans and downloads remote snapshots and bundles into the local repository.
+
 use super::ArtifactDecision;
 use super::MAX_REMOTE_BINARY_BYTES;
 use super::MAX_REMOTE_JSON_BYTES;

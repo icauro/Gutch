@@ -1,18 +1,29 @@
-use super::apply::build_snapshot_reconstruct_result;
-use super::entries::{finalize_snapshot_entries, prepare_snapshot_entries};
-use super::jobs::{ReconstructPipelineApplyRequest, ReconstructPipelinePlan};
-use super::pipeline::{ExecuteReconstructPipelineRequest, run_reconstruction_jobs};
-use super::types::InstallationReconstructResult;
+//! Runs a reconstruction plan: stages the tree, schedules artifact and source
+//! jobs, verifies written files and publishes the result.
+
+pub(crate) mod entries;
+mod handles;
+pub(crate) mod job_io;
+pub(crate) mod jobs;
+mod pipeline;
+pub(crate) mod publish;
+mod workers;
+
+use crate::installation::contracts::{InstallationReconstructResult, SnapshotReconstructResult};
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::profiling::ProfileInstant;
 use crate::runtime::plan_runtime;
 use crate::{Error, Result};
+use entries::{finalize_snapshot_entries, prepare_snapshot_entries};
+use jobs::{ReconstructPipelineApplyRequest, ReconstructPipelinePlan};
+use pipeline::{ExecuteReconstructPipelineRequest, run_reconstruction_jobs};
 use std::path::Path;
 pub(crate) fn apply_reconstruct_pipeline(
     request: ReconstructPipelineApplyRequest<'_>,
     pipeline_plan: ReconstructPipelinePlan,
 ) -> Result<(
     InstallationReconstructResult,
-    Option<super::types::SnapshotRepairResult>,
+    Option<crate::installation::contracts::SnapshotRepairResult>,
 )> {
     let _output_stage = request.control.output_stage();
     request.control.checkpoint()?;
@@ -41,7 +52,7 @@ pub(crate) fn apply_reconstruct_pipeline(
             .staging_dir
             .map(Path::to_path_buf)
             .unwrap_or_else(|| {
-                super::apply::default_snapshot_staging_dir(
+                crate::installation::staging::default_snapshot_staging_dir(
                     request.destination_dir,
                     &request.snapshot_manifest.snapshot_id,
                 )
@@ -63,7 +74,7 @@ pub(crate) fn apply_reconstruct_pipeline(
                 .iter()
                 .map(|entry| entry.path()),
         )?;
-        super::apply::create_snapshot_staging(
+        crate::installation::staging::create_snapshot_staging(
             request.destination_dir,
             &staging_dir,
             request.repo_root,
@@ -72,7 +83,7 @@ pub(crate) fn apply_reconstruct_pipeline(
     };
     let staging_dir = staging.path().to_path_buf();
 
-    (|| -> Result<(InstallationReconstructResult, Option<super::types::SnapshotRepairResult>)> {
+    (|| -> Result<(InstallationReconstructResult, Option<crate::installation::contracts::SnapshotRepairResult>)> {
         let output_paths = {
             let _prepare_span = request
                 .control
@@ -107,7 +118,7 @@ pub(crate) fn apply_reconstruct_pipeline(
         reconstruct_timings.prepare_wall += apply_prepare_wall;
         reconstruct_timings.total = operation_started_at.elapsed();
         let repair_result = match &request.publication {
-            super::publish::Publication::ReplaceDirectory => {
+            self::publish::Publication::ReplaceDirectory => {
                 let started = ProfileInstant::start(request.control.profiler());
                 {
                     let _span = request.control.profile_span("installation.reconstruct.finalize.entries");
@@ -124,10 +135,10 @@ pub(crate) fn apply_reconstruct_pipeline(
                 reconstruct_timings.promote_wall = started.elapsed();
                 None
             }
-            super::publish::Publication::Selective { target, changes, remove_extra_files } => {
+            self::publish::Publication::Selective { target, changes, remove_extra_files } => {
                 let started = ProfileInstant::start(request.control.profiler());
-                let result = super::publish::finalize_repair_result_after_reconstruction(
-                    super::publish::FinalizeRepairRequest {
+                let result = self::publish::finalize_repair_result_after_reconstruction(
+                    self::publish::FinalizeRepairRequest {
                         snapshot_manifest: target,
                         destination_dir: request.destination_dir,
                         staging_dir: &staging_dir,
@@ -147,7 +158,7 @@ pub(crate) fn apply_reconstruct_pipeline(
             repo_root: request.repo_root.to_path_buf(),
             snapshot_manifest: request.snapshot_manifest.clone(),
             reconstruct_result: build_snapshot_reconstruct_result(
-                super::apply::BuildSnapshotReconstructResultRequest {
+                BuildSnapshotReconstructResultRequest {
                     snapshot_manifest: request.snapshot_manifest,
                     destination_dir: request.destination_dir,
                     staging_dir: &staging_dir,
@@ -166,6 +177,34 @@ pub(crate) fn apply_reconstruct_pipeline(
     })()
 }
 
+pub(crate) struct BuildSnapshotReconstructResultRequest<'a> {
+    pub snapshot_manifest: &'a SnapshotManifest,
+    pub destination_dir: &'a Path,
+    pub staging_dir: &'a Path,
+    pub reused_source_chunk_count: usize,
+    pub required_chunk_count: usize,
+    pub required_bundle_count: usize,
+    pub required_artifact_count: usize,
+    pub reconstruct_timings: crate::installation::contracts::ReconstructTimings,
+    pub verify_timings: crate::installation::inspect::VerifyTimings,
+}
+
+pub(crate) fn build_snapshot_reconstruct_result(
+    request: BuildSnapshotReconstructResultRequest<'_>,
+) -> SnapshotReconstructResult {
+    SnapshotReconstructResult {
+        snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
+        destination_dir: request.destination_dir.to_path_buf(),
+        staging_dir: request.staging_dir.to_path_buf(),
+        reused_source_chunk_count: request.reused_source_chunk_count,
+        required_chunk_count: request.required_chunk_count,
+        required_bundle_count: request.required_bundle_count,
+        required_artifact_count: request.required_artifact_count,
+        reconstruct_timings: request.reconstruct_timings,
+        verify_timings: request.verify_timings,
+    }
+}
+
 #[cfg(test)]
-#[path = "execute_tests.rs"]
+#[path = "mod_tests.rs"]
 mod tests;

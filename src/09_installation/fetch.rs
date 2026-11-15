@@ -1,9 +1,9 @@
 //! Combined download and reconstruction, preserving one repository lock and pipeline.
 use crate::Result;
+use crate::installation::contracts::{InstallationReconstructResult, SnapshotReconstructSource};
 use crate::installation::execute::apply_reconstruct_pipeline;
-use crate::installation::jobs::ReconstructPipelineApplyRequest;
+use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
 use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
-use crate::installation::types::{InstallationReconstructResult, SnapshotReconstructSource};
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch::{
@@ -61,7 +61,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 &progress,
                 &transfer_progress,
             )?;
-            let _promotion_lock = crate::installation::apply::prepare_installation_destination(
+            let _promotion_lock = crate::installation::staging::prepare_installation_destination(
                 &prepared.snapshot_manifest,
                 &request.destination_dir,
                 request.staging_dir.as_deref(),
@@ -97,7 +97,8 @@ pub fn fetch_and_reconstruct_snapshot(
 
             let (reconstruct_result, _) = apply_reconstruct_pipeline(
                 ReconstructPipelineApplyRequest {
-                    publication: crate::installation::publish::Publication::ReplaceDirectory,
+                    publication:
+                        crate::installation::execute::publish::Publication::ReplaceDirectory,
                     repo_root: &prepared.repo_paths.repo_root,
                     compression_profile: prepared.compression_profile.clone(),
                     snapshot_manifest: &prepared.snapshot_manifest,

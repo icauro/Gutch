@@ -26,7 +26,7 @@ mod installation;
 mod manifest;
 #[path = "05_path_compare.rs"]
 mod path_compare;
-#[path = "01_profiling.rs"]
+#[path = "01_profiling/mod.rs"]
 mod profiling;
 #[path = "02_progress/mod.rs"]
 mod progress;

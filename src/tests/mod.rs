@@ -1,6 +1,6 @@
 mod module_boundaries;
 
-use crate::capture::pipeline::build_from_directory;
+use crate::capture::build::pipeline::build_from_directory;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
 use crate::installation::InstallationRequest;
 use crate::installation::inspect::RepairClassification;

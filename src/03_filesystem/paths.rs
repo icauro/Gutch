@@ -1,3 +1,5 @@
+//! Manifest path validation, native/manifest path conversion, and guards that keep operation paths disjoint.
+
 use crate::Error;
 use crate::Result;
 use std::collections::{HashMap, HashSet};

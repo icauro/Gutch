@@ -1,3 +1,5 @@
+//! The repository manifest and its artifact packaging profile.
+
 use crate::artifact::profiles::{
     ArtifactStorageMode, BundleSizingPreset, BundleSizingProfile, ChunkSizingPreset,
     ChunkSizingProfile, Chunker, CompressionKind, CompressionProfile,

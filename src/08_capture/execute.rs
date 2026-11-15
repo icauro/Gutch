@@ -1,4 +1,6 @@
-use super::contracts::{SnapshotCaptureRequest, SnapshotCaptureResult};
+//! Captures one source into a repository snapshot and publishes it.
+
+use crate::capture::contracts::{SnapshotCaptureRequest, SnapshotCaptureResult};
 use crate::error::capture_outcome::{MetadataFieldDifference, SnapshotCaptureOutcome};
 use std::path::Path;
 use std::path::PathBuf;
@@ -15,7 +17,7 @@ use crate::progress::ProgressPhase;
 use crate::progress::ProgressSink;
 use crate::repo::Result;
 
-use super::plan::plan_snapshot_capture_with_control;
+use crate::capture::plan::plan_snapshot_capture_with_control;
 fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
     match value {
         None => String::from("(absent)"),
@@ -156,26 +158,27 @@ fn execute_repo_snapshot_capture(
                     ),
                 ])
             });
-    let mut build_config = crate::capture::types::BuildConfig::for_snapshot(&normalized_tags)
-        .with_existing_chunks(&reuse_state.available_chunk_sizes)
-        .with_existing_bundles(&reuse_state.bundle_ids)
-        .with_previous_manifests(&reuse_state.previous_file_manifests)
-        .with_chunk_profile(request.chunk_profile)
-        .with_chunker(request.chunker)
-        .with_bundle_profile(request.bundle_profile)
-        .with_compression(request.compression_algorithm, request.compression_level)
-        .with_storage_mode(request.storage_mode)
-        .with_runtime_hints(request.runtime_hints)
-        .with_artifact_staging_root(repo_paths.bundles_root.clone());
+    let mut build_config =
+        crate::capture::build::types::BuildConfig::for_snapshot(&normalized_tags)
+            .with_existing_chunks(&reuse_state.available_chunk_sizes)
+            .with_existing_bundles(&reuse_state.bundle_ids)
+            .with_previous_manifests(&reuse_state.previous_file_manifests)
+            .with_chunk_profile(request.chunk_profile)
+            .with_chunker(request.chunker)
+            .with_bundle_profile(request.bundle_profile)
+            .with_compression(request.compression_algorithm, request.compression_level)
+            .with_storage_mode(request.storage_mode)
+            .with_runtime_hints(request.runtime_hints)
+            .with_artifact_staging_root(repo_paths.bundles_root.clone());
     build_config.control = request.control.clone();
     drop(_config_span);
 
     drop(_prepare_span);
-    let super::build::BuiltCapture {
+    let crate::capture::build::BuiltCapture {
         result,
         timings,
         source_inventory,
-    } = super::build::build_with_stable_source(
+    } = crate::capture::build::build_with_stable_source(
         &prepared_input.dir,
         &build_config,
         build_pool,
@@ -263,13 +266,14 @@ fn execute_repo_snapshot_capture(
         .filter(|chunk_id| reuse_state.available_chunk_sizes.contains_key(chunk_id))
         .count();
 
-    let (manifest_path, required_bundle_count) = super::publish::publish_snapshot_artifacts(
-        &request.control,
-        &repo_paths,
-        &result,
-        reuse_state,
-        build_pool,
-    )?;
+    let (manifest_path, required_bundle_count) =
+        crate::capture::publish::publish_snapshot_artifacts(
+            &request.control,
+            &repo_paths,
+            &result,
+            reuse_state,
+            build_pool,
+        )?;
 
     let capture_result = SnapshotCaptureResult {
         repo_root: repo_paths.repo_root,

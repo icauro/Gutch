@@ -1,3 +1,5 @@
+//! External product dependency requirements and their version checks.
+
 use serde::Deserialize;
 use serde::Serialize;
 

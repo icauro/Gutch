@@ -1,3 +1,5 @@
+//! Artifact download queue: priorities, scheduling, adaptive concurrency and readiness events.
+
 use super::adaptive::{AdaptiveTransferState, TransferObservation};
 use super::artifact_download::download_pending_artifact;
 use super::progress::FetchTransferProgress;

@@ -1,3 +1,5 @@
+//! Compression adapters (none, zstd, lz4) with bounded working memory.
+
 #[cfg(test)]
 use std::io::Cursor;
 use std::io::Read;

@@ -4,7 +4,7 @@ use std::time::Duration;
 #[test]
 fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
     use crate::profiling::ProfileMode;
-    let build = crate::capture::types::BuildTimings {
+    let build = crate::capture::build::types::BuildTimings {
         logical_bytes: 42,
         compression_input_bytes: 100,
         compression_output_bytes: 25,
@@ -103,7 +103,7 @@ fn table_cells_are_truncated_without_breaking_width() {
 
 #[test]
 fn build_summary_separates_wall_phases_from_worker_details() {
-    let timings = crate::capture::types::BuildTimings {
+    let timings = crate::capture::build::types::BuildTimings {
         storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         scan_chunk_wall: Duration::from_secs(4),
         logical_bytes: 20 * 1024 * 1024,
@@ -126,7 +126,7 @@ fn build_summary_separates_wall_phases_from_worker_details() {
         bundle_compressed_frame_output_bytes: 5 * 1024 * 1024,
         manifest_finalize_wall: Duration::from_secs(1),
         total: Duration::from_secs(10),
-        ..crate::capture::types::BuildTimings::default()
+        ..crate::capture::build::types::BuildTimings::default()
     };
 
     let summary = build_timings_summary(&timings, crate::profiling::ProfileMode::Detailed);

@@ -535,9 +535,9 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
         &crate::artifact::profiles::CompressionProfile::default(),
     )
     .unwrap();
-    let built_bundle = crate::capture::types::BuiltBundle {
+    let built_bundle = crate::capture::build::types::BuiltBundle {
         bundle_id: bundle_id.clone(),
-        staged_file: crate::capture::types::StagedArtifactFile::new(staged_path),
+        staged_file: crate::capture::build::types::StagedArtifactFile::new(staged_path),
         size: data.len() as u64,
         entries: reader.entries().to_vec(),
     };

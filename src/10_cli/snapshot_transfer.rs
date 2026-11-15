@@ -1,3 +1,5 @@
+//! `snapshot fetch` commands and artifact URL inputs.
+
 use crate::cli::command_support::SnapshotFetchReconstructStats;
 use crate::cli::command_support::parse_artifact_downloads;
 use crate::cli::command_support::write_report;

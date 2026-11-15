@@ -1,3 +1,5 @@
+//! Snapshot tag sets and tag-key normalization.
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

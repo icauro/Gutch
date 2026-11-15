@@ -1,3 +1,5 @@
+//! Resolved launch configuration and validation of launch paths, arguments and actions.
+
 use std::collections::HashSet;
 
 use serde::Deserialize;

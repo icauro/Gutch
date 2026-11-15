@@ -5,7 +5,7 @@ use std::path::Path;
 
 fn write_bundles(
     bundles_root: &Path,
-    bundles: &[crate::capture::types::BuiltBundle],
+    bundles: &[crate::capture::build::types::BuiltBundle],
     pool: &rayon::ThreadPool,
     control: &crate::progress::OperationControl,
 ) -> Result<()> {
@@ -45,7 +45,7 @@ fn write_bundles(
 
 fn write_loose_chunks(
     chunks_root: &Path,
-    chunks: &[crate::capture::types::BuiltLooseChunk],
+    chunks: &[crate::capture::build::types::BuiltLooseChunk],
     pool: &rayon::ThreadPool,
     control: &crate::progress::OperationControl,
 ) -> Result<()> {
@@ -103,8 +103,8 @@ fn capture_artifact_write_trace_args(
 pub(super) fn publish_snapshot_artifacts(
     control: &crate::progress::OperationControl,
     repo_paths: &crate::repo::paths::RepoPaths,
-    result: &super::types::BuildResult,
-    reuse_state: &mut super::reuse::CaptureReuseState,
+    result: &crate::capture::build::types::BuildResult,
+    reuse_state: &mut crate::capture::reuse::CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<(std::path::PathBuf, usize)> {
     // Snapshot publication below persists the captured snapshot. The snapshot

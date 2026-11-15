@@ -1,3 +1,5 @@
+//! The reconstruction plan the executor runs: per-artifact and per-source jobs and their targets.
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;

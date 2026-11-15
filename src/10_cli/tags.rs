@@ -1,3 +1,5 @@
+//! Parses CLI tag arguments.
+
 use crate::manifest::SnapshotTagSet;
 
 pub(crate) fn parse_cli_tags(tag_values: &[String]) -> crate::Result<SnapshotTagSet> {

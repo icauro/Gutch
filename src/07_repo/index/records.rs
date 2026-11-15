@@ -1,3 +1,5 @@
+//! Chunk index records: indexed artifacts and their chunk entries.
+
 use crate::artifact::profiles::ArtifactStorageMode;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

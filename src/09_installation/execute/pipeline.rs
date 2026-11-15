@@ -1,3 +1,5 @@
+//! Coordinates artifact readiness, job dispatch and file verification for one reconstruction.
+
 use crate::profiling::ProfileInstant;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -10,9 +12,9 @@ use std::time::Duration;
 
 use rayon::ThreadPool;
 
-use super::types::ReconstructTimings;
 use crate::Error;
 use crate::Result;
+use crate::installation::contracts::ReconstructTimings;
 use crate::progress::OperationControl;
 use crate::progress::OperationKind;
 use crate::progress::ProgressEvent;
@@ -27,28 +29,28 @@ use crate::transfer::progress::FetchTransferProgress;
 
 use super::handles::{OutputHandleCache, SourceHandleCache};
 use super::jobs::{ReconstructJob, ReconstructPipelineFile, ReconstructPipelinePlan};
-use super::plan::build_artifact_priorities;
+use crate::installation::plan::build_artifact_priorities;
 
 use super::workers::{
     ReconstructJobEvent, ReconstructWorkContext, ReconstructWorkItem, ReconstructionWorkQueue,
     dispatch_ready_work,
 };
-pub(super) struct ExecuteReconstructPipelineRequest<'a> {
-    pub(super) pipeline_plan: ReconstructPipelinePlan,
-    pub(super) output_paths: Arc<Vec<PathBuf>>,
-    pub(super) snapshot_id: &'a str,
-    pub(super) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
-    pub(super) runtime_hints: &'a RuntimeResourceHints,
-    pub(super) existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
-    pub(super) pending_artifact_downloads: &'a [PendingArtifactDownload],
-    pub(super) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
-    pub(super) control: &'a OperationControl,
-    pub(super) download_client: Option<&'a crate::transfer::http::DownloadClient>,
-    pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
-    pub(super) reconstruct_pool: Option<&'a ThreadPool>,
+pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
+    pub(crate) pipeline_plan: ReconstructPipelinePlan,
+    pub(crate) output_paths: Arc<Vec<PathBuf>>,
+    pub(crate) snapshot_id: &'a str,
+    pub(crate) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
+    pub(crate) runtime_hints: &'a RuntimeResourceHints,
+    pub(crate) existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
+    pub(crate) pending_artifact_downloads: &'a [PendingArtifactDownload],
+    pub(crate) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
+    pub(crate) control: &'a OperationControl,
+    pub(crate) download_client: Option<&'a crate::transfer::http::DownloadClient>,
+    pub(crate) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
+    pub(crate) reconstruct_pool: Option<&'a ThreadPool>,
 }
 
-pub(super) fn run_reconstruction_jobs(
+pub(crate) fn run_reconstruction_jobs(
     request: ExecuteReconstructPipelineRequest<'_>,
 ) -> Result<(
     ReconstructTimings,

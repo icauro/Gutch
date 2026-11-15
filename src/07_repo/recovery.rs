@@ -1,3 +1,5 @@
+//! Rebuilds the chunk index from stored artifacts.
+
 use crate::Error;
 use crate::Result;
 use crate::artifact::profiles::ArtifactStorageMode;

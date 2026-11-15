@@ -1,3 +1,5 @@
+//! Snapshot deletion and retagging.
+
 use std::path::Path;
 
 use serde::Deserialize;

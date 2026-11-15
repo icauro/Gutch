@@ -1,3 +1,5 @@
+//! Required artifacts for snapshots and bundle identity checks.
+
 use crate::artifact::bundle::BundleTableEntry;
 use crate::artifact::bundle::{BundleReader, verify_bundle_identity_reader};
 use crate::artifact::hash::ChunkHash;

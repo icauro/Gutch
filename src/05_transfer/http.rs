@@ -1,3 +1,5 @@
+//! HTTP client construction and bounded streaming downloads.
+
 use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;

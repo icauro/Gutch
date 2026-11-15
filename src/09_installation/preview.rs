@@ -1,7 +1,7 @@
 //! Streamed installation change previews. Execution always reinspects its inputs.
-use super::install::InstallationPublication;
-use super::types::InstallationRequest;
 use crate::Result;
+use crate::installation::contracts::InstallationRequest;
+use crate::installation::install::InstallationPublication;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 
@@ -61,26 +61,29 @@ pub fn visit_installation_plan(
 ) -> Result<InstallationPlanSummary> {
     crate::repo::coordination::read_with_control(&request.repo_path, &request.control, || {
         request.control.checkpoint()?;
-        super::apply::validate_installation_paths(
+        crate::installation::staging::validate_installation_paths(
             &request.destination_dir,
             request.staging_dir.as_deref(),
             &request.repo_path,
         )?;
-        let super::prepare::LoadedRepoSnapshot {
+        let crate::installation::prepare::LoadedRepoSnapshot {
             repo_paths: paths,
             snapshot_manifest: target,
             ..
-        } = super::prepare::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        } = crate::installation::prepare::load_repo_snapshot_manifest(
+            &request.repo_path,
+            &request.snapshot_id,
+        )?;
         let index = crate::repo::index::load_chunk_index(&paths)?;
         let verified = inspection == InstallationInspection::Content;
-        let changes = super::plan::inspect_installation_changes(
+        let changes = crate::installation::plan::inspect_installation_changes(
             &target,
             Some(&index),
             &request.destination_dir,
             if verified {
-                super::inspect::VerifyMode::Fast
+                crate::installation::inspect::VerifyMode::Fast
             } else {
-                super::inspect::VerifyMode::MetadataOnly
+                crate::installation::inspect::VerifyMode::MetadataOnly
             },
             &request.runtime_hints,
             &request.control,
@@ -173,13 +176,13 @@ pub fn visit_installation_plan(
             .as_deref()
             .unwrap_or(&request.destination_dir);
         let source = if verified {
-            super::apply::resolve_verified_source(
-                source_manifest
-                    .as_ref()
-                    .map(|manifest| super::types::SnapshotReconstructSource {
+            crate::installation::source::resolve_verified_source(
+                source_manifest.as_ref().map(|manifest| {
+                    crate::installation::contracts::SnapshotReconstructSource {
                         snapshot_manifest: manifest,
                         destination_dir: source_directory,
-                    }),
+                    }
+                }),
                 &request.runtime_hints,
                 &request.control,
             )?
@@ -192,7 +195,7 @@ pub fn visit_installation_plan(
             .filter(|artifact| artifact.local_path(&paths).is_ok_and(|path| path.is_file()))
             .cloned()
             .collect();
-        let jobs = super::plan::build_reconstruct_pipeline_plan(
+        let jobs = crate::installation::plan::build_reconstruct_pipeline_plan(
             execution_manifest,
             &index,
             &paths,
@@ -203,12 +206,13 @@ pub fn visit_installation_plan(
             .jobs
             .iter()
             .map(|job| match job {
-                super::jobs::ReconstructJob::SourceChunk(job) => {
+                crate::installation::execute::jobs::ReconstructJob::SourceChunk(job) => {
                     u64::from(job.raw_size) * job.targets().count() as u64
                 }
-                super::jobs::ReconstructJob::CopySourceFile { file_index, .. } => {
-                    jobs.files[*file_index].size
-                }
+                crate::installation::execute::jobs::ReconstructJob::CopySourceFile {
+                    file_index,
+                    ..
+                } => jobs.files[*file_index].size,
                 _ => 0,
             })
             .sum();

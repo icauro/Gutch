@@ -1,3 +1,5 @@
+//! A file manifest with its full-file hash parsed for verification.
+
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;

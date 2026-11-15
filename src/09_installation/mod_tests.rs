@@ -1,10 +1,10 @@
-use super::*;
 use crate::artifact::hash::hash_hex;
 use crate::installation::repair_installation;
 use crate::installation::resolve_snapshot_state;
 use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
 use crate::runtime::RuntimeResourceHints;
@@ -359,7 +359,7 @@ fn symlink_in_implicit_directory_gets_its_parent_created() {
         },
     ));
     let output = tempfile::tempdir().unwrap();
-    crate::installation::entries::prepare_snapshot_entries(
+    crate::installation::execute::entries::prepare_snapshot_entries(
         &manifest,
         output.path(),
         &crate::progress::OperationControl::default(),

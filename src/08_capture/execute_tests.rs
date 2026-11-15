@@ -1,6 +1,6 @@
 use super::*;
 use crate::capture::plan::plan_snapshot_capture;
-use crate::capture::source_operations::build_source_snapshot_ops_candidate;
+use crate::capture::sources::discovery::build_source_snapshot_ops_candidate;
 use crate::manifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::paths::RepoPaths;

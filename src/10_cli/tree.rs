@@ -1,3 +1,5 @@
+//! `tree compare` command.
+
 use std::path::PathBuf;
 
 use crate::cli::command_support::write_report;

@@ -1,3 +1,5 @@
+//! Repository rename and constraint updates, with tag validation.
+
 use std::path::Path;
 
 use crate::Result;

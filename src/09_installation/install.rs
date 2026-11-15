@@ -1,10 +1,12 @@
-use super::apply::prepare_installation_destination;
-use super::prepare::{ReconstructionInputs, prepare_reconstruction};
-use super::types::{
+//! Shared installation entry point, with full reconstruction as a preset.
+
+use crate::Result;
+use crate::installation::contracts::{
     InstallationReconstructResult, InstallationRequest, SnapshotReconstructSource,
     SnapshotRepairResult,
 };
-use crate::Result;
+use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
+use crate::installation::staging::prepare_installation_destination;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +26,12 @@ pub struct InstallationResult {
     pub repair: Option<SnapshotRepairResult>,
 }
 
+/// Full reconstruction: build in staging, then replace the destination.
+pub fn reconstruct_snapshot(request: InstallationRequest) -> Result<InstallationReconstructResult> {
+    install_snapshot_from_repo(request, InstallationPublication::ReplaceDirectory)
+        .map(|result| result.reconstruction)
+}
+
 pub fn install_snapshot_from_repo(
     request: InstallationRequest,
     publication: InstallationPublication,
@@ -36,11 +44,14 @@ pub fn install_snapshot_from_repo(
             InstallationPublication::ReplaceDirectory => "installation.reconstruct",
             InstallationPublication::Selective { .. } => "installation.repair",
         });
-        let super::prepare::LoadedRepoSnapshot {
+        let crate::installation::prepare::LoadedRepoSnapshot {
             repo_paths,
             repo_manifest,
             snapshot_manifest,
-        } = super::prepare::load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        } = crate::installation::prepare::load_repo_snapshot_manifest(
+            &request.repo_path,
+            &request.snapshot_id,
+        )?;
         let chunk_index = crate::repo::index::load_chunk_index(&repo_paths)?;
         let _promotion_lock = prepare_installation_destination(
             &snapshot_manifest,
@@ -50,11 +61,11 @@ pub fn install_snapshot_from_repo(
             &request.control,
         )?;
         let changes = if publication.is_selective() {
-            Some(super::plan::inspect_installation_changes(
+            Some(crate::installation::plan::inspect_installation_changes(
                 &snapshot_manifest,
                 Some(&chunk_index),
                 &request.destination_dir,
-                super::inspect::VerifyMode::Fast,
+                crate::installation::inspect::VerifyMode::Fast,
                 &request.runtime_hints,
                 &request.control,
                 None,
@@ -110,32 +121,37 @@ pub fn install_snapshot_from_repo(
             runtime_hints: &request.runtime_hints,
             control: &request.control,
         })?;
-        let (mut reconstruction, repair) = super::execute::apply_reconstruct_pipeline(
-            crate::installation::jobs::ReconstructPipelineApplyRequest {
-                publication: match changes.as_ref() {
-                    Some(changes) => super::publish::Publication::Selective {
-                        target: &snapshot_manifest,
-                        changes,
-                        remove_extra_files: publication.removes_extra_files(),
+        let (mut reconstruction, repair) =
+            crate::installation::execute::apply_reconstruct_pipeline(
+                crate::installation::execute::jobs::ReconstructPipelineApplyRequest {
+                    publication: match changes.as_ref() {
+                        Some(changes) => {
+                            crate::installation::execute::publish::Publication::Selective {
+                                target: &snapshot_manifest,
+                                changes,
+                                remove_extra_files: publication.removes_extra_files(),
+                            }
+                        }
+                        None => {
+                            crate::installation::execute::publish::Publication::ReplaceDirectory
+                        }
                     },
-                    None => super::publish::Publication::ReplaceDirectory,
+                    repo_root: &repo_paths.repo_root,
+                    compression_profile: repo_manifest.compression_profile(),
+                    snapshot_manifest: execution_manifest,
+                    destination_dir: &request.destination_dir,
+                    staging_dir: request.staging_dir.as_deref(),
+                    source_destination_dir: prepared.source_directory,
+                    runtime_hints: &request.runtime_hints,
+                    existing_artifacts: &existing_artifacts,
+                    pending_artifact_downloads: &[],
+                    transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
+                    control: &request.control,
+                    download_client: None,
+                    transfer_progress: None,
                 },
-                repo_root: &repo_paths.repo_root,
-                compression_profile: repo_manifest.compression_profile(),
-                snapshot_manifest: execution_manifest,
-                destination_dir: &request.destination_dir,
-                staging_dir: request.staging_dir.as_deref(),
-                source_destination_dir: prepared.source_directory,
-                runtime_hints: &request.runtime_hints,
-                existing_artifacts: &existing_artifacts,
-                pending_artifact_downloads: &[],
-                transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-                control: &request.control,
-                download_client: None,
-                transfer_progress: None,
-            },
-            prepared.plan,
-        )?;
+                prepared.plan,
+            )?;
         reconstruction.snapshot_manifest = snapshot_manifest;
         Ok(InstallationResult {
             reconstruction,

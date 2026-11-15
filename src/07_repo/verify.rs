@@ -1,3 +1,5 @@
+//! Repository artifact verification by structure or identity.
+
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;

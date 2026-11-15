@@ -1,3 +1,5 @@
+//! Packaging profiles: chunker, chunk and bundle sizing, storage mode and compression.
+
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
