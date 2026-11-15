@@ -6,9 +6,9 @@ use std::path::Path;
 
 pub(crate) fn run(
     command: RepoCommands,
-    remote_provider: Option<&dyn crate::api::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn crate::sync::remote::RemoteRepositoryCommandProvider>,
     profile: &crate::cli::Profile,
-) -> crate::api::Result<()> {
+) -> crate::Result<()> {
     match command {
         RepoCommands::Constraints { command } => {
             let (repo, replacement) = match command {
@@ -21,14 +21,19 @@ pub(crate) fn run(
                     repo,
                     Some(read_constraint_input(constraints.as_deref(), targets)?),
                 ),
-                crate::cli::ConstraintCommands::Clear { repo } => {
-                    (repo, Some(crate::api::RepositoryConstraints::default()))
-                }
+                crate::cli::ConstraintCommands::Clear { repo } => (
+                    repo,
+                    Some(crate::manifest::constraints::RepositoryConstraints::default()),
+                ),
             };
             if let Some(constraints) = replacement {
-                let constraints = crate::api::plan_repository_constraints(&repo, constraints)?;
+                let constraints =
+                    crate::repo::updates::plan_repository_constraints(&repo, constraints)?;
                 if !crate::cli::output::dry_run() {
-                    crate::api::update_repository_constraints(&repo, constraints.clone())?;
+                    crate::repo::updates::update_repository_constraints(
+                        &repo,
+                        constraints.clone(),
+                    )?;
                 }
                 crate::cli::output::record(&constraints)?;
                 crate::cli::output::line(format_args!(
@@ -36,7 +41,7 @@ pub(crate) fn run(
                     serde_json::to_string_pretty(&constraints)?
                 ));
             } else {
-                let constraints = crate::api::read_repository_constraints(&repo)?;
+                let constraints = crate::repo::updates::read_repository_constraints(&repo)?;
                 crate::cli::output::record(&constraints)?;
                 crate::cli::output::line(format_args!(
                     "{}",
@@ -52,7 +57,7 @@ pub(crate) fn run(
                     json_out,
                 },
         } => {
-            let result = crate::api::rebuild_index(
+            let result = crate::repo::recovery::rebuild_index(
                 &repo,
                 apply && !crate::cli::output::dry_run(),
                 &crate::progress::GutchOperationControl::default(),
@@ -118,7 +123,7 @@ pub(crate) fn run(
         },
         RepoCommands::Rename { repo, name } => {
             if crate::cli::output::dry_run() {
-                let name = crate::api::plan_repo_rename(&repo, &name)?;
+                let name = crate::repo::updates::plan_repo_rename(&repo, &name)?;
                 crate::cli::output::record(
                     &serde_json::json!({"operation": "rename", "name": name}),
                 )?;
@@ -139,7 +144,7 @@ pub(crate) fn run(
 
         RepoCommands::Status { repo, json_out } => {
             let _check_span = profile.as_ref().and_then(|p| p.span("repo.status"));
-            let status = crate::api::read_repo_status(&repo)?;
+            let status = crate::repo::status::read_repo_status(&repo)?;
             crate::cli::output::record(&status)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
@@ -194,12 +199,15 @@ pub(crate) fn run(
             json_out,
         } => {
             let mode = if strict {
-                crate::api::RepoArtifactVerification::Identity
+                crate::repo::verify::RepoArtifactVerification::Identity
             } else {
-                crate::api::RepoArtifactVerification::Structure
+                crate::repo::verify::RepoArtifactVerification::Structure
             };
-            let result =
-                crate::api::verify_gutch_repo_artifacts(&repo, snapshot_id.as_deref(), mode)?;
+            let result = crate::repo::verify::verify_gutch_repo_artifacts(
+                &repo,
+                snapshot_id.as_deref(),
+                mode,
+            )?;
             crate::cli::output::record(&result)?;
             if let Some(json_out) = json_out.as_ref() {
                 ensure_parent_directory(json_out)?;
@@ -229,7 +237,7 @@ pub(crate) fn run(
                 }
             }
             if !result.ok {
-                return Err(crate::api::Error::verify("repository verification failed"));
+                return Err(crate::Error::verify("repository verification failed"));
             }
         }
     }
@@ -240,10 +248,10 @@ pub(crate) fn run(
 pub(crate) fn init_repo(
     path: &Path,
     force: bool,
-    constraints: crate::api::RepositoryConstraints,
-) -> crate::api::Result<()> {
+    constraints: crate::manifest::constraints::RepositoryConstraints,
+) -> crate::Result<()> {
     constraints.validate_definition()?;
-    let assessment = crate::api::assess_repo_init_path(path)?;
+    let assessment = crate::repo::init_policy::assess_repo_init_path(path)?;
     if crate::cli::output::dry_run() {
         crate::cli::output::record(&assessment)?;
         crate::cli::output::line(format_args!(
@@ -258,7 +266,7 @@ pub(crate) fn init_repo(
     let mut proceed_force = force;
     if assessment.requires_confirmation && !proceed_force {
         if !confirm_repo_init_stdio(&assessment)? {
-            return Err(crate::api::Error::manifest("repo creation cancelled"));
+            return Err(crate::Error::manifest("repo creation cancelled"));
         }
         proceed_force = true;
     }
@@ -268,9 +276,9 @@ pub(crate) fn init_repo(
         .and_then(|n| n.to_str())
         .filter(|n| !n.is_empty())
         .unwrap_or("base");
-    crate::api::initialize_repo(
+    crate::repo::init_policy::initialize_repo(
         path,
-        crate::api::RepoInitOptions {
+        crate::repo::init_policy::RepoInitOptions {
             force: proceed_force,
             constraints,
         },
@@ -284,8 +292,8 @@ pub(crate) fn init_repo(
     Ok(())
 }
 
-pub(crate) fn rename_repo(repo: &Path, name: &str) -> crate::api::Result<()> {
-    crate::api::rename_repo(repo, name)?;
+pub(crate) fn rename_repo(repo: &Path, name: &str) -> crate::Result<()> {
+    crate::repo::updates::rename_repo(repo, name)?;
     crate::cli::output::line(format_args!(
         "renamed repo '{}' to '{}'",
         repo.display(),
@@ -295,13 +303,13 @@ pub(crate) fn rename_repo(repo: &Path, name: &str) -> crate::api::Result<()> {
 }
 
 fn confirm_repo_init_stdio(
-    assessment: &crate::api::RepoInitAssessment,
-) -> crate::api::Result<bool> {
+    assessment: &crate::repo::init_policy::RepoInitAssessment,
+) -> crate::Result<bool> {
     crate::cli::output::line(format_args!(""));
     for risk in &assessment.risks {
         crate::cli::output::line(format_args!("{}", risk.message));
     }
-    if assessment.path_kind == crate::api::RepoInitPathKind::ExistingRepo {
+    if assessment.path_kind == crate::repo::init_policy::RepoInitPathKind::ExistingRepo {
         if let Some(name) = assessment.repo_name.as_deref() {
             crate::cli::output::line(format_args!("  existing repo: {name}"));
         }
@@ -311,7 +319,7 @@ fn confirm_repo_init_stdio(
         if let Some(bundle_count) = assessment.bundle_count {
             crate::cli::output::line(format_args!("  bundles: {bundle_count}"));
         }
-    } else if assessment.path_kind == crate::api::RepoInitPathKind::NonEmpty {
+    } else if assessment.path_kind == crate::repo::init_policy::RepoInitPathKind::NonEmpty {
         crate::cli::output::line(format_args!("  entries: {}", assessment.entry_count));
     }
 
@@ -323,12 +331,12 @@ fn confirm_repo_init_stdio(
 
 fn read_constraint_input(
     path: Option<&Path>,
-    targets: Vec<crate::api::FilesystemTarget>,
-) -> crate::api::Result<crate::api::RepositoryConstraints> {
+    targets: Vec<crate::manifest::constraints::FilesystemTarget>,
+) -> crate::Result<crate::manifest::constraints::RepositoryConstraints> {
     let constraints = if let Some(path) = path {
         serde_json::from_str(&crate::filesystem::read_to_string(path)?)?
     } else {
-        crate::api::RepositoryConstraints {
+        crate::manifest::constraints::RepositoryConstraints {
             targets,
             ..Default::default()
         }

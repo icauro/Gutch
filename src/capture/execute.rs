@@ -1,6 +1,5 @@
-use super::contracts::{
-    MetadataFieldDifference, SnapshotCaptureOutcome, SnapshotCaptureRequest, SnapshotCaptureResult,
-};
+use super::contracts::{SnapshotCaptureRequest, SnapshotCaptureResult};
+use crate::error::capture_outcome::{MetadataFieldDifference, SnapshotCaptureOutcome};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

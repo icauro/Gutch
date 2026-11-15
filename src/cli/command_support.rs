@@ -166,40 +166,41 @@ pub(crate) fn write_report<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
     profile: Option<&crate::profile::GutchProfiler>,
-) -> crate::api::Result<()> {
+) -> crate::Result<()> {
     write_stats_json_output(stats_json_out, stats, profile)
 }
 
 pub(crate) fn load_snapshot_manifest_from_repo(
     repo_root: &std::path::Path,
     snapshot_id: &str,
-) -> crate::api::Result<(
-    crate::api::GutchRepoPaths,
-    crate::api::GutchRepoManifest,
+) -> crate::Result<(
+    crate::repo::paths::GutchRepoPaths,
+    crate::manifest::gutch_repo::GutchRepoManifest,
     PathBuf,
-    crate::api::SnapshotManifest,
+    crate::manifest::SnapshotManifest,
 )> {
-    let (repo_paths, repo_manifest) = crate::api::load_gutch_repo_manifest(repo_root)?;
-    let manifest_path = crate::api::snapshot_metadata_path(&repo_paths, snapshot_id)?;
+    let (repo_paths, repo_manifest) = crate::repo::read::load_gutch_repo_manifest(repo_root)?;
+    let manifest_path =
+        crate::repo::snapshot_manifests::snapshot_metadata_path(&repo_paths, snapshot_id)?;
     if !manifest_path.exists() {
-        return Err(crate::api::Error::manifest(format!(
+        return Err(crate::Error::manifest(format!(
             "snapshot metadata not found at {}",
             manifest_path.display()
         )));
     }
 
-    let snapshot_manifest = crate::api::load_snapshot_manifest(&repo_paths, snapshot_id)?;
+    let snapshot_manifest = crate::repo::read::load_snapshot_manifest(&repo_paths, snapshot_id)?;
     Ok((repo_paths, repo_manifest, manifest_path, snapshot_manifest))
 }
 
 pub(crate) fn parse_artifact_downloads(
     artifact_args: &[String],
-) -> crate::api::Result<Vec<crate::api::ArtifactDownload>> {
+) -> crate::Result<Vec<crate::transfer::types::ArtifactDownload>> {
     artifact_args
         .iter()
         .map(|artifact_arg| {
             let Some((artifact_id, url)) = artifact_arg.split_once('=') else {
-                return Err(crate::api::Error::manifest(format!(
+                return Err(crate::Error::manifest(format!(
                     "invalid --artifact value '{}'; use <artifact-id>=<url>",
                     artifact_arg
                 )));
@@ -207,13 +208,13 @@ pub(crate) fn parse_artifact_downloads(
             let artifact_id = artifact_id.trim();
             let url = url.trim();
             if artifact_id.is_empty() || url.is_empty() {
-                return Err(crate::api::Error::manifest(format!(
+                return Err(crate::Error::manifest(format!(
                     "invalid --artifact value '{}'; use <artifact-id>=<url>",
                     artifact_arg
                 )));
             }
 
-            Ok(crate::api::ArtifactDownload {
+            Ok(crate::transfer::types::ArtifactDownload {
                 artifact_id: artifact_id.to_string(),
                 url: url.to_string(),
             })
@@ -221,19 +222,19 @@ pub(crate) fn parse_artifact_downloads(
         .collect()
 }
 
-pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> crate::api::Result<bool> {
+pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> crate::Result<bool> {
     loop {
         let suffix = if default_yes { "[Y/n]" } else { "[y/N]" };
         eprint!("{} {}: ", prompt, suffix);
         io::stderr()
             .flush()
-            .map_err(|err| crate::api::Error::manifest(format!("io error: {}", err)))?;
+            .map_err(|err| crate::Error::manifest(format!("io error: {}", err)))?;
         let mut line = String::new();
         let bytes_read = io::stdin()
             .read_line(&mut line)
-            .map_err(|err| crate::api::Error::manifest(format!("io error: {}", err)))?;
+            .map_err(|err| crate::Error::manifest(format!("io error: {}", err)))?;
         if bytes_read == 0 {
-            return Err(crate::api::Error::manifest("confirmation requires input"));
+            return Err(crate::Error::manifest("confirmation requires input"));
         }
         let trimmed = line.trim().to_ascii_lowercase();
         if trimmed.is_empty() {

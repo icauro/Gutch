@@ -9,13 +9,13 @@ pub use crate::artifact::hash::hash_chunk;
 pub use crate::artifact::hash::hash_hex;
 pub use crate::error::Error;
 pub use crate::error::Result;
-pub use crate::filesystem::constraints::{PathValidationFailure, PathViolation};
-pub use crate::filesystem::paths::ExistingDestinationPathKind;
-pub use crate::filesystem::paths::resolve_existing_destination_path;
-pub use crate::filesystem::promotion_diagnostics::{
+pub use crate::error::path_validation::{PathValidationFailure, PathViolation};
+pub use crate::error::promotion_diagnostics::{
     DiagnosticIoError, DirectoryPromotionDiagnostic, PromotionPathObservation,
     PromotionRecoveryAttempt,
 };
+pub use crate::filesystem::paths::ExistingDestinationPathKind;
+pub use crate::filesystem::paths::resolve_existing_destination_path;
 pub use crate::profile::{
     GutchProfileMode, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler,
 };
@@ -70,8 +70,6 @@ pub use crate::capture::configured_sources::capture_snapshot_sources;
 pub use crate::capture::configured_sources::describe_snapshot_sources_capture_plan;
 pub use crate::capture::configured_sources::plan_snapshot_sources_capture;
 pub use crate::capture::configured_sources::plan_snapshot_sources_capture_with_context;
-pub use crate::capture::contracts::MetadataFieldDifference;
-pub use crate::capture::contracts::SnapshotCaptureOutcome;
 pub use crate::capture::contracts::SnapshotCapturePlan;
 pub use crate::capture::contracts::SnapshotCaptureRequest;
 pub use crate::capture::contracts::SnapshotCaptureResult;
@@ -86,6 +84,8 @@ pub use crate::capture::sources::ResolvedCaptureSource;
 pub use crate::capture::sources::capture_snapshots;
 pub use crate::capture::sources::plan_snapshot_captures;
 pub use crate::capture::sources::resolve_capture_sources;
+pub use crate::error::capture_outcome::MetadataFieldDifference;
+pub use crate::error::capture_outcome::SnapshotCaptureOutcome;
 
 // Installation
 pub use crate::installation::InstallationCorruptionPlan;

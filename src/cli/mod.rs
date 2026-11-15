@@ -82,7 +82,7 @@ where
 
 pub fn run_from_args_with_remote_provider<I, T>(
     args: I,
-    remote_provider: Option<&dyn crate::api::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn crate::sync::remote::RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()>
 where
     I: IntoIterator<Item = T>,
@@ -97,7 +97,7 @@ where
 /// present the same commands under their own executable name.
 pub fn run_from_args_with_remote_provider_named<I, T>(
     args: I,
-    remote_provider: Option<&dyn crate::api::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn crate::sync::remote::RemoteRepositoryCommandProvider>,
     bin_name: &str,
 ) -> crate::Result<()>
 where

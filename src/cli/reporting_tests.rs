@@ -60,7 +60,7 @@ fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
         );
         let verification = verify_timings_summary(
             &crate::installation::inspect::VerifyTimings {
-                verify_mode: crate::api::VerifyMode::Strict,
+                verify_mode: crate::installation::inspect::VerifyMode::Strict,
                 chunk_hash_bytes: 42,
                 ..Default::default()
             },
@@ -199,7 +199,7 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
 #[test]
 fn verify_summary_reports_wall_phases_and_strict_worker_details() {
     let timings = crate::installation::inspect::VerifyTimings {
-        verify_mode: crate::api::VerifyMode::Strict,
+        verify_mode: crate::installation::inspect::VerifyMode::Strict,
         prepare_wall: Duration::from_secs(1),
         verify_files_wall: Duration::from_secs(4),
         extra_file_scan_wall: Duration::from_millis(500),

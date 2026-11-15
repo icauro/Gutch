@@ -19,10 +19,10 @@ use crate::cli::tags::parse_cli_tags;
 fn capture_stats_from_engine_result(
     repo_root: &str,
     input_path: &str,
-    repository: &crate::api::GutchRepoManifest,
-    explicit_tags: &crate::api::SnapshotTagSet,
+    repository: &crate::manifest::gutch_repo::GutchRepoManifest,
+    explicit_tags: &crate::manifest::SnapshotTagSet,
     storage_mode_cli: String,
-    result: &crate::api::SnapshotCaptureResult,
+    result: &crate::capture::contracts::SnapshotCaptureResult,
     mode: crate::profile::GutchProfileMode,
 ) -> SnapshotCaptureStats {
     SnapshotCaptureStats {
@@ -67,13 +67,10 @@ fn capture_stats_from_engine_result(
     }
 }
 
-pub(crate) fn run(
-    command: SnapshotCommands,
-    profile: &crate::cli::Profile,
-) -> crate::api::Result<()> {
+pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> crate::Result<()> {
     match command {
         SnapshotCommands::Diff { repo, from, to } => {
-            let result = crate::api::diff_repo_snapshots(
+            let result = crate::repo::snapshot_manifests::diff_repo_snapshots(
                 &repo,
                 &from,
                 &to,
@@ -83,10 +80,10 @@ pub(crate) fn run(
             {
                 for entry in &result.changes {
                     let label = match entry.change {
-                        crate::api::SnapshotChangeKind::Added => "Added",
-                        crate::api::SnapshotChangeKind::Removed => "Removed",
-                        crate::api::SnapshotChangeKind::Modified => "Modified",
-                        crate::api::SnapshotChangeKind::Metadata => "Metadata",
+                        crate::snapshot::diff::SnapshotChangeKind::Added => "Added",
+                        crate::snapshot::diff::SnapshotChangeKind::Removed => "Removed",
+                        crate::snapshot::diff::SnapshotChangeKind::Modified => "Modified",
+                        crate::snapshot::diff::SnapshotChangeKind::Metadata => "Metadata",
                     };
                     crate::cli::output::line(format_args!(
                         "{label:<8} {:>+12} B  {:?}",
@@ -111,15 +108,15 @@ pub(crate) fn run(
             yes,
         } => {
             let single_report = source_root.is_none();
-            let sources = crate::api::resolve_capture_sources(
+            let sources = crate::capture::sources::resolve_capture_sources(
                 source_root.clone(),
                 source_dirs,
                 parse_cli_tags(&tags)?,
             )?;
-            let (repo_paths, repo_manifest) = crate::api::load_gutch_repo_manifest(&repo)?;
+            let (repo_paths, repo_manifest) = crate::repo::read::load_gutch_repo_manifest(&repo)?;
             let requests = sources
                 .iter()
-                .map(|source| crate::api::SnapshotCaptureRequest {
+                .map(|source| crate::capture::contracts::SnapshotCaptureRequest {
                     repo_root: repo.clone(),
                     source_dir: source.path.clone(),
                     explicit_tags: source.tags.clone(),
@@ -135,31 +132,31 @@ pub(crate) fn run(
                 })
                 .collect::<Vec<_>>();
             if crate::cli::output::dry_run() {
-                let plans = crate::api::plan_snapshot_captures(&requests)?;
+                let plans = crate::capture::sources::plan_snapshot_captures(&requests)?;
                 crate::cli::output::record(&plans)?;
                 for plan in plans {
                     crate::cli::output::line(format_args!(
                         "{}",
-                        crate::api::describe_snapshot_capture_plan(&plan)
+                        crate::capture::plan::describe_snapshot_capture_plan(&plan)
                     ));
                 }
                 return Ok(());
             }
             if !yes {
                 crate::cli::output::line(format_args!("snapshot capture plan:"));
-                for plan in crate::api::plan_snapshot_captures(&requests)? {
+                for plan in crate::capture::sources::plan_snapshot_captures(&requests)? {
                     crate::cli::output::line(format_args!(
                         "  {}",
-                        crate::api::describe_snapshot_capture_plan(&plan)
+                        crate::capture::plan::describe_snapshot_capture_plan(&plan)
                     ));
                 }
                 if !prompt_yes_no("Proceed?", false)? {
-                    return Err(crate::api::Error::manifest("snapshot capture cancelled"));
+                    return Err(crate::Error::manifest("snapshot capture cancelled"));
                 }
             }
-            let results = crate::api::capture_snapshots(requests)?;
+            let results = crate::capture::sources::capture_snapshots(requests)?;
             if let Some(source_root) = source_root {
-                crate::api::initialize_source_config(&source_root)?;
+                crate::capture::source_config::initialize_source_config(&source_root)?;
             }
             let mut snapshot_stats = Vec::with_capacity(results.len());
             for (result, source) in results.iter().zip(&sources) {
@@ -234,10 +231,10 @@ pub(crate) fn run(
         }
 
         SnapshotCommands::List { repo, json_out } => {
-            let status = crate::api::read_repo_status(&repo)?;
+            let status = crate::repo::status::read_repo_status(&repo)?;
             crate::cli::output::record(&status.snapshots)?;
             if !status.is_repo {
-                return Err(crate::api::Error::manifest(format!(
+                return Err(crate::Error::manifest(format!(
                     "no gutch repo found at {}",
                     repo.display()
                 )));
@@ -280,13 +277,16 @@ pub(crate) fn run(
                     false,
                 )?
             {
-                return Err(crate::api::Error::manifest("snapshot deletion cancelled"));
+                return Err(crate::Error::manifest("snapshot deletion cancelled"));
             }
 
             let progress = CliProgressSink::new();
             let control = crate::cli::control_with_profile(profile).with_progress(progress);
-            let orphan_count =
-                crate::api::delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
+            let orphan_count = crate::repo::snapshots::delete_repo_snapshot_and_cleanup(
+                &repo,
+                &snapshot_id,
+                &control,
+            )?;
 
             crate::cli::output::line(format_args!(
                 "deleted snapshot '{}': removed manifest, {} orphaned artifacts cleaned up",
@@ -309,16 +309,15 @@ pub(crate) fn run(
                 serde_json::from_str(&crate::filesystem::read_to_string(&path)?)?
             } else {
                 std::collections::BTreeMap::from([(
-                    snapshot_id.ok_or_else(|| {
-                        crate::api::Error::manifest("select a snapshot or tags file")
-                    })?,
+                    snapshot_id
+                        .ok_or_else(|| crate::Error::manifest("select a snapshot or tags file"))?,
                     parse_cli_tags(&tags)?,
                 )])
             };
             if replacements.is_empty() {
-                return Err(crate::api::Error::manifest("select at least one snapshot"));
+                return Err(crate::Error::manifest("select at least one snapshot"));
             }
-            let preview = crate::api::plan_snapshot_tag_updates(&repo, &replacements)?;
+            let preview = crate::repo::snapshots::plan_snapshot_tag_updates(&repo, &replacements)?;
             for change in &preview {
                 crate::cli::output::line(format_args!(
                     "{}: {} -> {}",
@@ -332,11 +331,9 @@ pub(crate) fn run(
                 return Ok(());
             }
             if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
-                return Err(crate::api::Error::manifest(
-                    "snapshot tag replacement cancelled",
-                ));
+                return Err(crate::Error::manifest("snapshot tag replacement cancelled"));
             }
-            let results = crate::api::retag_snapshots(&repo, replacements)?;
+            let results = crate::repo::snapshots::retag_snapshots(&repo, replacements)?;
             if single_snapshot {
                 crate::cli::output::record(&results[0])?;
             } else {
@@ -376,7 +373,8 @@ pub(crate) fn run(
         )?,
 
         SnapshotCommands::Measure { source_dir, tags } => {
-            let result = crate::api::estimate_snapshot(&source_dir, &parse_cli_tags(&tags)?)?;
+            let result =
+                crate::capture::estimate::estimate_snapshot(&source_dir, &parse_cli_tags(&tags)?)?;
             crate::cli::output::record(
                 &serde_json::json!({"file_count": result.file_count, "logical_bytes": result.total_logical_size, "unique_chunks": result.estimate.unique_chunk_count, "encoded_artifact_bytes": result.estimate.encoded_artifact_bytes}),
             )?;

@@ -1,63 +1,10 @@
 //! Portable filename policies. These deliberately do not emulate volume-specific
 //! Unicode tables; destination validation remains authoritative for a real volume.
+use crate::error::path_validation::{PathValidationFailure, PathViolation};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use unicode_normalization::UnicodeNormalization;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PathViolation {
-    pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub conflicting_path: Option<String>,
-    pub target: String,
-    pub code: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PathValidationFailure {
-    pub operation: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot_id: Option<String>,
-    pub violations: Vec<PathViolation>,
-}
-
-impl std::fmt::Display for PathValidationFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "{} rejected: {} filename compatibility violation(s).",
-            self.operation,
-            self.violations.len()
-        )?;
-        if let Some(id) = &self.snapshot_id {
-            writeln!(f, "Snapshot: {id}")?;
-        }
-        for violation in self.violations.iter().take(10) {
-            // Debug escaping keeps control/bidi characters from altering terminal output.
-            writeln!(
-                f,
-                "{:?}: {}: {}",
-                violation.path, violation.target, violation.reason
-            )?;
-            if let Some(other) = &violation.conflicting_path {
-                writeln!(f, "  Conflicts with {other:?}")?;
-            }
-        }
-        if self.violations.len() > 10 {
-            writeln!(
-                f,
-                "{} more; use --error-json-out for full details.",
-                self.violations.len() - 10
-            )?;
-        }
-        write!(
-            f,
-            "Rename incompatible source files, change repository constraints, or select a compatible destination."
-        )
-    }
-}
 
 pub(crate) fn windows_name_reason(name: &str) -> Option<&'static str> {
     if name.ends_with([' ', '.']) {

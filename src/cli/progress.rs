@@ -2,9 +2,9 @@ use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::api::GutchOperation;
-use crate::api::GutchProgressEvent;
-use crate::api::GutchProgressSink;
+use crate::progress::GutchOperation;
+use crate::progress::GutchProgressEvent;
+use crate::progress::GutchProgressSink;
 use indicatif::ProgressBar;
 use indicatif::ProgressDrawTarget;
 use indicatif::ProgressStyle;
@@ -13,7 +13,7 @@ use indicatif::ProgressStyle;
 #[derive(Debug)]
 pub(crate) struct CliProgressSink {
     bar: ProgressBar,
-    latest: std::sync::Mutex<Option<crate::api::GutchLiveFeedback>>,
+    latest: std::sync::Mutex<Option<crate::progress::GutchLiveFeedback>>,
 }
 
 impl CliProgressSink {
@@ -104,7 +104,7 @@ impl Drop for CliProgressSink {
     }
 }
 
-fn render_feedback(feedback: &crate::api::GutchLiveFeedback) -> String {
+fn render_feedback(feedback: &crate::progress::GutchLiveFeedback) -> String {
     let rate = |value: Option<f64>| {
         value
             .map(|n| format!("{:.1}", n / 1048576.0))

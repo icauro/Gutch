@@ -1,7 +1,6 @@
 //! Atomic filesystem operations and path safety.
 pub(crate) mod constraints;
 pub(crate) mod paths;
-pub(crate) mod promotion_diagnostics;
 
 use std::io::Write;
 use std::path::Path;

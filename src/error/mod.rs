@@ -1,5 +1,9 @@
 //! Engine failures shared by operations and embedding hosts.
 
+pub(crate) mod capture_outcome;
+pub(crate) mod path_validation;
+pub(crate) mod promotion_diagnostics;
+
 use std::path::PathBuf;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -7,7 +11,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
-    PathValidation(crate::filesystem::constraints::PathValidationFailure),
+    PathValidation(path_validation::PathValidationFailure),
 
     #[error("Operation cancelled")]
     Cancelled,
@@ -21,8 +25,7 @@ pub enum Error {
         path: PathBuf,
         #[source]
         source: std::io::Error,
-        promotion:
-            Option<Box<crate::filesystem::promotion_diagnostics::DirectoryPromotionDiagnostic>>,
+        promotion: Option<Box<promotion_diagnostics::DirectoryPromotionDiagnostic>>,
     },
 
     #[error("JSON error: {0}")]
@@ -54,7 +57,7 @@ pub enum Error {
 
     #[error("{outcome}")]
     SnapshotCaptureConflict {
-        outcome: crate::capture::contracts::SnapshotCaptureOutcome,
+        outcome: capture_outcome::SnapshotCaptureOutcome,
     },
 
     #[error("Reconstruction error: {0}")]

@@ -5,9 +5,9 @@ use crate::cli::path;
 
 pub(crate) fn run(
     cli: Cli,
-    remote_provider: Option<&dyn crate::api::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn crate::sync::remote::RemoteRepositoryCommandProvider>,
     profile: &crate::cli::Profile,
-) -> crate::api::Result<()> {
+) -> crate::Result<()> {
     if cli.dry_run {
         let supported = matches!(
             &cli.command,
@@ -32,7 +32,7 @@ pub(crate) fn run(
                 if !arguments.fetch
         );
         if !supported {
-            return Err(crate::api::Error::manifest(
+            return Err(crate::Error::manifest(
                 "--dry-run is not supported for this command",
             ));
         }

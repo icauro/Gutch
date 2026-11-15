@@ -726,8 +726,8 @@ mod constraint_tests {
         crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
         crate::repo::updates::update_repository_constraints(
             root.path(),
-            crate::api::RepositoryConstraints {
-                targets: vec![crate::api::FilesystemTarget::WindowsNtfs],
+            crate::manifest::constraints::RepositoryConstraints {
+                targets: vec![crate::filesystem::constraints::FilesystemTarget::WindowsNtfs],
                 ..Default::default()
             },
         )

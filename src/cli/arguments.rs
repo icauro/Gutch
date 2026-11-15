@@ -29,8 +29,8 @@ pub(crate) struct RuntimeArgs {
 }
 
 impl RuntimeArgs {
-    pub(crate) fn hints(self) -> crate::api::RuntimeResourceHints {
-        crate::api::RuntimeResourceHints {
+    pub(crate) fn hints(self) -> crate::runtime::RuntimeResourceHints {
+        crate::runtime::RuntimeResourceHints {
             jobs: self.jobs,
             memory_budget_bytes: self
                 .memory_budget_mib
@@ -66,13 +66,16 @@ pub(crate) struct TransferArgs {
 }
 
 impl TransferArgs {
-    pub(crate) fn policy(self) -> crate::api::TransferConcurrencyPolicy {
+    pub(crate) fn policy(self) -> crate::transfer::types::TransferConcurrencyPolicy {
         match self.policy {
             TransferPolicyArg::Fixed => {
-                crate::api::TransferConcurrencyPolicy::fixed(self.concurrency)
+                crate::transfer::types::TransferConcurrencyPolicy::fixed(self.concurrency)
             }
             TransferPolicyArg::Adaptive => {
-                crate::api::TransferConcurrencyPolicy::adaptive(self.concurrency, self.maximum)
+                crate::transfer::types::TransferConcurrencyPolicy::adaptive(
+                    self.concurrency,
+                    self.maximum,
+                )
             }
         }
     }
@@ -182,7 +185,7 @@ pub(crate) enum RepoCommands {
         #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,
         #[arg(long = "filesystem", value_enum, value_delimiter = ',')]
-        targets: Vec<crate::api::FilesystemTarget>,
+        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
         #[arg(long = "repo", value_parser = parse_cli_path)]
         path: PathBuf,
         #[arg(long = "force")]
@@ -274,7 +277,7 @@ pub(crate) enum ConstraintCommands {
             value_delimiter = ',',
             required_unless_present = "constraints"
         )]
-        targets: Vec<crate::api::FilesystemTarget>,
+        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
         /// JSON file containing the complete replacement constraints object.
         #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,

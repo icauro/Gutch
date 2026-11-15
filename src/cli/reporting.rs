@@ -632,7 +632,7 @@ pub(crate) fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> Optiona
     }
 }
 
-pub(crate) fn ensure_parent_directory(path: &std::path::Path) -> crate::api::Result<()> {
+pub(crate) fn ensure_parent_directory(path: &std::path::Path) -> crate::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -646,7 +646,7 @@ pub(crate) fn write_stats_json_output<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
     profile: Option<&crate::profile::GutchProfiler>,
-) -> crate::api::Result<()> {
+) -> crate::Result<()> {
     let mut value = serde_json::to_value(stats)?;
     let mode = profile.map(|p| p.mode()).unwrap_or_default();
     value["profiling_mode"] = serde_json::to_value(mode)?;
@@ -659,7 +659,7 @@ pub(crate) fn write_stats_json_output<T: Serialize>(
     Ok(())
 }
 
-pub(crate) fn print_transfer_timings(t: &crate::api::TransferStats) {
+pub(crate) fn print_transfer_timings(t: &crate::transfer::types::TransferStats) {
     print_section_title("Fetch Transfer Timing");
     print_table_header("wall seconds");
     print_table_row(

@@ -73,13 +73,32 @@ internal implementation owners.
 | `filesystem` | Atomic I/O, path safety, filesystem naming targets, locks, and recoverable directory replacement shared by repository and installation publication |
 | `path_compare` | Physical tree comparison |
 | `runtime`, `progress`, `profile` | Resources, workers, cancellation, progress, timings, and traces |
-| `config`, `error` | CLI-local configuration and typed failures |
+| `config`, `error` | CLI-local configuration, typed failures and their payloads |
 
-Internal callers import the owning module directly. Engine modules form fixed
-layers: `filesystem` < `artifact` < `manifest` < `snapshot` < `repo`;
-`transfer` sits on `artifact`; `sync` builds on `repo` and `transfer`; `capture`
-and `installation` are the top. A module never imports a higher layer;
-`src/tests/module_boundaries.rs` enforces this. Artifact codecs do not call
+Internal callers import the owning module directly. Top-level modules form
+numbered dependency layers: each module's layer is one more than the highest
+layer its production code uses, so modules sharing a layer never use each other.
+
+| Layer | Modules |
+|---|---|
+| 0 | `error` |
+| 1 | `profile` |
+| 2 | `progress` |
+| 3 | `filesystem`, `runtime` |
+| 4 | `artifact`, `config` |
+| 5 | `manifest`, `path_compare`, `transfer` |
+| 6 | `snapshot` |
+| 7 | `repo` |
+| 8 | `capture`, `sync` |
+| 9 | `installation` |
+| 10 | `cli` |
+| 11 | `api` (public facade) |
+
+A module never uses its own or a higher layer; test code may. Typed failure
+payloads carried by `Error` (path validation, directory promotion diagnostics
+and capture outcomes) live under `error/` so `error` stays at the bottom.
+`src/tests/module_boundaries.rs` enforces this map; a new top-level module or a
+dependency that changes a layer must update it. Artifact codecs do not call
 repository workflows; repository persistence does not call installation
 orchestration. Repository artifact verification uses its own structure/identity
 policy, independent of installation file/chunk inspection. Repository integrity
@@ -89,7 +108,8 @@ references, but never acquires repository locks, loads/publishes snapshot
 metadata, or drives installation execution. Combined fetch/reconstruction belongs
 to installation and consumes `sync` fetch preparation under one write lock.
 The public `api` module only re-exports owner operations and contracts; guarded
-reader implementation belongs to `repo/read`. CLI handlers call `crate::api`.
+reader implementation belongs to `repo/read`. CLI handlers import the owning
+modules directly; only hosts go through `api`.
 Keep phase types with their owner and tests beside the code they exercise.
 Packaging profiles belong to `artifact/profiles`; codecs do not import manifest
 schemas. Manifest validation may consume artifact profiles, hashes and codecs.

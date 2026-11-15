@@ -22,14 +22,14 @@ pub(crate) struct FetchCommand {
     pub(crate) session_id: Option<String>,
     pub(crate) artifacts: Vec<String>,
     pub(crate) artifact_url_manifest: Option<std::path::PathBuf>,
-    pub(crate) transfer_policy: crate::api::TransferConcurrencyPolicy,
+    pub(crate) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
 }
 
 impl FetchCommand {
     fn into_request(
         self,
-        control: crate::api::GutchOperationControl,
-    ) -> crate::api::Result<crate::api::SnapshotFetchRequest> {
+        control: crate::progress::GutchOperationControl,
+    ) -> crate::Result<crate::sync::fetch_types::SnapshotFetchRequest> {
         let FetchCommand {
             repo,
             snapshot_id,
@@ -52,13 +52,12 @@ impl FetchCommand {
                     .timeout(Duration::from_secs(30 * 60))
                     .build()
                     .map_err(|err| {
-                        crate::api::Error::manifest(format!(
-                            "failed to create download client: {err}"
-                        ))
+                        crate::Error::manifest(format!("failed to create download client: {err}"))
                     })?;
                 let session_id = session_id.clone();
-                Ok::<Arc<dyn crate::api::ArtifactUrlProvider>, crate::api::Error>(Arc::new(
-                    move |bundle_ids: &[String], control: &crate::api::GutchOperationControl| {
+                Ok::<Arc<dyn crate::transfer::types::ArtifactUrlProvider>, crate::Error>(Arc::new(
+                    move |bundle_ids: &[String],
+                          control: &crate::progress::GutchOperationControl| {
                         resolve_artifact_urls(
                             &client,
                             &endpoint,
@@ -74,7 +73,7 @@ impl FetchCommand {
         if let Some(manifest_path) = artifact_url_manifest {
             direct_downloads.extend(parse_artifact_url_manifest(&manifest_path)?);
         }
-        Ok(crate::api::SnapshotFetchRequest {
+        Ok(crate::sync::fetch_types::SnapshotFetchRequest {
             repo_path: repo,
             snapshot_id,
             repo_metadata_url,
@@ -90,12 +89,9 @@ impl FetchCommand {
     }
 }
 
-pub(crate) fn fetch(
-    command: FetchCommand,
-    profile: &crate::cli::Profile,
-) -> crate::api::Result<()> {
+pub(crate) fn fetch(command: FetchCommand, profile: &crate::cli::Profile) -> crate::Result<()> {
     let progress = CliProgressSink::new();
-    let result = crate::api::fetch_snapshot(
+    let result = crate::sync::fetch::fetch_snapshot(
         &command.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?,
     )?;
 
@@ -138,14 +134,14 @@ pub(crate) struct FetchAndReconstructCommand {
     pub(crate) staging_dir: Option<std::path::PathBuf>,
     pub(crate) source_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<std::path::PathBuf>,
-    pub(crate) runtime_hints: crate::api::RuntimeResourceHints,
+    pub(crate) runtime_hints: crate::runtime::RuntimeResourceHints,
     pub(crate) stats_json_out: Option<std::path::PathBuf>,
 }
 
 pub(crate) fn fetch_and_reconstruct(
     command: FetchAndReconstructCommand,
     profile: &crate::cli::Profile,
-) -> crate::api::Result<()> {
+) -> crate::Result<()> {
     let FetchAndReconstructCommand {
         fetch,
         destination,
@@ -158,8 +154,8 @@ pub(crate) fn fetch_and_reconstruct(
     let progress = CliProgressSink::new();
     let fetch_request =
         fetch.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?;
-    let result = crate::api::fetch_and_reconstruct_snapshot(
-        crate::api::SnapshotFetchAndReconstructRequest {
+    let result = crate::installation::fetch::fetch_and_reconstruct_snapshot(
+        crate::installation::fetch::SnapshotFetchAndReconstructRequest {
             fetch_request,
             destination_dir: destination,
             staging_dir,
@@ -168,7 +164,7 @@ pub(crate) fn fetch_and_reconstruct(
             runtime_hints,
         },
     )?;
-    let crate::api::SnapshotFetchAndReconstructResult {
+    let crate::installation::fetch::SnapshotFetchAndReconstructResult {
         fetch_result,
         reconstruct_result: reconstruct_execution,
     } = result;
@@ -246,8 +242,8 @@ fn resolve_artifact_urls(
     endpoint: &str,
     session_id: Option<&str>,
     bundle_ids: &[String],
-    control: &crate::api::GutchOperationControl,
-) -> crate::api::Result<Vec<crate::api::ArtifactDownload>> {
+    control: &crate::progress::GutchOperationControl,
+) -> crate::Result<Vec<crate::transfer::types::ArtifactDownload>> {
     control.checkpoint()?;
     let separator = if endpoint.contains('?') { "&" } else { "?" };
     let request_url = format!(
@@ -260,16 +256,18 @@ fn resolve_artifact_urls(
     }
     let response = request
         .send()
-        .map_err(|err| crate::api::Error::manifest(format!("bundle URL request failed: {err}")))?;
+        .map_err(|err| crate::Error::manifest(format!("bundle URL request failed: {err}")))?;
     if !response.status().is_success() {
-        return Err(crate::api::Error::manifest(format!(
+        return Err(crate::Error::manifest(format!(
             "bundle URL request failed with status {}",
             response.status()
         )));
     }
-    let bytes = crate::api::read_bounded_response(response, MAX_BUNDLE_URL_RESPONSE_BYTES, || {
-        control.checkpoint()
-    })?;
+    let bytes = crate::transfer::http::read_bounded_response(
+        response,
+        MAX_BUNDLE_URL_RESPONSE_BYTES,
+        || control.checkpoint(),
+    )?;
     // This endpoint uses bundle terminology; adapt its wire contract here.
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -286,7 +284,7 @@ fn resolve_artifact_urls(
     Ok(serde_json::from_slice::<BundleUrlsResponse>(&bytes)?
         .bundles
         .into_iter()
-        .map(|bundle| crate::api::ArtifactDownload {
+        .map(|bundle| crate::transfer::types::ArtifactDownload {
             artifact_id: bundle.bundle_id,
             url: bundle.url,
         })
@@ -295,11 +293,11 @@ fn resolve_artifact_urls(
 
 fn parse_artifact_url_manifest(
     path: &std::path::Path,
-) -> crate::api::Result<Vec<crate::api::ArtifactDownload>> {
+) -> crate::Result<Vec<crate::transfer::types::ArtifactDownload>> {
     let bytes = std::fs::read(path)?;
     let urls = serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&bytes)
         .map_err(|error| {
-            crate::api::Error::manifest(format!(
+            crate::Error::manifest(format!(
                 "invalid artifact URL manifest '{}': {error}",
                 path.display()
             ))
@@ -307,12 +305,12 @@ fn parse_artifact_url_manifest(
     urls.into_iter()
         .map(|(artifact_id, url)| {
             if artifact_id.trim().is_empty() || url.trim().is_empty() {
-                return Err(crate::api::Error::manifest(format!(
+                return Err(crate::Error::manifest(format!(
                     "artifact URL manifest '{}' contains an empty artifact ID or URL",
                     path.display()
                 )));
             }
-            Ok(crate::api::ArtifactDownload { artifact_id, url })
+            Ok(crate::transfer::types::ArtifactDownload { artifact_id, url })
         })
         .collect()
 }

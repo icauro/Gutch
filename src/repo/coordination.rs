@@ -298,7 +298,7 @@ mod tests {
     fn committed_mutation_survives_locked_obsolete_artifact() {
         use std::os::windows::fs::OpenOptionsExt;
         let root = tempfile::tempdir().unwrap();
-        crate::api::initialize_repo(root.path(), Default::default()).unwrap();
+        crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
         let artifact = root.path().join("bundles/obsolete");
         std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
         std::fs::write(&artifact, b"obsolete").unwrap();
@@ -339,7 +339,7 @@ mod tests {
     fn locked_previous_generation_does_not_fail_metadata_publication() {
         use std::os::windows::fs::OpenOptionsExt;
         let root = tempfile::tempdir().unwrap();
-        crate::api::initialize_repo(root.path(), Default::default()).unwrap();
+        crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
         write(root.path(), || Ok(())).unwrap();
         let journal = root.path().join(".gutch-transactions");
         let previous = committed_directory(&journal).unwrap();
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn interrupted_publication_is_rejected_by_readers_and_recovered_by_writer() {
         let root = tempfile::tempdir().unwrap();
-        crate::api::initialize_repo(root.path(), Default::default()).unwrap();
+        crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
         let committed = std::fs::read(root.path().join("repo_metadata.json")).unwrap();
         write(root.path(), || Ok(())).unwrap();
         std::fs::write(root.path().join(".gutch-transactions/pending"), b"1").unwrap();

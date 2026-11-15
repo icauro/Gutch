@@ -1,20 +1,20 @@
 use std::path::PathBuf;
 
-use crate::api::compare_paths;
 use crate::cli::command_support::write_report;
 use crate::cli::reporting::optional_output_paths;
+use crate::path_compare::compare_paths;
 
 pub(crate) fn compare(
     expected: PathBuf,
     actual: PathBuf,
     stats_json_out: Option<PathBuf>,
-) -> crate::api::Result<()> {
+) -> crate::Result<()> {
     let stats = compare_paths(&expected, &actual)?;
     #[derive(serde::Serialize)]
     struct Report<'a> {
         command: &'static str,
         #[serde(flatten)]
-        result: &'a crate::api::PathComparisonResult,
+        result: &'a crate::path_compare::PathComparisonResult,
         outputs: crate::cli::reporting::OptionalOutputPaths,
     }
     write_report(
@@ -46,7 +46,7 @@ pub(crate) fn compare(
         for relative_path in &stats.extra_files {
             eprintln!("  EXTRA: {}", relative_path);
         }
-        return Err(crate::api::Error::verify("tree comparison failed"));
+        return Err(crate::Error::verify("tree comparison failed"));
     }
 
     Ok(())

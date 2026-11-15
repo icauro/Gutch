@@ -1,7 +1,7 @@
 //! Recoverable directory replacement shared by repository and installation publication.
-use super::promotion_diagnostics::{DirectoryPromotionDiagnostic, PromotionRecoveryAttempt};
 use super::{create_dir_all, read, write};
 use crate::Error;
+use crate::error::promotion_diagnostics::{DirectoryPromotionDiagnostic, PromotionRecoveryAttempt};
 use std::path::Path;
 use std::time::Instant;
 pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> Result<(), Error> {

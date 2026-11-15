@@ -112,14 +112,16 @@ src/cli/tags_tests.rs
 src/config/
 src/config/mod.rs
 src/error/
+src/error/capture_outcome.rs
 src/error/mod.rs
+src/error/path_validation.rs
+src/error/promotion_diagnostics.rs
 src/error/tests.rs
 src/filesystem/
 src/filesystem/constraints.rs
 src/filesystem/directory.rs
 src/filesystem/mod.rs
 src/filesystem/paths.rs
-src/filesystem/promotion_diagnostics.rs
 src/installation/
 src/installation/apply.rs
 src/installation/corrupt.rs

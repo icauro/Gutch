@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-pub(crate) fn inspect(bundle: PathBuf, repo: PathBuf) -> crate::api::Result<()> {
-    let entries = crate::api::inspect_bundle(&bundle, &repo)?;
+pub(crate) fn inspect(bundle: PathBuf, repo: PathBuf) -> crate::Result<()> {
+    let entries = crate::repo::artifacts::inspect_bundle(&bundle, &repo)?;
 
     crate::cli::output::record(
         &serde_json::json!({"bundle": bundle, "chunks": entries.iter().map(|entry| serde_json::json!({"hash": entry.chunk_hash.to_hex(), "raw_size": entry.raw_size, "compressed_size": entry.compressed_size})).collect::<Vec<_>>()}),

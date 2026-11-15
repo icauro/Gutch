@@ -34,10 +34,10 @@ pub(crate) fn validate_destination_paths<'a>(
 ) -> Result<()> {
     validate_destination_paths_inner(root, paths).map_err(|error| match error {
         Error::PathError { path, reason } => {
-            Error::PathValidation(super::constraints::PathValidationFailure {
+            Error::PathValidation(crate::error::path_validation::PathValidationFailure {
                 operation: "installation".into(),
                 snapshot_id: None,
-                violations: vec![super::constraints::PathViolation {
+                violations: vec![crate::error::path_validation::PathViolation {
                     path: path
                         .strip_prefix(root)
                         .unwrap_or(&path)
