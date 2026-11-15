@@ -5,7 +5,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
-use super::{ARGUMENT_FIELDS, Profiler};
+use super::{ARGUMENT_FIELDS, Profiler, Recorder};
 use std::fs::File;
 use std::str::from_utf8;
 
@@ -90,52 +90,7 @@ impl Profiler {
         if let Ok(recorders) = self.state.recorders.lock() {
             for recorder in recorders.iter() {
                 if let Ok(recorder) = recorder.lock() {
-                    output.write_all(b",")?;
-                    let thread_metadata = serde_json::json!({
-                        "name": "thread_name", "cat": "__metadata", "ph": "M",
-                        "ts": 0, "pid": 1, "tid": recorder.tid,
-                        "args": { "name": recorder.thread_name },
-                    });
-                    serde_json::to_writer(&mut output, &thread_metadata)?;
-                    for event in &recorder.events {
-                        if let Some(duration) = event.duration {
-                            output.write_all(b",")?;
-                            #[derive(Serialize)]
-                            struct ExportEvent<'a> {
-                                name: &'static str,
-                                cat: &'static str,
-                                ph: &'static str,
-                                ts: u64,
-                                dur: u64,
-                                pid: u32,
-                                tid: usize,
-                                args: &'a TraceArguments,
-                                #[serde(skip_serializing_if = "Option::is_none")]
-                                s: Option<&'static str>,
-                            }
-                            serde_json::to_writer(
-                                &mut output,
-                                &ExportEvent {
-                                    name: event.name,
-                                    cat: "gutch",
-                                    ph: if event.name == "operation.progress" {
-                                        "C"
-                                    } else if event.instant {
-                                        "i"
-                                    } else {
-                                        "X"
-                                    },
-                                    ts: event.ts,
-                                    dur: duration,
-                                    pid: 1,
-                                    tid: recorder.tid,
-                                    args: &event.args,
-                                    s: (event.instant && event.name != "operation.progress")
-                                        .then_some("t"),
-                                },
-                            )?;
-                        }
-                    }
+                    write_recorder_events(&mut output, &recorder)?;
                 }
             }
         }
@@ -143,4 +98,61 @@ impl Profiler {
         output.flush()?;
         Ok(())
     }
+}
+
+/// One completed event in Chrome trace format.
+#[derive(Serialize)]
+struct ExportEvent<'a> {
+    name: &'static str,
+    cat: &'static str,
+    ph: &'static str,
+    ts: u64,
+    dur: u64,
+    pid: u32,
+    tid: usize,
+    args: &'a TraceArguments,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    s: Option<&'static str>,
+}
+
+/// Writes a thread's name record followed by its completed events, each
+/// preceded by a separator.
+fn write_recorder_events(output: &mut impl Write, recorder: &Recorder) -> crate::Result<()> {
+    output.write_all(b",")?;
+    let thread_metadata = serde_json::json!({
+        "name": "thread_name", "cat": "__metadata", "ph": "M",
+        "ts": 0, "pid": 1, "tid": recorder.tid,
+        "args": { "name": recorder.thread_name },
+    });
+    serde_json::to_writer(&mut *output, &thread_metadata)?;
+    for event in &recorder.events {
+        let Some(duration) = event.duration else {
+            continue;
+        };
+        // Progress samples are counters; other instants are thread-scoped.
+        let is_progress = event.name == "operation.progress";
+        let phase = if is_progress {
+            "C"
+        } else if event.instant {
+            "i"
+        } else {
+            "X"
+        };
+        output.write_all(b",")?;
+        serde_json::to_writer(
+            &mut *output,
+            &ExportEvent {
+                name: event.name,
+                cat: "gutch",
+                ph: phase,
+                ts: event.ts,
+                dur: duration,
+                pid: 1,
+                tid: recorder.tid,
+                args: &event.args,
+                s: (event.instant && !is_progress).then_some("t"),
+            },
+        )?;
+    }
+    Ok(())
 }

@@ -60,74 +60,14 @@ pub fn rebuild_index(
         let artifacts = super::inventory::list_repo_artifact_paths(&paths)?;
         for (artifact, path) in artifacts {
             control.checkpoint()?;
-            let recovered = (|| -> Result<Vec<(String, ChunkIndexEntry)>> {
-                let size = size_u32(fs::metadata(&path)?.len())?;
-                match &artifact {
-                    ArtifactRef::Bundle { id } => {
-                        let mut reader = BundleReader::open(File::open(&path)?, &profile)?;
-                        reader.verify_identity(id)?;
-                        let shared_id = smol_str::SmolStr::new(id);
-                        Ok(reader
-                            .entries()
-                            .iter()
-                            .enumerate()
-                            .map(|(ordinal, chunk)| {
-                                (
-                                    chunk.chunk_hash.to_hex(),
-                                    ChunkIndexEntry::new(
-                                        size,
-                                        ordinal as u32,
-                                        shared_id.clone(),
-                                        chunk.raw_size,
-                                        ArtifactStorageMode::Bundled,
-                                    ),
-                                )
-                            })
-                            .collect())
-                    }
-                    ArtifactRef::LooseChunk { hash } => {
-                        let (declared, raw, _) = read_loose_header(&mut File::open(&path)?)?;
-                        if declared.to_hex() != *hash {
-                            return Err(Error::manifest(
-                                "loose artifact filename disagrees with header",
-                            ));
-                        }
-                        read_loose_chunk(&path, hash, u64::from(raw), None)?;
-                        Ok(vec![(
-                            hash.clone(),
-                            ChunkIndexEntry::new(
-                                size,
-                                0,
-                                hash.as_str().into(),
-                                raw,
-                                ArtifactStorageMode::LooseChunks,
-                            ),
-                        )])
-                    }
-                }
-            })();
-            match recovered {
+            match recover_artifact_chunks(&artifact, &path, &profile) {
                 Err(error) => result
                     .corrupt_artifacts
                     .push(format!("{}: {error}", artifact.id())),
                 Ok(chunks) => {
                     result.artifact_count += 1;
                     for (hash, entry) in chunks {
-                        if let Some(previous) = entries.get(&hash) {
-                            result.duplicate_locations += 1;
-                            if previous.raw_size != entry.raw_size {
-                                result
-                                    .corrupt_artifacts
-                                    .push(format!("conflicting sizes for chunk {hash}"));
-                            }
-                            // Stable selection regardless of filesystem enumeration order.
-                            if (previous.bundle_id.as_str(), previous.chunk_ordinal)
-                                <= (entry.bundle_id.as_str(), entry.chunk_ordinal)
-                            {
-                                continue;
-                            }
-                        }
-                        entries.insert(hash, entry);
+                        add_recovered_chunk(&mut entries, &mut result, hash, entry);
                     }
                 }
             }
@@ -177,4 +117,81 @@ pub fn rebuild_index(
     } else {
         super::coordination::read_with_control(root, control, work)
     }
+}
+
+/// Reads and verifies one artifact, returning the index entry for each chunk
+/// it holds.
+fn recover_artifact_chunks(
+    artifact: &ArtifactRef,
+    path: &Path,
+    profile: &CompressionProfile,
+) -> Result<Vec<(String, ChunkIndexEntry)>> {
+    let size = size_u32(fs::metadata(path)?.len())?;
+    match artifact {
+        ArtifactRef::Bundle { id } => {
+            let mut reader = BundleReader::open(File::open(path)?, profile)?;
+            reader.verify_identity(id)?;
+            let shared_id = smol_str::SmolStr::new(id);
+            Ok(reader
+                .entries()
+                .iter()
+                .enumerate()
+                .map(|(ordinal, chunk)| {
+                    (
+                        chunk.chunk_hash.to_hex(),
+                        ChunkIndexEntry::new(
+                            size,
+                            ordinal as u32,
+                            shared_id.clone(),
+                            chunk.raw_size,
+                            ArtifactStorageMode::Bundled,
+                        ),
+                    )
+                })
+                .collect())
+        }
+        ArtifactRef::LooseChunk { hash } => {
+            let (declared, raw, _) = read_loose_header(&mut File::open(path)?)?;
+            if declared.to_hex() != *hash {
+                return Err(Error::manifest(
+                    "loose artifact filename disagrees with header",
+                ));
+            }
+            read_loose_chunk(path, hash, u64::from(raw), None)?;
+            Ok(vec![(
+                hash.clone(),
+                ChunkIndexEntry::new(
+                    size,
+                    0,
+                    hash.as_str().into(),
+                    raw,
+                    ArtifactStorageMode::LooseChunks,
+                ),
+            )])
+        }
+    }
+}
+
+/// Adds a recovered chunk location. When several artifacts hold the chunk,
+/// the lowest artifact ID and ordinal wins regardless of enumeration order.
+fn add_recovered_chunk(
+    entries: &mut BTreeMap<String, ChunkIndexEntry>,
+    result: &mut IndexRebuildResult,
+    hash: String,
+    entry: ChunkIndexEntry,
+) {
+    if let Some(previous) = entries.get(&hash) {
+        result.duplicate_locations += 1;
+        if previous.raw_size != entry.raw_size {
+            result
+                .corrupt_artifacts
+                .push(format!("conflicting sizes for chunk {hash}"));
+        }
+        if (previous.bundle_id.as_str(), previous.chunk_ordinal)
+            <= (entry.bundle_id.as_str(), entry.chunk_ordinal)
+        {
+            return;
+        }
+    }
+    entries.insert(hash, entry);
 }

@@ -59,6 +59,13 @@ impl ThroughputHistory {
         })
     }
 }
+/// A byte stream whose throughput the live feedback reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stream {
+    Download,
+    OutputWrite,
+}
+
 #[derive(Debug, Default)]
 struct FeedbackState {
     event: Option<ProgressEvent>,
@@ -68,6 +75,14 @@ struct FeedbackState {
     output: ThroughputHistory,
     profiler: Option<Arc<Profiler>>,
 }
+impl FeedbackState {
+    fn history(&mut self, stream: Stream) -> &mut ThroughputHistory {
+        match stream {
+            Stream::Download => &mut self.download,
+            Stream::OutputWrite => &mut self.output,
+        }
+    }
+}
 #[derive(Debug, Default)]
 struct SharedFeedbackState {
     state: Mutex<FeedbackState>,
@@ -75,6 +90,100 @@ struct SharedFeedbackState {
     downloaded: AtomicU64,
     written: AtomicU64,
 }
+impl SharedFeedbackState {
+    fn counter(&self, stream: Stream) -> &AtomicU64 {
+        match stream {
+            Stream::Download => &self.downloaded,
+            Stream::OutputWrite => &self.written,
+        }
+    }
+
+    /// Emits the latest event, with current rates, whenever it changes or a
+    /// transfer is still active, until the feedback stops.
+    fn run_feedback_loop(&self, sink: &dyn ProgressSink) {
+        let mut previous_revision = 0;
+        loop {
+            let Some((event, stop)) = self.wait_for_event(&mut previous_revision) else {
+                return;
+            };
+            if let Some(event) = event {
+                self.profile_event(&event);
+                sink.emit(event);
+            }
+            if stop {
+                break;
+            }
+        }
+    }
+
+    /// Waits for a phase change or the refresh interval. Returns the event to
+    /// emit, if any, and whether to stop; `None` when the state is poisoned.
+    fn wait_for_event(&self, previous_revision: &mut u64) -> Option<(Option<ProgressEvent>, bool)> {
+        let state = self.state.lock().ok()?;
+        let mut state = if state.stop {
+            state
+        } else {
+            self.changed
+                .wait_timeout(state, Duration::from_millis(250))
+                .ok()?
+                .0
+        };
+        let now = Instant::now();
+        let feedback = LiveFeedback {
+            download: state
+                .download
+                .snapshot(self.downloaded.load(Ordering::Relaxed), now),
+            output_write: state
+                .output
+                .snapshot(self.written.load(Ordering::Relaxed), now),
+        };
+        let active = [&feedback.download, &feedback.output_write]
+            .into_iter()
+            .any(|rate| rate.as_ref().is_some_and(|rate| !rate.finished));
+        let event = (state.revision != *previous_revision || active || state.stop)
+            .then(|| state.event.clone())
+            .flatten()
+            .map(|mut event| {
+                event.feedback = Some(feedback);
+                event
+            });
+        *previous_revision = state.revision;
+        Some((event, state.stop))
+    }
+
+    fn profile_event(&self, event: &ProgressEvent) {
+        let profiler = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.profiler.clone());
+        let (Some(profiler), Some(feedback)) = (profiler, &event.feedback) else {
+            return;
+        };
+        profiler.event_with_args("operation.progress", || feedback_profile_args(feedback));
+    }
+}
+
+fn feedback_profile_args(feedback: &LiveFeedback) -> BTreeMap<String, serde_json::Value> {
+    let mut args = BTreeMap::new();
+    for (prefix, rate) in [
+        ("download", &feedback.download),
+        ("output_write", &feedback.output_write),
+    ] {
+        let Some(rate) = rate else {
+            continue;
+        };
+        args.insert(format!("{prefix}_bytes"), serde_json::json!(rate.bytes));
+        if let Some(recent) = rate.recent_bytes_per_second {
+            args.insert(
+                format!("{prefix}_bytes_per_second"),
+                serde_json::json!(recent),
+            );
+        }
+    }
+    args
+}
+
 #[derive(Debug)]
 pub(crate) struct LiveProgress {
     shared: Arc<SharedFeedbackState>,
@@ -86,84 +195,7 @@ impl LiveProgress {
         let thread_shared = shared.clone();
         let thread = Builder::new()
             .name("gutch-progress".into())
-            .spawn(move || {
-                let mut previous_revision = 0;
-                loop {
-                    let (event, stop) = {
-                        let Ok(state) = thread_shared.state.lock() else {
-                            return;
-                        };
-                        let mut state = if state.stop {
-                            state
-                        } else {
-                            let Ok((state, _)) = thread_shared
-                                .changed
-                                .wait_timeout(state, Duration::from_millis(250))
-                            else {
-                                return;
-                            };
-                            state
-                        };
-                        let now = Instant::now();
-                        let feedback = LiveFeedback {
-                            download: state
-                                .download
-                                .snapshot(thread_shared.downloaded.load(Ordering::Relaxed), now),
-                            output_write: state
-                                .output
-                                .snapshot(thread_shared.written.load(Ordering::Relaxed), now),
-                        };
-                        let active = feedback.download.as_ref().is_some_and(|s| !s.finished)
-                            || feedback.output_write.as_ref().is_some_and(|s| !s.finished);
-                        let event = if state.revision != previous_revision || active || state.stop {
-                            state.event.clone().map(|mut event| {
-                                event.feedback = Some(feedback);
-                                event
-                            })
-                        } else {
-                            None
-                        };
-                        previous_revision = state.revision;
-                        (event, state.stop)
-                    };
-                    if let Some(event) = event {
-                        let profiler = thread_shared
-                            .state
-                            .lock()
-                            .ok()
-                            .and_then(|s| s.profiler.clone());
-                        if let Some(profiler) = profiler {
-                            profiler.event_with_args("operation.progress", || {
-                                let mut args = BTreeMap::new();
-                                if let Some(feedback) = &event.feedback {
-                                    for (prefix, rate) in [
-                                        ("download", &feedback.download),
-                                        ("output_write", &feedback.output_write),
-                                    ] {
-                                        if let Some(rate) = rate {
-                                            args.insert(
-                                                format!("{prefix}_bytes"),
-                                                serde_json::json!(rate.bytes),
-                                            );
-                                            if let Some(recent) = rate.recent_bytes_per_second {
-                                                args.insert(
-                                                    format!("{prefix}_bytes_per_second"),
-                                                    serde_json::json!(recent),
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                                args
-                            });
-                        }
-                        sink.emit(event);
-                    }
-                    if stop {
-                        break;
-                    }
-                }
-            })
+            .spawn(move || thread_shared.run_feedback_loop(sink.as_ref()))
             .ok();
         Arc::new(Self {
             shared,
@@ -175,40 +207,29 @@ impl LiveProgress {
             state.profiler = Some(profiler);
         }
     }
-    pub(crate) fn start(&self, download: bool) {
+    pub(crate) fn start(&self, stream: Stream) {
         if let Ok(mut state) = self.shared.state.lock() {
-            let rate = if download {
-                &mut state.download
-            } else {
-                &mut state.output
-            };
-            if rate.start.is_none() {
+            let history = state.history(stream);
+            if history.start.is_none() {
                 let now = Instant::now();
-                rate.start = Some(now);
-                rate.samples.push_back((now, 0));
+                history.start = Some(now);
+                history.samples.push_back((now, 0));
             }
         }
     }
-    pub(crate) fn finish(&self, download: bool) {
+    pub(crate) fn finish(&self, stream: Stream) {
         if let Ok(mut state) = self.shared.state.lock() {
-            let rate = if download {
-                &mut state.download
-            } else {
-                &mut state.output
-            };
-            if rate.start.is_some() && rate.end.is_none() {
-                rate.end = Some(Instant::now());
+            let history = state.history(stream);
+            if history.start.is_some() && history.end.is_none() {
+                history.end = Some(Instant::now());
             }
             state.revision += 1;
         }
     }
-    pub(crate) fn record(&self, download: bool, bytes: u64) {
-        (if download {
-            &self.shared.downloaded
-        } else {
-            &self.shared.written
-        })
-        .fetch_add(bytes, Ordering::Relaxed);
+    pub(crate) fn record(&self, stream: Stream, bytes: u64) {
+        self.shared
+            .counter(stream)
+            .fetch_add(bytes, Ordering::Relaxed);
     }
 }
 impl ProgressSink for LiveProgress {
@@ -250,7 +271,7 @@ pub(crate) struct OutputStage(Option<Arc<LiveProgress>>);
 impl OutputStage {
     pub(crate) fn new(feedback: Option<Arc<LiveProgress>>) -> Self {
         if let Some(f) = &feedback {
-            f.start(false);
+            f.start(Stream::OutputWrite);
         }
         Self(feedback)
     }
@@ -258,7 +279,7 @@ impl OutputStage {
 impl Drop for OutputStage {
     fn drop(&mut self) {
         if let Some(f) = &self.0 {
-            f.finish(false);
+            f.finish(Stream::OutputWrite);
         }
     }
 }
@@ -293,8 +314,8 @@ mod tests {
             events: Mutex::new(Vec::new()),
         });
         let feedback = LiveProgress::new(sink.clone());
-        feedback.start(true);
-        feedback.start(false);
+        feedback.start(Stream::Download);
+        feedback.start(Stream::OutputWrite);
         let mut event = ProgressEvent {
             feedback: None,
             operation: super::super::OperationKind::Fetch,
@@ -311,13 +332,13 @@ mod tests {
         waiting.recv_timeout(Duration::from_secs(2)).unwrap();
         // A blocked consumer cannot block these updates or enqueue 10,000 snapshots.
         for current in 1..=10000 {
-            feedback.record(true, 3);
-            feedback.record(false, 2);
+            feedback.record(Stream::Download, 3);
+            feedback.record(Stream::OutputWrite, 2);
             event.current = current;
             feedback.emit(event.clone());
         }
-        feedback.finish(true);
-        feedback.finish(false);
+        feedback.finish(Stream::Download);
+        feedback.finish(Stream::OutputWrite);
         resume.send(()).unwrap();
         drop(feedback);
         let events = sink.events.lock().unwrap();

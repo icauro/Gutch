@@ -1,6 +1,7 @@
 //! Operation control, cancellation, progress events, and bounded live feedback.
 
 mod feedback;
+use feedback::Stream;
 pub use feedback::{LiveFeedback, Throughput};
 use std::sync::Arc;
 
@@ -154,27 +155,27 @@ impl OperationControl {
     }
     pub(crate) fn output_finished(&self) {
         if let Some(feedback) = &self.feedback {
-            feedback.finish(false);
+            feedback.finish(Stream::OutputWrite);
         }
     }
     pub(crate) fn download_started(&self) {
         if let Some(f) = &self.feedback {
-            f.start(true);
+            f.start(Stream::Download);
         }
     }
     pub(crate) fn download_finished(&self) {
         if let Some(f) = &self.feedback {
-            f.finish(true);
+            f.finish(Stream::Download);
         }
     }
     pub(crate) fn downloaded(&self, bytes: u64) {
         if let Some(f) = &self.feedback {
-            f.record(true, bytes);
+            f.record(Stream::Download, bytes);
         }
     }
     pub(crate) fn written(&self, bytes: u64) {
         if let Some(f) = &self.feedback {
-            f.record(false, bytes);
+            f.record(Stream::OutputWrite, bytes);
         }
     }
     pub fn with_cancellation(mut self, cancellation: Arc<dyn CancellationHook>) -> Self {
