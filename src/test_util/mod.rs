@@ -151,6 +151,16 @@ fn generate_text(size: usize) -> String {
     output_text
 }
 
+/// Hex BLAKE3 hash of `bytes`, as chunk and file hashes are written.
+pub(crate) fn test_hash(bytes: impl AsRef<[u8]>) -> String {
+    ChunkHash::of(bytes.as_ref()).to_hex()
+}
+
+/// Chunk hash of `label`, for fixtures that need distinct stable hashes.
+pub(crate) fn test_chunk_hash(label: &str) -> ChunkHash {
+    ChunkHash::of(label.as_bytes())
+}
+
 pub fn dir_size(dir: &Path) -> u64 {
     walkdir::WalkDir::new(dir)
         .into_iter()
@@ -241,5 +251,21 @@ impl crate::progress::CancellationHook for TestCancellation {
                 })
                 .is_err()
         })
+    }
+}
+
+/// Progress sink that keeps every event for later assertions.
+#[derive(Debug, Default)]
+pub(crate) struct RecordedProgress(std::sync::Mutex<Vec<crate::progress::ProgressEvent>>);
+
+impl RecordedProgress {
+    pub(crate) fn events(&self) -> Vec<crate::progress::ProgressEvent> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl crate::progress::ProgressSink for RecordedProgress {
+    fn emit(&self, event: crate::progress::ProgressEvent) {
+        self.0.lock().unwrap().push(event);
     }
 }

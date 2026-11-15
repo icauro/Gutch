@@ -2,7 +2,6 @@ use super::*;
 use crate::Error;
 use crate::artifact::bundle::BundleBuilder;
 use crate::artifact::hash::ChunkHash;
-use crate::artifact::hash::hash_hex;
 use crate::artifact::loose::write_loose_chunk;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::profiles::CompressionKind;
@@ -17,8 +16,7 @@ use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::SnapshotTagSet;
-use crate::progress::ProgressSink;
-use crate::progress::{OperationControl, ProgressEvent, ProgressPhase};
+use crate::progress::{OperationControl, ProgressPhase};
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::RepoPaths;
@@ -26,6 +24,7 @@ use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::runtime::RuntimeResourceHints;
 use crate::test_util::chunk_entries;
 use crate::test_util::loose_bytes;
+use crate::test_util::test_hash;
 use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::http::build_download_client;
 use crate::transfer::progress::FetchTransferProgress;
@@ -35,7 +34,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::net::TcpListener;
 use std::num::NonZeroU64;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 #[test]
@@ -64,10 +63,6 @@ fn output_verification_checks_size_without_rereading_chunk_verified_bytes() {
         check_reconstructed_output_size(&file_plan, &directory.path().join("missing"), &control)
             .is_err()
     );
-}
-
-fn test_hash(bytes: &[u8]) -> String {
-    hash_hex(&blake3::hash(bytes))
 }
 
 fn snapshot_manifest_with_file(snapshot_id: &str, full_file_hash: &str) -> SnapshotManifest {
@@ -615,19 +610,6 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
 
 #[test]
 fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_file() {
-    #[derive(Debug, Default)]
-    struct RecordedProgress(Mutex<Vec<String>>);
-
-    impl ProgressSink for RecordedProgress {
-        fn emit(&self, event: ProgressEvent) {
-            if event.phase == ProgressPhase::Reconstruct
-                && event.message.starts_with("Reconstructing ")
-            {
-                self.0.lock().unwrap().push(event.message);
-            }
-        }
-    }
-
     let workspace = tempfile::tempdir().unwrap();
     let repo_root = workspace.path().join("repo");
     let destination = workspace.path().join("output");
@@ -696,7 +678,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     )
     .unwrap();
     assert_eq!(plan.jobs.len(), 2);
-    let progress = Arc::new(RecordedProgress::default());
+    let progress = Arc::new(crate::test_util::RecordedProgress::default());
     // Record coordinator events directly: live UI feedback intentionally coalesces them.
     let control = OperationControl::default().with_replaced_progress(progress.clone());
     apply_reconstruct_pipeline(
@@ -721,7 +703,15 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         plan,
     )
     .unwrap();
-    let events = progress.0.lock().unwrap();
+    let events: Vec<String> = progress
+        .events()
+        .into_iter()
+        .filter(|event| {
+            event.phase == ProgressPhase::Reconstruct
+                && event.message.starts_with("Reconstructing ")
+        })
+        .map(|event| event.message)
+        .collect();
     assert_eq!(
         &events[..4],
         [

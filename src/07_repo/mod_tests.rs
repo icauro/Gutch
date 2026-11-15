@@ -15,6 +15,7 @@ use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshot
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+use crate::test_util::{test_chunk_hash, test_hash};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -54,14 +55,6 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::
     tags.insert("arch", arch).unwrap();
     tags.insert("tier", tier).unwrap();
     tags
-}
-
-fn test_hash(label: &str) -> String {
-    ChunkHash::of(label.as_bytes()).to_hex()
-}
-
-fn test_chunk_hash(label: &str) -> ChunkHash {
-    ChunkHash::of(label.as_bytes())
 }
 
 #[test]

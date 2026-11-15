@@ -287,6 +287,7 @@ mod tests {
     use crate::manifest::snapshot::SnapshotManifest;
     use crate::repo::paths::ensure_gutch_repo_layout;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+    use crate::test_util::{test_chunk_hash, test_hash};
 
     fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
         let mut tags = manifest::SnapshotTagSet::default();
@@ -295,14 +296,6 @@ mod tests {
         tags.insert("arch", arch).unwrap();
         tags.insert("tier", tier).unwrap();
         tags
-    }
-
-    fn test_hash(label: &str) -> String {
-        crate::artifact::hash::ChunkHash::of(label.as_bytes()).to_hex()
-    }
-
-    fn test_chunk_hash(label: &str) -> crate::artifact::hash::ChunkHash {
-        crate::artifact::hash::ChunkHash::of(label.as_bytes())
     }
 
     #[test]

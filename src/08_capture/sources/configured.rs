@@ -283,16 +283,9 @@ mod tests {
     use crate::repo::paths::ensure_gutch_repo_layout;
     use crate::repo::paths::load_gutch_repo_manifest;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+    use crate::test_util::{test_chunk_hash, test_hash};
     use std::time::Duration;
     use std::time::SystemTime;
-
-    fn test_hash(label: &str) -> String {
-        crate::artifact::hash::ChunkHash::of(label.as_bytes()).to_hex()
-    }
-
-    fn test_chunk_hash(label: &str) -> crate::artifact::hash::ChunkHash {
-        crate::artifact::hash::ChunkHash::of(label.as_bytes())
-    }
 
     #[test]
     fn plan_snapshot_sources_capture_returns_empty_plan_without_sources_path() {

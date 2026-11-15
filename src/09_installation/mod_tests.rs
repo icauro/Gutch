@@ -1,5 +1,4 @@
 use crate::artifact::hash::ChunkHash;
-use crate::artifact::hash::hash_hex;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::filesystem;
 use crate::filesystem::set_read_only;
@@ -29,6 +28,7 @@ use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::sync::fetch;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::test_util::chunk_entries;
+use crate::test_util::test_hash;
 use crate::transfer::types::ArtifactDownload;
 use crate::transfer::types::TransferConcurrencyPolicy;
 use std::collections::BTreeMap;
@@ -56,10 +56,6 @@ fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
     );
     manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     manifest
-}
-
-fn test_hash(label: &str) -> String {
-    hash_hex(&blake3::hash(label.as_bytes()))
 }
 
 fn write_repair_test_repo(root: &Path, manifest: &SnapshotManifest) {

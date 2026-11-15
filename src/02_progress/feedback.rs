@@ -379,17 +379,9 @@ mod tests {
         assert!(rates.download.as_ref().unwrap().finished);
         assert!(rates.output_write.as_ref().unwrap().finished);
     }
-    #[derive(Debug, Default)]
-    struct RecordingSink(Mutex<Vec<ProgressEvent>>);
-    impl ProgressSink for RecordingSink {
-        fn emit(&self, event: ProgressEvent) {
-            self.0.lock().unwrap().push(event);
-        }
-    }
-
     #[test]
     fn the_final_done_event_is_delivered_once() {
-        let sink = Arc::new(RecordingSink::default());
+        let sink = Arc::new(crate::test_util::RecordedProgress::default());
         let feedback = LiveProgress::new(sink.clone());
         feedback.emit(ProgressEvent::finished(
             super::super::OperationKind::Fetch,
@@ -399,11 +391,11 @@ mod tests {
         ));
         // Let the thread deliver the transition before the drop stops it.
         let deadline = Instant::now() + Duration::from_secs(5);
-        while sink.0.lock().unwrap().is_empty() && Instant::now() < deadline {
+        while sink.events().is_empty() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
         drop(feedback);
-        let events = sink.0.lock().unwrap();
+        let events = sink.events();
         assert_eq!(events.iter().filter(|event| event.done).count(), 1);
     }
 

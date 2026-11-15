@@ -400,18 +400,6 @@ fn push_fails_when_a_required_bundle_is_missing_locally() {
     assert!(provider.0.lock().unwrap().bundles.is_empty());
 }
 
-#[derive(Debug, Default)]
-struct RecordedSteps(Mutex<Vec<(usize, usize, bool)>>);
-
-impl crate::progress::ProgressSink for RecordedSteps {
-    fn emit(&self, event: crate::progress::ProgressEvent) {
-        self.0
-            .lock()
-            .unwrap()
-            .push((event.current, event.total, event.done));
-    }
-}
-
 #[test]
 fn pull_step_total_matches_the_steps_reported() {
     let root = tempfile::tempdir().unwrap();
@@ -422,7 +410,7 @@ fn pull_step_total_matches_the_steps_reported() {
     push(&origin, &provider).unwrap();
 
     for (clone, prune) in [("plain", false), ("pruned", true)] {
-        let steps = std::sync::Arc::new(RecordedSteps::default());
+        let steps = std::sync::Arc::new(crate::test_util::RecordedProgress::default());
         pull_repo(
             root.path().join(clone),
             &provider,
@@ -432,10 +420,14 @@ fn pull_step_total_matches_the_steps_reported() {
             OperationControl::default().with_progress(steps.clone()),
         )
         .unwrap();
-        let steps = steps.0.lock().unwrap();
-        let (_, total, done) = *steps.last().unwrap();
-        assert!(done);
-        let last_step = steps.iter().filter(|step| !step.2).map(|step| step.0).max();
-        assert_eq!(last_step, Some(total), "prune: {prune}");
+        let events = steps.events();
+        let finished = events.last().unwrap();
+        assert!(finished.done);
+        let last_step = events
+            .iter()
+            .filter(|event| !event.done)
+            .map(|event| event.current)
+            .max();
+        assert_eq!(last_step, Some(finished.total), "prune: {prune}");
     }
 }
