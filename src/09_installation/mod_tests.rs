@@ -394,7 +394,14 @@ fn symlink_in_implicit_directory_gets_its_parent_created() {
         },
     ));
     let output = tempfile::tempdir().unwrap();
-    prepare_snapshot_entries(&manifest, output.path(), &OperationControl::default(), None).unwrap();
+    prepare_snapshot_entries(
+        &manifest,
+        &manifest,
+        output.path(),
+        &OperationControl::default(),
+        None,
+    )
+    .unwrap();
     assert!(output.path().join("nested").is_dir());
 }
 

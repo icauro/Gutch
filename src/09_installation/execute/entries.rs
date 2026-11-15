@@ -24,8 +24,12 @@ use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
 use std::io::ErrorKind;
 
+/// Creates the directories of `snapshot_manifest` and resolves its file paths.
+/// `complete_manifest` is the whole snapshot, which is validated instead: a
+/// repair subset may hold a link without the intact target it points at.
 pub(crate) fn prepare_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
+    complete_manifest: &SnapshotManifest,
     output_dir: &Path,
     control: &OperationControl,
     reconstruct_pool: Option<&ThreadPool>,
@@ -33,7 +37,7 @@ pub(crate) fn prepare_snapshot_entries(
     {
         let _validate_span =
             control.profile_span("installation.reconstruct.prepare.entries.validate");
-        validate_snapshot_entries(&snapshot_manifest.entries)?;
+        validate_snapshot_entries(&complete_manifest.entries)?;
     }
     {
         let _root_span =

@@ -50,8 +50,13 @@ pub(crate) fn apply_reconstruct_pipeline(
     let staging_dir = staging.path().to_path_buf();
     let output_paths = {
         let _prepare_span = control.profile_span("installation.reconstruct.prepare.entries");
+        let complete_manifest = match &request.publication {
+            Publication::Selective { target, .. } => target,
+            Publication::ReplaceDirectory => request.snapshot_manifest,
+        };
         prepare_snapshot_entries(
             request.snapshot_manifest,
+            complete_manifest,
             &staging_dir,
             control,
             reconstruct_pool.as_ref(),

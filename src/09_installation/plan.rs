@@ -589,25 +589,13 @@ fn subset_manifest_for_issues(
         .chain(classification.corrupt_files.iter())
         .map(|issue| issue.path.as_str())
         .collect::<HashSet<_>>();
+    // Link targets stay out unless they need repair too: links are created in
+    // the destination, where an intact target already is.
     let mut subset = snapshot_manifest.clone();
-    let mut required_paths = affected_paths.clone();
-    loop {
-        let previous_len = required_paths.len();
-        for entry in &snapshot_manifest.entries {
-            if required_paths.contains(entry.path())
-                && let SnapshotEntry::Symlink(link) = entry
-            {
-                required_paths.insert(link.target_path.as_str());
-            }
-        }
-        if required_paths.len() == previous_len {
-            break;
-        }
-    }
     subset.entries = snapshot_manifest
         .entries
         .iter()
-        .filter(|entry| required_paths.contains(entry.path()))
+        .filter(|entry| affected_paths.contains(entry.path()))
         .cloned()
         .collect();
     subset.total_logical_size = subset.files().map(|file| file.size).sum();
@@ -627,6 +615,42 @@ fn subset_manifest_for_issues(
 #[cfg(test)]
 mod tests {
     use super::proportional_estimate;
+    use super::subset_manifest_for_issues;
+    use crate::installation::inspect::{RepairClassification, RepairIssue, RepairIssueKind};
+    use crate::manifest::SnapshotEntry;
+    use crate::manifest::SnapshotTagSet;
+    use crate::manifest::SymlinkManifest;
+    use crate::manifest::snapshot::SnapshotManifest;
+
+    #[test]
+    fn repair_subset_leaves_out_intact_link_targets() {
+        let mut manifest = SnapshotManifest::new("s".into(), SnapshotTagSet::default());
+        manifest.entries.push(SnapshotEntry::Directory(
+            crate::manifest::DirectoryManifest {
+                path: "data".into(),
+                read_only: false,
+            },
+        ));
+        manifest
+            .entries
+            .push(SnapshotEntry::Symlink(SymlinkManifest {
+                path: "current".into(),
+                target_path: "data".into(),
+            }));
+        let classification = RepairClassification {
+            missing_files: vec![RepairIssue {
+                kind: RepairIssueKind::Missing,
+                path: "current".into(),
+                detail: String::new(),
+            }],
+            ..Default::default()
+        };
+
+        let subset = subset_manifest_for_issues(&manifest, &classification).unwrap();
+
+        let paths: Vec<_> = subset.entries.iter().map(SnapshotEntry::path).collect();
+        assert_eq!(paths, ["current"]);
+    }
 
     #[test]
     fn repair_subset_estimate_scales_with_logical_size() {
