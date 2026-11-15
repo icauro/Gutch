@@ -203,9 +203,12 @@ fn local_snapshot_blueprint_hash_b3(repo_paths: &RepoPaths, snapshot_id: &str) -
     Ok(hash_hex(&hash_file(&path)?))
 }
 
+/// Reports the numbered steps of a push or pull.
 struct RemoteProgress {
     sink: Option<Arc<dyn ProgressSink>>,
     operation: OperationKind,
+    step: usize,
+    total_steps: usize,
 }
 
 impl RemoteProgress {
@@ -213,15 +216,51 @@ impl RemoteProgress {
         Self {
             sink: control.progress().clone(),
             operation,
+            step: 0,
+            total_steps: 1,
         }
+    }
+
+    fn set_total_steps(&mut self, total_steps: usize) {
+        self.total_steps = total_steps;
+    }
+
+    /// Counts a step without reporting it.
+    fn skip_step(&mut self) {
+        self.step += 1;
+    }
+
+    /// Moves to the next step and reports it.
+    fn next_step(
+        &mut self,
+        phase: ProgressPhase,
+        message: impl Into<String>,
+        detail: Option<String>,
+    ) {
+        self.step += 1;
+        self.report(phase, message, detail);
+    }
+
+    /// Reports progress within the current step.
+    fn report(&self, phase: ProgressPhase, message: impl Into<String>, detail: Option<String>) {
+        self.emit(phase, message.into(), self.step, detail, false);
+    }
+
+    fn finish(&self, message: &str) {
+        self.emit(
+            ProgressPhase::Done,
+            message.to_string(),
+            self.total_steps,
+            None,
+            true,
+        );
     }
 
     fn emit(
         &self,
         phase: ProgressPhase,
-        message: impl Into<String>,
+        message: String,
         current: usize,
-        total: usize,
         detail: Option<String>,
         done: bool,
     ) {
@@ -231,9 +270,9 @@ impl RemoteProgress {
                 feedback: None,
                 operation: self.operation,
                 phase,
-                message: message.into(),
+                message,
                 current,
-                total,
+                total: self.total_steps,
                 transferred_bytes: 0,
                 total_bytes: 0,
                 detail,

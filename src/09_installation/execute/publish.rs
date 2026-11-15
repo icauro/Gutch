@@ -10,7 +10,6 @@ use crate::installation::contracts::SnapshotRepairResult;
 use crate::installation::inspect::InspectionSpans;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::RepairIssue;
-use crate::installation::inspect::RepairIssueKind;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_expected_entries;
@@ -163,14 +162,13 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         for issue in &repair_plan.classification.extra_files {
             let path = path_resolver.resolve(&issue.path)?;
             if fs::symlink_metadata(path).is_ok() {
-                final_classification.push(RepairIssue {
-                    kind: RepairIssueKind::Extra,
-                    path: issue.path.clone(),
-                    detail: format!(
+                final_classification.push(RepairIssue::extra(
+                    &issue.path,
+                    format!(
                         "extra filesystem entry remains after repair: {}",
                         issue.path
                     ),
-                });
+                ));
             }
         }
     }

@@ -58,6 +58,28 @@ pub struct RepairIssue {
     pub detail: String,
 }
 
+impl RepairIssue {
+    pub(crate) fn missing(path: &str, detail: String) -> Self {
+        Self::new(RepairIssueKind::Missing, path, detail)
+    }
+
+    pub(crate) fn corrupt(path: &str, detail: String) -> Self {
+        Self::new(RepairIssueKind::Corrupt, path, detail)
+    }
+
+    pub(crate) fn extra(path: &str, detail: String) -> Self {
+        Self::new(RepairIssueKind::Extra, path, detail)
+    }
+
+    fn new(kind: RepairIssueKind, path: &str, detail: String) -> Self {
+        Self {
+            kind,
+            path: path.to_string(),
+            detail,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RepairClassification {
     pub missing_files: Vec<RepairIssue>,

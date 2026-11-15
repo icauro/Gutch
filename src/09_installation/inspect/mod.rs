@@ -320,11 +320,10 @@ fn classify(
         let _extra_scan_span = control.profile_span(spans.extra_scan);
         for relative in &inventory.extra_paths {
             control.checkpoint()?;
-            classification.push(RepairIssue {
-                kind: RepairIssueKind::Extra,
-                path: relative.clone(),
-                detail: format!("extra filesystem entry: {}", relative),
-            });
+            classification.push(RepairIssue::extra(
+                relative,
+                format!("extra filesystem entry: {relative}"),
+            ));
         }
         timings.extra_file_scan_wall = extra_file_scan_start.elapsed();
     }

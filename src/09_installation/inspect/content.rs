@@ -1,5 +1,5 @@
 //! Verify file metadata and full-file or chunk content hashes.
-use super::types::{RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings};
+use super::types::{RepairIssue, VerifyMode, VerifyTimings};
 use super::{PreparedFileMetadata, PreparedVerifyFile};
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
@@ -32,90 +32,9 @@ pub(super) fn verify_manifest_file(
         verify_mode,
         ..VerifyTimings::default()
     };
-    let metadata = match &prepared_file.metadata {
-        PreparedFileMetadata::Inventory(Some(metadata)) => metadata.clone(),
-        PreparedFileMetadata::Inventory(None) => {
-            return Ok((
-                vec![RepairIssue {
-                    kind: RepairIssueKind::Missing,
-                    path: file_manifest.path.clone(),
-                    detail: format!("missing file: {}", file_manifest.path),
-                }],
-                timings,
-            ));
-        }
-        PreparedFileMetadata::ResolveDuringVerification => {
-            let metadata_read_started = ProfileInstant::detailed(control.profiler());
-            let metadata = match fs::symlink_metadata(&prepared_file.path) {
-                Ok(metadata) => metadata,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    return Ok((
-                        vec![RepairIssue {
-                            kind: RepairIssueKind::Missing,
-                            path: file_manifest.path.clone(),
-                            detail: format!("missing file: {}", file_manifest.path),
-                        }],
-                        timings,
-                    ));
-                }
-                Err(error) => return Err(error.into()),
-            };
-            timings.stat += metadata_read_started.elapsed();
-            metadata
-        }
-    };
-    if !metadata.file_type().is_file() {
-        return Ok((
-            vec![RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: file_manifest.path.clone(),
-                detail: format!("entry type mismatch for file: {}", file_manifest.path),
-            }],
-            timings,
-        ));
+    if let Some(issue) = check_file_metadata(prepared_file, control, &mut timings)? {
+        return Ok((vec![issue], timings));
     }
-
-    if metadata.permissions().readonly() != file_manifest.read_only {
-        return Ok((
-            vec![RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: file_manifest.path.clone(),
-                detail: format!("read-only mismatch for file: {}", file_manifest.path),
-            }],
-            timings,
-        ));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if (metadata.permissions().mode() & 0o111 != 0) != file_manifest.executable {
-            return Ok((
-                vec![RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: file_manifest.path.clone(),
-                    detail: format!("executable mismatch for file: {}", file_manifest.path),
-                }],
-                timings,
-            ));
-        }
-    }
-
-    if metadata.len() != file_manifest.size {
-        return Ok((
-            vec![RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: file_manifest.path.clone(),
-                detail: format!(
-                    "size mismatch for {}: expected {}, got {}",
-                    file_manifest.path,
-                    file_manifest.size,
-                    metadata.len()
-                ),
-            }],
-            timings,
-        ));
-    }
-
     if verify_mode == VerifyMode::MetadataOnly {
         return Ok((Vec::new(), timings));
     }
@@ -130,29 +49,74 @@ pub(super) fn verify_manifest_file(
             control,
         )
     };
-    match verification {
-        Ok(issues) => Ok((issues, timings)),
-        Err(crate::Error::Cancelled) => Err(crate::Error::Cancelled),
-        Err(crate::Error::HashMismatch { expected, actual }) => Ok((
-            vec![RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: file_manifest.path.clone(),
-                detail: format!(
-                    "hash mismatch for {}: expected {}, got {}",
-                    file_manifest.path, expected, actual
-                ),
-            }],
-            timings,
-        )),
-        Err(e) => Ok((
-            vec![RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: file_manifest.path.clone(),
-                detail: format!("cannot read {}: {}", file_manifest.path, e),
-            }],
-            timings,
-        )),
+    let path = &file_manifest.path;
+    let issues = match verification {
+        Ok(issues) => issues,
+        Err(crate::Error::Cancelled) => return Err(crate::Error::Cancelled),
+        Err(crate::Error::HashMismatch { expected, actual }) => vec![RepairIssue::corrupt(
+            path,
+            format!("hash mismatch for {path}: expected {expected}, got {actual}"),
+        )],
+        Err(error) => vec![RepairIssue::corrupt(
+            path,
+            format!("cannot read {path}: {error}"),
+        )],
+    };
+    Ok((issues, timings))
+}
+
+/// Compares the file's type, permissions and size with the manifest and
+/// returns the first mismatch.
+fn check_file_metadata(
+    prepared_file: &PreparedVerifyFile<'_>,
+    control: &OperationControl,
+    timings: &mut VerifyTimings,
+) -> Result<Option<RepairIssue>> {
+    let file_manifest = prepared_file.manifest;
+    let path = &file_manifest.path;
+    let missing = || {
+        Ok(Some(RepairIssue::missing(
+            path,
+            format!("missing file: {path}"),
+        )))
+    };
+    let metadata = match &prepared_file.metadata {
+        PreparedFileMetadata::Inventory(Some(metadata)) => metadata.clone(),
+        PreparedFileMetadata::Inventory(None) => return missing(),
+        PreparedFileMetadata::ResolveDuringVerification => {
+            let metadata_read_started = ProfileInstant::detailed(control.profiler());
+            let metadata = match fs::symlink_metadata(&prepared_file.path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return missing(),
+                Err(error) => return Err(error.into()),
+            };
+            timings.stat += metadata_read_started.elapsed();
+            metadata
+        }
+    };
+
+    let corrupt = |detail: String| Ok(Some(RepairIssue::corrupt(path, detail)));
+    if !metadata.file_type().is_file() {
+        return corrupt(format!("entry type mismatch for file: {path}"));
     }
+    if metadata.permissions().readonly() != file_manifest.read_only {
+        return corrupt(format!("read-only mismatch for file: {path}"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if (metadata.permissions().mode() & 0o111 != 0) != file_manifest.executable {
+            return corrupt(format!("executable mismatch for file: {path}"));
+        }
+    }
+    if metadata.len() != file_manifest.size {
+        return corrupt(format!(
+            "size mismatch for {path}: expected {}, got {}",
+            file_manifest.size,
+            metadata.len()
+        ));
+    }
+    Ok(None)
 }
 
 fn verify_file_fast(
@@ -201,14 +165,13 @@ fn verify_file_streaming(
         chunk_offset = end;
 
         if end > file_manifest.size {
-            issues.push(RepairIssue {
-                kind: RepairIssueKind::Corrupt,
-                path: file_manifest.path.clone(),
-                detail: format!(
-                    "chunk reference out of bounds in {}: offset {}, size {}",
-                    file_manifest.path, start, chunk_ref.raw_size
+            issues.push(RepairIssue::corrupt(
+                &file_manifest.path,
+                format!(
+                    "chunk reference out of bounds in {}: offset {start}, size {raw_size}",
+                    file_manifest.path
                 ),
-            });
+            ));
             break;
         }
 
@@ -230,46 +193,42 @@ fn verify_file_streaming(
             timings.chunk_hash += chunk_hash_started.elapsed();
             timings.chunk_hash_bytes += raw_size;
             if chunk_hash_actual != chunk_ref.chunk_hash {
-                issues.push(RepairIssue {
-                    kind: RepairIssueKind::Corrupt,
-                    path: file_manifest.path.clone(),
-                    detail: format!(
-                        "chunk hash mismatch in {} at offset {}: expected {}, got {}",
+                issues.push(RepairIssue::corrupt(
+                    &file_manifest.path,
+                    format!(
+                        "chunk hash mismatch in {} at offset {start}: expected {}, got {}",
                         file_manifest.path,
-                        start,
                         chunk_ref.chunk_hash,
                         chunk_hash_actual.to_hex()
                     ),
-                });
+                ));
             }
         }
     }
 
     if chunk_offset != file_manifest.size {
-        issues.push(RepairIssue {
-            kind: RepairIssueKind::Corrupt,
-            path: file_manifest.path.clone(),
-            detail: format!(
-                "chunk coverage mismatch for {}: expected {} bytes, got {}",
-                file_manifest.path, file_manifest.size, chunk_offset
+        issues.push(RepairIssue::corrupt(
+            &file_manifest.path,
+            format!(
+                "chunk coverage mismatch for {}: expected {} bytes, got {chunk_offset}",
+                file_manifest.path, file_manifest.size
             ),
-        });
+        ));
     }
 
     let file_hash_finalize_started = ProfileInstant::detailed(control.profiler());
     let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
     timings.file_hash += file_hash_finalize_started.elapsed();
     if actual_hash != typed_file.full_file_hash {
-        issues.push(RepairIssue {
-            kind: RepairIssueKind::Corrupt,
-            path: file_manifest.path.clone(),
-            detail: format!(
+        issues.push(RepairIssue::corrupt(
+            &file_manifest.path,
+            format!(
                 "hash mismatch for {}: expected {}, got {}",
                 file_manifest.path,
                 file_manifest.full_file_hash,
                 actual_hash.to_hex()
             ),
-        });
+        ));
     }
 
     Ok(issues)

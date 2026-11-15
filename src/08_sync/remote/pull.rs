@@ -402,61 +402,147 @@ pub(super) fn bundle_source_requests(
     requests
 }
 
-fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
-    repo_paths: &RepoPaths,
-    repository: &RemoteRepository,
-    snapshot: &RemoteSnapshot,
-    provider: &P,
-    download_client: &DownloadClient,
-    control: &OperationControl,
-) -> Result<()> {
-    let snapshot_id = snapshot.snapshot_id.as_str();
-    let sources = provider.snapshot_sources(repository, snapshot)?;
-    let metadata_bytes = source_bytes(
-        &sources.metadata,
-        download_client,
-        MAX_REMOTE_JSON_BYTES,
-        control,
-    )?;
-    verify_remote_artifact(
-        &metadata_bytes,
-        &snapshot.metadata_hash_b3,
-        "snapshot metadata",
-    )?;
-    let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
-    let product_metadata = if let Some(source) = sources.product_metadata {
-        let product_metadata_bytes =
-            source_bytes(&source, download_client, MAX_REMOTE_JSON_BYTES, control)?;
-        verify_remote_artifact(
-            &product_metadata_bytes,
-            &snapshot.product_metadata_hash_b3,
-            "snapshot product metadata",
+/// The inputs shared by every phase of one pull.
+struct PullContext<'a, P: RemoteRepositoryReader + ?Sized> {
+    repo: &'a Path,
+    repo_paths: &'a RepoPaths,
+    repository: &'a RemoteRepository,
+    provider: &'a P,
+    download_client: DownloadClient,
+    control: &'a OperationControl,
+}
+
+impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
+    fn download(&self, source: &RemoteArtifactSource, maximum_bytes: u64) -> Result<Vec<u8>> {
+        source_bytes(source, &self.download_client, maximum_bytes, self.control)
+    }
+
+    /// Replaces the local repo manifest with the remote one. Constraints
+    /// never change through a pull; they must already match.
+    fn download_repo_manifest(&self, repository_existed: bool) -> Result<()> {
+        let bytes = self.download(
+            &self.provider.repository_metadata_source(self.repository)?,
+            MAX_REMOTE_JSON_BYTES,
         )?;
-        Some(SnapshotProductMetadata::from_json_bytes(
-            &product_metadata_bytes,
-        )?)
-    } else {
-        None
-    };
-    let blueprint_bytes = source_bytes(
-        &sources.blueprint,
-        download_client,
-        MAX_REMOTE_BINARY_BYTES,
-        control,
-    )?;
-    verify_remote_artifact(
-        &blueprint_bytes,
-        &snapshot.blueprint_hash_b3,
-        "snapshot blueprint",
-    )?;
-    write_remote_snapshot_artifacts(
-        repo_paths,
-        snapshot_id,
-        &metadata,
-        product_metadata.as_ref(),
-        &blueprint_bytes,
-    )?;
-    Ok(())
+        verify_remote_artifact(&bytes, &self.repository.metadata_hash_b3, "repo metadata")?;
+        let mut manifest: RepoManifest = from_json_bytes(&bytes)?;
+        let local_constraints = load_gutch_repo_manifest(self.repo)?
+            .1
+            .constraints
+            .unwrap_or_default();
+        let incoming_constraints = manifest.constraints.clone().unwrap_or_default();
+        if repository_existed && local_constraints != incoming_constraints {
+            return Err(Error::manifest(
+                "remote repository constraints differ; explicitly update local constraints before pulling",
+            ));
+        }
+        validate_existing_constraints(self.repo, &incoming_constraints, "pull")?;
+        manifest.remote_repo_id = self.repository.id.clone();
+        write_gutch_repo_manifest(self.repo_paths, &manifest)
+    }
+
+    fn download_chunk_index(&self) -> Result<()> {
+        let bytes = self.download(
+            &self.provider.chunk_index_source(self.repository)?,
+            MAX_REMOTE_JSON_BYTES,
+        )?;
+        verify_remote_artifact(&bytes, &self.repository.chunk_map_hash_b3, "chunk index")?;
+        let mut chunk_index = load_chunk_index_binary_from_bytes(&bytes)?;
+        preserve_local_chunk_locations(self.repo_paths, &mut chunk_index)?;
+        write_chunk_index(self.repo_paths, &chunk_index)
+    }
+
+    fn download_snapshot(&self, snapshot: &RemoteSnapshot) -> Result<()> {
+        let snapshot_id = snapshot.snapshot_id.as_str();
+        let sources = self.provider.snapshot_sources(self.repository, snapshot)?;
+        let metadata_bytes = self.download(&sources.metadata, MAX_REMOTE_JSON_BYTES)?;
+        verify_remote_artifact(
+            &metadata_bytes,
+            &snapshot.metadata_hash_b3,
+            "snapshot metadata",
+        )?;
+        let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
+        let product_metadata = match sources.product_metadata {
+            Some(source) => {
+                let bytes = self.download(&source, MAX_REMOTE_JSON_BYTES)?;
+                verify_remote_artifact(
+                    &bytes,
+                    &snapshot.product_metadata_hash_b3,
+                    "snapshot product metadata",
+                )?;
+                Some(SnapshotProductMetadata::from_json_bytes(&bytes)?)
+            }
+            None => None,
+        };
+        let blueprint_bytes = self.download(&sources.blueprint, MAX_REMOTE_BINARY_BYTES)?;
+        verify_remote_artifact(
+            &blueprint_bytes,
+            &snapshot.blueprint_hash_b3,
+            "snapshot blueprint",
+        )?;
+        write_remote_snapshot_artifacts(
+            self.repo_paths,
+            snapshot_id,
+            &metadata,
+            product_metadata.as_ref(),
+            &blueprint_bytes,
+        )
+    }
+
+    /// Asks the provider for a source for each missing bundle, one request per
+    /// snapshot that references them.
+    fn missing_bundle_sources(
+        &self,
+        bundles_by_snapshot: &[SnapshotBundleIds],
+        missing_bundles: &[String],
+        snapshots_by_id: &HashMap<&str, &RemoteSnapshot>,
+    ) -> Result<HashMap<String, RemoteArtifactSource>> {
+        let mut bundle_sources = HashMap::new();
+        for SnapshotBundleIds {
+            snapshot_id,
+            bundle_ids,
+        } in bundle_source_requests(bundles_by_snapshot, missing_bundles)
+        {
+            let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
+                Error::manifest(format!(
+                    "remote snapshot '{snapshot_id}' disappeared during bundle resolution"
+                ))
+            })?;
+            let expected_bundle_ids: HashSet<&str> =
+                bundle_ids.iter().map(String::as_str).collect();
+            record_bundle_sources(
+                &mut bundle_sources,
+                &expected_bundle_ids,
+                self.provider
+                    .bundle_sources(self.repository, snapshot, &bundle_ids)?,
+            )?;
+        }
+        Ok(bundle_sources)
+    }
+
+    /// Removes local snapshots the remote does not have and bundles no
+    /// remaining snapshot needs. Returns the removed snapshot and bundle counts.
+    fn prune(
+        &self,
+        local_only_snapshots: &[String],
+        required_bundles: &HashSet<String>,
+    ) -> Result<(usize, usize)> {
+        for snapshot_id in local_only_snapshots {
+            self.control.checkpoint()?;
+            remove_snapshot_from_repo(self.repo, snapshot_id)?;
+        }
+        let mut pruned_bundle_count = 0;
+        for path in local_bundle_paths(&self.repo_paths.bundles_root)? {
+            self.control.checkpoint()?;
+            if let Some(bundle_id) = bundle_id_from_bundle_path(&path)
+                && !required_bundles.contains(&bundle_id)
+            {
+                fs::remove_file(&path)?;
+                pruned_bundle_count += 1;
+            }
+        }
+        Ok((local_only_snapshots.len(), pruned_bundle_count))
+    }
 }
 
 pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
@@ -467,36 +553,35 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
     prune: bool,
     control: OperationControl,
 ) -> Result<RepoPullStats> {
-    let operation_root = repo.to_path_buf();
-    fs::create_dir_all(&operation_root)?;
-    coordination::write(&operation_root, || {
+    fs::create_dir_all(&repo)?;
+    coordination::write(&repo, || {
         control.checkpoint()?;
-        let progress = RemoteProgress::new(&control, OperationKind::Pull);
+        let mut progress = RemoteProgress::new(&control, OperationKind::Pull);
         let bound_remote_repo_id = bound_remote_repo_id(&repo)?;
         let repository =
             provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
         let repo_paths = RepoPaths::from_repo_root(&repo);
         let repository_existed = repo_paths.repo_metadata_path.exists();
         ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
-        progress.emit(
-            ProgressPhase::Planning,
-            "Planning pull changes",
-            0,
-            1,
-            None,
-            false,
-        );
+        progress.report(ProgressPhase::Planning, "Planning pull changes", None);
         let snapshots = provider.list_snapshots(&repository)?;
         let mut snapshots_by_id = HashMap::with_capacity(snapshots.len());
         for snapshot in &snapshots {
-            // Match the former linear lookup's first occurrence if a provider repeats an ID.
+            // Keep the first occurrence if a provider repeats an ID.
             snapshots_by_id
                 .entry(snapshot.snapshot_id.as_str())
                 .or_insert(snapshot);
         }
         let plan = compute_pull_plan(&repo, &repo_paths, &repository, &snapshots, policy)?;
         control.checkpoint()?;
-        let download_client = build_download_client()?;
+        let context = PullContext {
+            repo: &repo,
+            repo_paths: &repo_paths,
+            repository: &repository,
+            provider,
+            download_client: build_download_client()?,
+            control: &control,
+        };
 
         let mut stats = RepoPullStats {
             command: "repo pull",
@@ -513,217 +598,107 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             pruned_snapshot_count: 0,
             pruned_bundle_count: 0,
         };
-        let total_steps = 1
-            + usize::from(plan.repo_manifest_needed)
-            + usize::from(plan.chunk_map_needed)
-            + plan.snapshots_to_download.len()
-            + 2;
-        let mut step = 0usize;
+        progress.set_total_steps(
+            1 + usize::from(plan.repo_manifest_needed)
+                + usize::from(plan.chunk_map_needed)
+                + plan.snapshots_to_download.len()
+                + 2,
+        );
 
         if plan.repo_manifest_needed {
             control.checkpoint()?;
-            step += 1;
-            progress.emit(
+            progress.next_step(
                 ProgressPhase::RepoMetadata,
                 "Downloading repo metadata",
-                step,
-                total_steps,
                 None,
-                false,
             );
-            let bytes = source_bytes(
-                &provider.repository_metadata_source(&repository)?,
-                &download_client,
-                MAX_REMOTE_JSON_BYTES,
-                &control,
-            )?;
-            verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
-            let mut manifest: RepoManifest = from_json_bytes(&bytes)?;
-            let local_constraints = load_gutch_repo_manifest(&repo)?
-                .1
-                .constraints
-                .unwrap_or_default();
-            let incoming_constraints = manifest.constraints.clone().unwrap_or_default();
-            if repository_existed && local_constraints != incoming_constraints {
-                return Err(Error::manifest(
-                    "remote repository constraints differ; explicitly update local constraints before pulling",
-                ));
-            }
-            validate_existing_constraints(&repo, &incoming_constraints, "pull")?;
-            manifest.remote_repo_id = repository.id.clone();
-            write_gutch_repo_manifest(&repo_paths, &manifest)?;
+            context.download_repo_manifest(repository_existed)?;
             stats.repo_manifest_downloaded = true;
         }
 
         if plan.chunk_map_needed {
             control.checkpoint()?;
-            step += 1;
-            progress.emit(
-                ProgressPhase::ChunkIndex,
-                "Downloading chunk map",
-                step,
-                total_steps,
-                None,
-                false,
-            );
-            let bytes = source_bytes(
-                &provider.chunk_index_source(&repository)?,
-                &download_client,
-                MAX_REMOTE_JSON_BYTES,
-                &control,
-            )?;
-            verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
-            let mut chunk_index = load_chunk_index_binary_from_bytes(&bytes)?;
-            preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
-            write_chunk_index(&repo_paths, &chunk_index)?;
+            progress.next_step(ProgressPhase::ChunkIndex, "Downloading chunk map", None);
+            context.download_chunk_index()?;
             stats.chunk_map_downloaded = true;
         }
 
-        let snapshot_start = step;
-        for snapshot_id in &plan.snapshots_to_download {
+        let snapshot_count = plan.snapshots_to_download.len();
+        for (index, snapshot_id) in plan.snapshots_to_download.iter().enumerate() {
             control.checkpoint()?;
-            step += 1;
-            progress.emit(
+            progress.next_step(
                 ProgressPhase::SnapshotMetadata,
                 format!(
-                    "Downloading snapshot metadata ({}/{})",
-                    step - snapshot_start,
-                    plan.snapshots_to_download.len().max(1)
+                    "Downloading snapshot metadata ({}/{snapshot_count})",
+                    index + 1
                 ),
-                step,
-                total_steps,
                 Some(snapshot_id.clone()),
-                false,
             );
             let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
                 Error::manifest(format!(
                     "remote snapshot '{snapshot_id}' disappeared during pull"
                 ))
             })?;
-            download_and_publish_snapshot(
-                &repo_paths,
-                &repository,
-                snapshot,
-                provider,
-                &download_client,
-                &control,
-            )?;
+            context.download_snapshot(snapshot)?;
             stats.snapshot_downloaded_count += 1;
         }
 
-        step += 1;
-        progress.emit(
-            ProgressPhase::Artifact,
-            "Resolving bundles",
-            step,
-            total_steps,
-            None,
-            false,
-        );
+        progress.next_step(ProgressPhase::Artifact, "Resolving bundles", None);
         let bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
-        let required_set: HashSet<String> = bundles_by_snapshot
+        let required_bundles: HashSet<String> = bundles_by_snapshot
             .iter()
             .flat_map(|snapshot| snapshot.bundle_ids.iter())
             .cloned()
             .collect();
         let mut missing_bundles = Vec::new();
-        for id in &required_set {
-            if !bundle_path(&repo_paths, id)?.is_file() {
-                missing_bundles.push(id.clone());
+        for bundle_id in &required_bundles {
+            if !bundle_path(&repo_paths, bundle_id)?.is_file() {
+                missing_bundles.push(bundle_id.clone());
             }
         }
         missing_bundles.sort();
-        let mut bundle_sources = HashMap::new();
-        for SnapshotBundleIds {
-            snapshot_id,
-            bundle_ids: missing_for_snapshot,
-        } in bundle_source_requests(&bundles_by_snapshot, &missing_bundles)
-        {
-            let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
-                Error::manifest(format!(
-                    "remote snapshot '{}' disappeared during bundle resolution",
-                    snapshot_id
-                ))
-            })?;
-            let expected_for_request: HashSet<&str> =
-                missing_for_snapshot.iter().map(String::as_str).collect();
-            record_bundle_sources(
-                &mut bundle_sources,
-                &expected_for_request,
-                provider.bundle_sources(&repository, snapshot, &missing_for_snapshot)?,
-            )?;
-        }
-        let mut bundle_downloaded = 0usize;
-        for bundle_id in &missing_bundles {
+        let bundle_sources = context.missing_bundle_sources(
+            &bundles_by_snapshot,
+            &missing_bundles,
+            &snapshots_by_id,
+        )?;
+        for (index, bundle_id) in missing_bundles.iter().enumerate() {
             control.checkpoint()?;
             let source = bundle_sources.get(bundle_id).ok_or_else(|| {
                 Error::manifest(format!(
-                    "remote provider did not return a source for required bundle '{}'",
-                    bundle_id
+                    "remote provider did not return a source for required bundle '{bundle_id}'"
                 ))
             })?;
-            progress.emit(
+            progress.report(
                 ProgressPhase::Artifact,
                 format!(
                     "Downloading bundles ({}/{})",
-                    bundle_downloaded + 1,
-                    missing_bundles.len().max(1)
+                    index + 1,
+                    missing_bundles.len()
                 ),
-                step,
-                total_steps,
                 Some(bundle_id.clone()),
-                false,
             );
-            let bundle_path = bundle_path(&repo_paths, bundle_id)?;
             download_and_publish_bundle(
                 source,
-                &download_client,
+                &context.download_client,
                 bundle_id,
-                &bundle_path,
+                &bundle_path(&repo_paths, bundle_id)?,
                 &control,
             )?;
-            bundle_downloaded += 1;
         }
-        stats.bundle_downloaded_count = bundle_downloaded;
-        stats.bundle_skipped_count = required_set.len().saturating_sub(bundle_downloaded);
+        stats.bundle_downloaded_count = missing_bundles.len();
+        stats.bundle_skipped_count = required_bundles.len() - missing_bundles.len();
 
         if prune {
             control.checkpoint()?;
-            step += 1;
-            progress.emit(
-                ProgressPhase::Prune,
-                "Removing local-only content",
-                step,
-                total_steps,
-                None,
-                false,
-            );
-            for snapshot_id in &plan.local_only_snapshots {
-                control.checkpoint()?;
-                remove_snapshot_from_repo(&repo, snapshot_id)?;
-                stats.pruned_snapshot_count += 1;
-            }
-            for path in local_bundle_paths(&repo_paths.bundles_root)? {
-                control.checkpoint()?;
-                if let Some(bundle_id) = bundle_id_from_bundle_path(&path)
-                    && !required_set.contains(&bundle_id)
-                {
-                    fs::remove_file(&path)?;
-                    stats.pruned_bundle_count += 1;
-                }
-            }
+            progress.next_step(ProgressPhase::Prune, "Removing local-only content", None);
+            (stats.pruned_snapshot_count, stats.pruned_bundle_count) =
+                context.prune(&plan.local_only_snapshots, &required_bundles)?;
         } else {
             stats.local_only_snapshots_kept = plan.local_only_snapshots.len();
         }
 
-        progress.emit(
-            ProgressPhase::Done,
-            "Pull complete",
-            total_steps,
-            total_steps,
-            None,
-            true,
-        );
+        progress.finish("Pull complete");
         Ok(stats)
     })
 }
