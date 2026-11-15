@@ -21,15 +21,6 @@ fn error_display_verify() {
 }
 
 #[test]
-fn error_display_source_snapshot_not_verified() {
-    let e = Error::SourceSnapshotNotVerified("missing file".into());
-    assert_eq!(
-        e.to_string(),
-        "Source snapshot destination did not verify: missing file"
-    );
-}
-
-#[test]
 fn error_display_reconstruct() {
     let e = Error::reconstruct("output dir missing");
     assert_eq!(e.to_string(), "Reconstruction error: output dir missing");
@@ -49,18 +40,6 @@ fn error_display_hash_mismatch() {
         actual: "def".into(),
     };
     assert_eq!(e.to_string(), "Hash mismatch: expected abc, got def");
-}
-
-#[test]
-fn error_from_str() {
-    let e = Error::from("test error");
-    assert_eq!(e.to_string(), "Bundle error: test error");
-}
-
-#[test]
-fn error_from_string() {
-    let e = Error::from(String::from("owned error"));
-    assert_eq!(e.to_string(), "Bundle error: owned error");
 }
 
 #[test]

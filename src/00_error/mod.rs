@@ -32,9 +32,6 @@ pub enum Error {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("Zstd error: {0}")]
-    Zstd(String),
-
     #[error("Walkdir error: {0}")]
     Walkdir(#[from] walkdir::Error),
 
@@ -49,9 +46,6 @@ pub enum Error {
 
     #[error("Verification error: {0}")]
     Verify(String),
-
-    #[error("Source snapshot destination did not verify: {0}")]
-    SourceSnapshotNotVerified(String),
 
     #[error("Stored snapshot data does not match its content-derived ID: {snapshot_id}")]
     SnapshotIntegrityMismatch { snapshot_id: String },
@@ -70,9 +64,6 @@ pub enum Error {
     #[error("Invalid bundle: {0}")]
     InvalidBundle(String),
 
-    #[error("Missing chunk: {0}")]
-    MissingChunk(String),
-
     #[error("Hash mismatch: expected {expected}, got {actual}")]
     HashMismatch { expected: String, actual: String },
 
@@ -81,24 +72,6 @@ pub enum Error {
 
     #[error("Path error for {path}: {reason}")]
     PathError { path: PathBuf, reason: String },
-}
-
-impl From<&str> for Error {
-    fn from(s: &str) -> Self {
-        Error::Bundle(s.to_string())
-    }
-}
-
-impl From<String> for Error {
-    fn from(s: String) -> Self {
-        Error::Bundle(s)
-    }
-}
-
-impl From<zstd::zstd_safe::ErrorCode> for Error {
-    fn from(code: zstd::zstd_safe::ErrorCode) -> Self {
-        Error::Zstd(format!("zstd error code: {:?}", code))
-    }
 }
 
 impl Error {
