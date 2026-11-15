@@ -53,6 +53,7 @@ use crate::repo::snapshot_manifests::snapshot_product_metadata_path;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::updates::validate_existing_constraints;
 use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::verify::VerifiedArtifacts;
 use crate::repo::verify::verify_snapshot_artifacts;
 use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::sync::limits::{
@@ -95,6 +96,9 @@ pub(super) fn compute_pull_plan(
     let mut snapshots_to_download = Vec::new();
     let mut snapshots_to_skip = Vec::new();
     let mut kept_local_snapshots = Vec::new();
+    // Loaded on first need and shared, as are artifact checks across snapshots.
+    let mut local_chunk_index = None;
+    let mut verified_artifacts = VerifiedArtifacts::new();
     for snapshot in snapshots {
         // A snapshot whose artifacts are still uploading cannot be pulled yet.
         if !snapshot.artifact_ready {
@@ -103,17 +107,22 @@ pub(super) fn compute_pull_plan(
         }
         // A healthy local installation does not need another repository's layout.
         // This also avoids attempting to fetch local-only chunks from that layout.
-        if hashes_differ(
+        let blueprint_differs = hashes_differ(
             &local_snapshot_blueprint_hash_b3(repo_paths, &snapshot.snapshot_id)?,
             &snapshot.blueprint_hash_b3,
-        ) && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
+        );
+        if blueprint_differs
+            && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
             && snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
-            && let Ok(index) = load_chunk_index(repo_paths)
+            && let Some(index) = local_chunk_index
+                .get_or_insert_with(|| load_chunk_index(repo_paths).ok())
+                .as_ref()
             && verify_snapshot_artifacts(
                 repo_paths,
-                &index,
-                &snapshot.snapshot_id,
+                index,
+                &local,
                 RepoArtifactVerification::Strict,
+                &mut verified_artifacts,
             )
             .is_ok_and(|result| result.ok)
         {
@@ -134,12 +143,7 @@ pub(super) fn compute_pull_plan(
             local_file_mtime(&metadata_path),
             policy,
         );
-        if decision == ArtifactDecision::Identical
-            && hashes_differ(
-                &local_snapshot_blueprint_hash_b3(repo_paths, &snapshot.snapshot_id)?,
-                &snapshot.blueprint_hash_b3,
-            )
-        {
+        if decision == ArtifactDecision::Identical && blueprint_differs {
             decision = ArtifactDecision::Fetch;
         }
         let product_metadata_path =

@@ -38,6 +38,7 @@ use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_parts;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::verify::VerifiedArtifacts;
 use crate::repo::verify::verify_snapshot_artifacts;
 use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::sync::fetch_types::SnapshotFetchRequest;
@@ -394,8 +395,9 @@ fn prefer_verified_local_snapshot(
         && verify_snapshot_artifacts(
             repo_paths,
             &local_index,
-            snapshot_id,
+            &local,
             RepoArtifactVerification::Strict,
+            &mut VerifiedArtifacts::new(),
         )
         .is_ok_and(|result| result.ok);
     Ok(if local_is_complete { local } else { downloaded })

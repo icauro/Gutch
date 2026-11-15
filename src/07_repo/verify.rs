@@ -96,7 +96,7 @@ pub fn verify_gutch_repo_artifacts(
                 "verify",
                 Some(&stored_snapshot_id),
             )?;
-            snapshots.push(verify_snapshot_artifacts_cached(
+            snapshots.push(verify_snapshot_artifacts(
                 &repo_paths,
                 &chunk_index,
                 &manifest,
@@ -124,28 +124,16 @@ pub fn verify_gutch_repo_artifacts(
     })
 }
 
-pub(crate) fn verify_snapshot_artifacts(
-    repo_paths: &RepoPaths,
-    chunk_index: &ChunkIndex,
-    snapshot_id: &str,
-    mode: RepoArtifactVerification,
-) -> Result<SnapshotArtifactVerifyResult> {
-    let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
-    verify_snapshot_artifacts_cached(
-        repo_paths,
-        chunk_index,
-        &manifest,
-        mode,
-        &mut HashMap::new(),
-    )
-}
+/// Artifact check outcomes shared across snapshots, so each artifact is read once.
+pub(crate) type VerifiedArtifacts = HashMap<ArtifactRef, std::result::Result<(), String>>;
 
-fn verify_snapshot_artifacts_cached(
+/// Verifies an already loaded snapshot manifest, reusing earlier artifact outcomes.
+pub(crate) fn verify_snapshot_artifacts(
     repo_paths: &RepoPaths,
     chunk_index: &ChunkIndex,
     snapshot_manifest: &SnapshotManifest,
     mode: RepoArtifactVerification,
-    verified: &mut HashMap<ArtifactRef, std::result::Result<(), String>>,
+    verified: &mut VerifiedArtifacts,
 ) -> Result<SnapshotArtifactVerifyResult> {
     let RequiredArtifacts {
         artifacts: required_artifacts,
