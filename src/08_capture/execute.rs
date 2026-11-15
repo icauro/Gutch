@@ -13,7 +13,6 @@ use crate::capture::scan::scan_source_inventory;
 use crate::progress;
 use crate::progress::OperationKind;
 use crate::progress::ProgressEvent;
-use crate::progress::ProgressPhase;
 use crate::progress::ProgressSink;
 use crate::repo::Result;
 
@@ -384,16 +383,13 @@ impl SnapshotCaptureResult {
         progress::emit_progress(
             progress,
             ProgressEvent {
-                feedback: None,
-                operation: OperationKind::SnapshotCapture,
-                phase: ProgressPhase::Done,
-                message: "Snapshot capture complete".to_string(),
-                current: 1,
-                total: 1,
-                transferred_bytes: 0,
-                total_bytes: 0,
                 detail: Some(format!("snapshot_id={}", self.snapshot_id)),
-                done: true,
+                ..ProgressEvent::finished(
+                    OperationKind::SnapshotCapture,
+                    "Snapshot capture complete",
+                    1,
+                    1,
+                )
             },
         );
     }

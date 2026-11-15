@@ -403,16 +403,14 @@ fn emit_verify_progress(
     emit_progress(
         progress,
         ProgressEvent {
-            feedback: None,
-            operation: OperationKind::Verify,
-            phase: ProgressPhase::Verify,
-            message: "Verifying files".to_string(),
-            current,
-            total: total.max(1),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
             done,
+            ..ProgressEvent::new(
+                OperationKind::Verify,
+                ProgressPhase::Verify,
+                "Verifying files",
+                current,
+                total.max(1),
+            )
         },
     );
 }

@@ -120,16 +120,15 @@ pub fn fetch_snapshot_for_artifact_ids(
         emit_progress(
             &progress,
             ProgressEvent {
-                feedback: None,
-                operation: OperationKind::Fetch,
-                phase: ProgressPhase::Done,
-                message: "Snapshot fetched".to_string(),
-                current: required_artifacts.len(),
-                total: required_artifacts.len().max(1),
                 transferred_bytes: transfer_progress.transferred_bytes(),
                 total_bytes: transfer_progress.total_bytes(),
                 detail: Some(request.snapshot_id.clone()),
-                done: true,
+                ..ProgressEvent::finished(
+                    OperationKind::Fetch,
+                    "Snapshot fetched",
+                    required_artifacts.len(),
+                    required_artifacts.len().max(1),
+                )
             },
         );
 
@@ -264,16 +263,8 @@ impl MetadataDownloader<'_> {
         emit_progress(
             self.progress,
             ProgressEvent {
-                feedback: None,
-                operation: OperationKind::Fetch,
-                phase,
-                message: message.to_string(),
-                current: 0,
-                total: 1,
-                transferred_bytes: 0,
-                total_bytes: 0,
                 detail: detail.map(str::to_string),
-                done: false,
+                ..ProgressEvent::new(OperationKind::Fetch, phase, message, 0, 1)
             },
         );
     }

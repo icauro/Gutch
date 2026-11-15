@@ -74,6 +74,43 @@ pub struct ProgressEvent {
     pub done: bool,
 }
 
+impl ProgressEvent {
+    /// A step of `operation` without byte counts, detail or live feedback.
+    pub fn new(
+        operation: OperationKind,
+        phase: ProgressPhase,
+        message: impl Into<String>,
+        current: usize,
+        total: usize,
+    ) -> Self {
+        Self {
+            feedback: None,
+            operation,
+            phase,
+            message: message.into(),
+            current,
+            total,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: false,
+        }
+    }
+
+    /// The final event of `operation`.
+    pub fn finished(
+        operation: OperationKind,
+        message: impl Into<String>,
+        current: usize,
+        total: usize,
+    ) -> Self {
+        Self {
+            done: true,
+            ..Self::new(operation, ProgressPhase::Done, message, current, total)
+        }
+    }
+}
+
 /// Trait for receiving progress events. Implemented by CLI (indicatif) and Tauri (event emitter).
 pub trait ProgressSink: Send + Sync + Debug {
     fn emit(&self, event: ProgressEvent);

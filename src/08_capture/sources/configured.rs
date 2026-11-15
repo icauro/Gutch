@@ -188,16 +188,14 @@ pub fn capture_snapshot_sources(
             progress::emit_progress(
                 control.progress(),
                 ProgressEvent {
-                    feedback: None,
-                    operation: OperationKind::SnapshotSourcesCapture,
-                    phase: ProgressPhase::Capture,
-                    message: format!("Capturing snapshot '{}'", candidate.folder_name),
-                    current: step_index + 1,
-                    total: total_steps,
-                    transferred_bytes: 0,
-                    total_bytes: 0,
                     detail: Some(candidate.folder_name.clone()),
-                    done: false,
+                    ..ProgressEvent::new(
+                        OperationKind::SnapshotSourcesCapture,
+                        ProgressPhase::Capture,
+                        format!("Capturing snapshot '{}'", candidate.folder_name),
+                        step_index + 1,
+                        total_steps,
+                    )
                 },
             );
             capture_source_snapshot(
@@ -215,18 +213,12 @@ pub fn capture_snapshot_sources(
 
         progress::emit_progress(
             control.progress(),
-            ProgressEvent {
-                feedback: None,
-                operation: OperationKind::SnapshotSourcesCapture,
-                phase: ProgressPhase::Done,
-                message: "Snapshot sources capture complete".to_string(),
-                current: total_steps,
-                total: total_steps,
-                transferred_bytes: 0,
-                total_bytes: 0,
-                detail: None,
-                done: true,
-            },
+            ProgressEvent::finished(
+                OperationKind::SnapshotSourcesCapture,
+                "Snapshot sources capture complete",
+                total_steps,
+                total_steps,
+            ),
         );
 
         Ok(SnapshotSourcesCaptureResult { captured_count })

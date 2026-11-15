@@ -348,18 +348,13 @@ mod tests {
         let feedback = LiveProgress::new(sink.clone());
         feedback.start(Stream::Download);
         feedback.start(Stream::OutputWrite);
-        let mut event = ProgressEvent {
-            feedback: None,
-            operation: super::super::OperationKind::Fetch,
-            phase: super::super::ProgressPhase::Reconstruct,
-            message: "work".into(),
-            current: 0,
-            total: 10000,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        };
+        let mut event = ProgressEvent::new(
+            super::super::OperationKind::Fetch,
+            super::super::ProgressPhase::Reconstruct,
+            "work",
+            0,
+            10000,
+        );
         feedback.emit(event.clone());
         waiting.recv_timeout(Duration::from_secs(2)).unwrap();
         // A blocked consumer cannot block these updates or enqueue 10,000 snapshots.
@@ -395,18 +390,12 @@ mod tests {
     fn the_final_done_event_is_delivered_once() {
         let sink = Arc::new(RecordingSink::default());
         let feedback = LiveProgress::new(sink.clone());
-        feedback.emit(ProgressEvent {
-            feedback: None,
-            operation: super::super::OperationKind::Fetch,
-            phase: super::super::ProgressPhase::Done,
-            message: "done".into(),
-            current: 1,
-            total: 1,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: true,
-        });
+        feedback.emit(ProgressEvent::finished(
+            super::super::OperationKind::Fetch,
+            "done",
+            1,
+            1,
+        ));
         // Let the thread deliver the transition before the drop stops it.
         let deadline = Instant::now() + Duration::from_secs(5);
         while sink.0.lock().unwrap().is_empty() && Instant::now() < deadline {

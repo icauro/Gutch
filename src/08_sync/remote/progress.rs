@@ -72,16 +72,9 @@ impl RemoteProgress {
         emit_progress(
             &self.sink,
             ProgressEvent {
-                feedback: None,
-                operation: self.operation,
-                phase,
-                message,
-                current,
-                total: self.total_steps,
-                transferred_bytes: 0,
-                total_bytes: 0,
                 detail,
                 done,
+                ..ProgressEvent::new(self.operation, phase, message, current, self.total_steps)
             },
         );
     }

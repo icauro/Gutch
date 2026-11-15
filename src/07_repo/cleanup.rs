@@ -60,18 +60,13 @@ pub(crate) fn plan_orphan_artifact_cleanup(
 
     emit_progress(
         control.progress(),
-        ProgressEvent {
-            feedback: None,
-            operation: OperationKind::SnapshotDelete,
-            phase: ProgressPhase::ScanSnapshots,
-            message: "Scanning remaining snapshots".to_string(),
-            current: 0,
-            total: TOTAL,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        },
+        ProgressEvent::new(
+            OperationKind::SnapshotDelete,
+            ProgressPhase::ScanSnapshots,
+            "Scanning remaining snapshots",
+            0,
+            TOTAL,
+        ),
     );
     let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
     let remaining_snapshots = list_repo_snapshot_ids(&repo_paths)?
@@ -89,20 +84,18 @@ pub(crate) fn plan_orphan_artifact_cleanup(
         emit_progress(
             control.progress(),
             ProgressEvent {
-                feedback: None,
-                operation: OperationKind::SnapshotDelete,
-                phase: ProgressPhase::LoadManifests,
-                message: format!(
-                    "Loading snapshot manifests ({}/{})",
-                    i + 1,
-                    remaining_snapshots.len()
-                ),
-                current: progress_current,
-                total: TOTAL,
-                transferred_bytes: 0,
-                total_bytes: 0,
                 detail: Some(snapshot_id.clone()),
-                done: false,
+                ..ProgressEvent::new(
+                    OperationKind::SnapshotDelete,
+                    ProgressPhase::LoadManifests,
+                    format!(
+                        "Loading snapshot manifests ({}/{})",
+                        i + 1,
+                        remaining_snapshots.len()
+                    ),
+                    progress_current,
+                    TOTAL,
+                )
             },
         );
         let manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
@@ -130,18 +123,13 @@ pub(crate) fn plan_orphan_artifact_cleanup(
                 LOAD_MANIFESTS_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / artifact_count;
             emit_progress(
                 control.progress(),
-                ProgressEvent {
-                    feedback: None,
-                    operation: OperationKind::SnapshotDelete,
-                    phase: ProgressPhase::ScanArtifacts,
-                    message: format!("Scanning artifacts ({}/{})", i + 1, artifact_files.len()),
-                    current: progress_current.min(SCAN_BUNDLES_END),
-                    total: TOTAL,
-                    transferred_bytes: 0,
-                    total_bytes: 0,
-                    detail: None,
-                    done: false,
-                },
+                ProgressEvent::new(
+                    OperationKind::SnapshotDelete,
+                    ProgressPhase::ScanArtifacts,
+                    format!("Scanning artifacts ({}/{})", i + 1, artifact_files.len()),
+                    progress_current.min(SCAN_BUNDLES_END),
+                    TOTAL,
+                ),
             );
         }
         if !still_required_artifacts.contains(artifact) {
@@ -151,18 +139,13 @@ pub(crate) fn plan_orphan_artifact_cleanup(
 
     emit_progress(
         control.progress(),
-        ProgressEvent {
-            feedback: None,
-            operation: OperationKind::SnapshotDelete,
-            phase: ProgressPhase::DeleteOrphans,
-            message: format!("Removing {} orphan artifact(s)", orphan_artifacts.len()),
-            current: SCAN_BUNDLES_END,
-            total: TOTAL,
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: None,
-            done: false,
-        },
+        ProgressEvent::new(
+            OperationKind::SnapshotDelete,
+            ProgressPhase::DeleteOrphans,
+            format!("Removing {} orphan artifact(s)", orphan_artifacts.len()),
+            SCAN_BUNDLES_END,
+            TOTAL,
+        ),
     );
     Ok(orphan_artifacts)
 }

@@ -47,18 +47,13 @@ impl BuildProgressTracker {
     fn emit(&self, current: usize) {
         emit_progress(
             self.control.progress(),
-            ProgressEvent {
-                feedback: None,
-                operation: OperationKind::SnapshotCapture,
-                phase: self.phase,
-                message: self.message.to_string(),
+            ProgressEvent::new(
+                OperationKind::SnapshotCapture,
+                self.phase,
+                self.message.to_string(),
                 current,
-                total: self.total.load(Ordering::Relaxed),
-                transferred_bytes: 0,
-                total_bytes: 0,
-                detail: None,
-                done: false,
-            },
+                self.total.load(Ordering::Relaxed),
+            ),
         );
     }
 }

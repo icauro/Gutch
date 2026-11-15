@@ -239,16 +239,16 @@ impl<'a> TransferProgressReporter<'a> {
         emit_progress(
             self.control.progress(),
             ProgressEvent {
-                feedback: None,
-                operation: OperationKind::Fetch,
-                phase: self.phase,
-                message: self.message.to_string(),
-                current,
-                total: self.counters.total.max(1),
                 transferred_bytes: self.transfer_progress.transferred_bytes(),
                 total_bytes: self.transfer_progress.total_bytes(),
                 detail: self.detail.map(str::to_string),
-                done: false,
+                ..ProgressEvent::new(
+                    OperationKind::Fetch,
+                    self.phase,
+                    self.message,
+                    current,
+                    self.counters.total.max(1),
+                )
             },
         );
     }

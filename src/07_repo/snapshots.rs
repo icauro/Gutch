@@ -54,16 +54,14 @@ pub fn delete_repo_snapshot_and_cleanup(
         progress::emit_progress(
             control.progress(),
             ProgressEvent {
-                feedback: None,
-                operation: OperationKind::SnapshotDelete,
-                phase: ProgressPhase::RemoveManifest,
-                message: format!("Removing snapshot '{}'", snapshot_id),
-                current: 0,
-                total: TOTAL,
-                transferred_bytes: 0,
-                total_bytes: 0,
                 detail: Some(snapshot_id.to_string()),
-                done: false,
+                ..ProgressEvent::new(
+                    OperationKind::SnapshotDelete,
+                    ProgressPhase::RemoveManifest,
+                    format!("Removing snapshot '{}'", snapshot_id),
+                    0,
+                    TOTAL,
+                )
             },
         );
         let orphan_paths =
@@ -74,21 +72,15 @@ pub fn delete_repo_snapshot_and_cleanup(
 
         progress::emit_progress(
             control.progress(),
-            ProgressEvent {
-                feedback: None,
-                operation: OperationKind::SnapshotDelete,
-                phase: ProgressPhase::Done,
-                message: format!(
+            ProgressEvent::finished(
+                OperationKind::SnapshotDelete,
+                format!(
                     "Deleted snapshot, removed {} orphan artifact(s)",
                     orphan_count
                 ),
-                current: TOTAL,
-                total: TOTAL,
-                transferred_bytes: 0,
-                total_bytes: 0,
-                detail: None,
-                done: true,
-            },
+                TOTAL,
+                TOTAL,
+            ),
         );
         Ok(orphan_count)
     })

@@ -563,16 +563,14 @@ fn emit_reconstruct_progress(
     emit_progress(
         control.progress(),
         ProgressEvent {
-            feedback: None,
-            operation: OperationKind::Fetch,
-            phase: ProgressPhase::Reconstruct,
-            message: format!("{label} ({current}/{total})"),
-            current,
-            total,
-            transferred_bytes: 0,
-            total_bytes: 0,
             detail: detail.map(str::to_string),
-            done: false,
+            ..ProgressEvent::new(
+                OperationKind::Fetch,
+                ProgressPhase::Reconstruct,
+                format!("{label} ({current}/{total})"),
+                current,
+                total,
+            )
         },
     );
 }
