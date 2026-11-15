@@ -16,6 +16,11 @@ use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::repo_manifest::RepoManifest;
 use std::fs;
 
+/// Coordination lock file at the repository root.
+pub(crate) const LOCK_FILE: &str = ".gutch-lock";
+/// Transaction journal directory at the repository root.
+pub(crate) const TRANSACTIONS_DIR: &str = ".gutch-transactions";
+
 #[derive(Debug, Clone)]
 pub struct RepoPaths {
     pub(crate) repo_root: PathBuf,
@@ -32,6 +37,20 @@ impl RepoPaths {
         validate_path_component(gutch_repo_id, "Gutch repo ID")?;
         let repo_root = store_root.join("v1").join("repos").join(gutch_repo_id);
         Ok(Self::from_repo_root(&repo_root))
+    }
+
+    /// Every top-level path the repository owns; other tools must not write inside them.
+    pub(crate) fn owned_entries(&self) -> [PathBuf; 8] {
+        [
+            self.repo_metadata_path.clone(),
+            self.local_repo_config_path.clone(),
+            self.chunk_map_path.clone(),
+            self.snapshots_root.clone(),
+            self.bundles_root.clone(),
+            self.chunks_root.clone(),
+            self.repo_root.join(LOCK_FILE),
+            self.repo_root.join(TRANSACTIONS_DIR),
+        ]
     }
 
     pub fn from_repo_root(repo_root: &Path) -> Self {

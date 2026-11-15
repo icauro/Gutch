@@ -11,6 +11,7 @@ use crate::filesystem::paths::validate_destination_paths;
 use crate::filesystem::paths::{require_disjoint_paths, resolve_operation_path};
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
+use crate::repo::paths::RepoPaths;
 use crate::{Error, Result};
 use std::fs::File;
 
@@ -116,21 +117,39 @@ pub(crate) fn validate_installation_paths(
     let resolved_destination = resolve_operation_path(destination)?;
     let repository = resolve_operation_path(repository_path)?;
     if repository.starts_with(&resolved_destination) {
-        return Err(Error::invalid_input(
-            "destination must not contain the repository",
-        ));
+        return Err(Error::InvalidPath {
+            path: destination.to_path_buf(),
+            reason: "destination must not contain the repository".into(),
+        });
     }
-    for owned in [
-        "bundles",
-        "chunks",
-        "snapshots",
-        ".gutch-transactions",
-        "repo_metadata.json",
-        "chunk_map.gtcbin",
-        "local_repo_config.json",
-        ".gutch-lock",
-    ] {
-        require_disjoint_paths(destination, &repository_path.join(owned))?;
+    for owned in RepoPaths::from_repo_root(repository_path).owned_entries() {
+        require_disjoint_paths(destination, &owned)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_installation_paths;
+    use crate::Error;
+
+    #[test]
+    fn destinations_inside_repository_owned_paths_are_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        let repository = temp.path().join("repo");
+        std::fs::create_dir_all(&repository).unwrap();
+
+        for owned in ["bundles/out", "snapshots", ".gutch-transactions/x"] {
+            let error = validate_installation_paths(&repository.join(owned), None, &repository)
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::InvalidPath { .. }),
+                "{owned}: {error}"
+            );
+        }
+        let error = validate_installation_paths(temp.path(), None, &repository).unwrap_err();
+        assert!(matches!(error, Error::InvalidPath { .. }), "{error}");
+        validate_installation_paths(&repository.join("game"), None, &repository).unwrap();
+        validate_installation_paths(&temp.path().join("game"), None, &repository).unwrap();
+    }
 }

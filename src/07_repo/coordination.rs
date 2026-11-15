@@ -11,6 +11,8 @@ use crate::Result;
 use crate::filesystem;
 use crate::filesystem::write_atomic_with;
 use crate::progress::OperationControl;
+use crate::repo::paths::LOCK_FILE;
+use crate::repo::paths::TRANSACTIONS_DIR;
 use crate::repo::paths::validate_path_component;
 use std::fs;
 use std::fs::TryLockError;
@@ -76,7 +78,7 @@ fn with_repository_transaction<T>(
         }
         return work();
     }
-    for owned in [".gutch-lock", ".gutch-transactions"] {
+    for owned in [LOCK_FILE, TRANSACTIONS_DIR] {
         if fs::symlink_metadata(root.join(owned))
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
         {
@@ -85,7 +87,7 @@ fn with_repository_transaction<T>(
             ));
         }
     }
-    let lock_path = root.join(".gutch-lock");
+    let lock_path = root.join(LOCK_FILE);
     let file = if write || !lock_path.exists() {
         OpenOptions::new()
             .read(true)
@@ -116,7 +118,7 @@ fn with_repository_transaction<T>(
         root: root.clone(),
         _file: file,
     };
-    let journal = root.join(".gutch-transactions");
+    let journal = root.join(TRANSACTIONS_DIR);
     let pending = journal.join("pending");
     if pending.exists() {
         if !write {
