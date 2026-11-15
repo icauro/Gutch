@@ -145,10 +145,10 @@ pub(super) fn build_filesystem_inventory(
             });
         }
         Err(error) => {
-            return Err(crate::Error::InvalidPath {
-                path: dir.to_path_buf(),
-                reason: format!("failed to resolve snapshot root: {error}"),
-            });
+            return Err(crate::Error::invalid_path(
+                dir,
+                format!("failed to resolve snapshot root: {error}"),
+            ));
         }
     };
 
@@ -181,19 +181,17 @@ pub(super) fn build_filesystem_inventory(
             InventoryEntryKind::Other
         };
         if kind == InventoryEntryKind::Directory {
-            let canonical_entry =
-                entry
-                    .path()
-                    .canonicalize()
-                    .map_err(|error| crate::Error::InvalidPath {
-                        path: entry.path().to_path_buf(),
-                        reason: format!("failed to resolve snapshot path component: {error}"),
-                    })?;
+            let canonical_entry = entry.path().canonicalize().map_err(|error| {
+                crate::Error::invalid_path(
+                    entry.path(),
+                    format!("failed to resolve snapshot path component: {error}"),
+                )
+            })?;
             if !canonical_entry.starts_with(&canonical_root) {
-                return Err(crate::Error::InvalidPath {
-                    path: entry.path().to_path_buf(),
-                    reason: "snapshot path resolves outside the snapshot root".into(),
-                });
+                return Err(crate::Error::invalid_path(
+                    entry.path(),
+                    "snapshot path resolves outside the snapshot root",
+                ));
             }
         }
         let key = name_case.key(&relative);

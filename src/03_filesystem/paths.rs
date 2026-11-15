@@ -25,9 +25,11 @@ pub(crate) fn manifest_path_from_native(path: &Path) -> Result<String> {
     let parts = path
         .components()
         .map(|part| match part {
-            Component::Normal(name) => name.to_str().ok_or_else(|| Error::InvalidPath {
-                path: path.to_path_buf(),
-                reason: "filename is not valid Unicode; lossless capture is unavailable".into(),
+            Component::Normal(name) => name.to_str().ok_or_else(|| {
+                Error::invalid_path(
+                    path,
+                    "filename is not valid Unicode; lossless capture is unavailable",
+                )
             }),
             _ => Err(Error::invalid_input(
                 "source path must be relative and normalized",
@@ -110,12 +112,10 @@ fn validate_paths_on_destination_volume<'a>(
                 let comparison = tempfile::tempdir_in(probe.path())?;
                 fs::write(comparison.path().join(&previous[parent.len()..]), b"")?;
                 if comparison.path().join(part).exists() {
-                    return Err(Error::InvalidPath {
-                        path: absolute.join(relative),
-                        reason: format!(
-                            "destination aliases distinct paths {previous:?} and {prefix:?}"
-                        ),
-                    });
+                    return Err(Error::invalid_path(
+                        absolute.join(relative),
+                        format!("destination aliases distinct paths {previous:?} and {prefix:?}"),
+                    ));
                 }
             }
             if !previous_names.contains(&prefix) {
@@ -126,10 +126,7 @@ fn validate_paths_on_destination_volume<'a>(
     Ok(())
 }
 fn validate_destination_length(path: &Path) -> Result<()> {
-    let fail = |reason: &str| Error::InvalidPath {
-        path: path.to_path_buf(),
-        reason: reason.into(),
-    };
+    let fail = |reason: &str| Error::invalid_path(path, reason);
     #[cfg(windows)]
     {
         use crate::filesystem::constraints::WINDOWS_MAX_PATH_UNITS;
@@ -215,14 +212,14 @@ pub(crate) fn require_disjoint_paths(left: &Path, right: &Path) -> Result<()> {
     let resolved_left = resolve_operation_path(left)?;
     let resolved_right = resolve_operation_path(right)?;
     if resolved_left.starts_with(&resolved_right) || resolved_right.starts_with(&resolved_left) {
-        return Err(Error::InvalidPath {
-            path: left.to_path_buf(),
-            reason: format!(
+        return Err(Error::invalid_path(
+            left,
+            format!(
                 "operation paths must not overlap: '{}' and '{}'",
                 left.display(),
                 right.display()
             ),
-        });
+        ));
     }
     Ok(())
 }
@@ -242,9 +239,8 @@ pub(crate) struct ManifestPathResolver {
 impl ManifestPathResolver {
     pub(crate) fn new(root: &Path) -> Result<Self> {
         let canonical_root = if root.exists() {
-            Some(root.canonicalize().map_err(|error| Error::InvalidPath {
-                path: root.to_path_buf(),
-                reason: format!("failed to resolve snapshot root: {error}"),
+            Some(root.canonicalize().map_err(|error| {
+                Error::invalid_path(root, format!("failed to resolve snapshot root: {error}"))
             })?)
         } else {
             None
@@ -291,13 +287,13 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
     if relative.len() > MAX_MANIFEST_PATH_BYTES
         || relative.split('/').count() > MAX_MANIFEST_PATH_COMPONENTS
     {
-        return Err(Error::InvalidPath {
-            path: PathBuf::from(relative),
-            reason: format!(
+        return Err(Error::invalid_path(
+            PathBuf::from(relative),
+            format!(
                 "manifest path exceeds {} KiB or {MAX_MANIFEST_PATH_COMPONENTS} components",
                 MAX_MANIFEST_PATH_BYTES / 1024
             ),
-        });
+        ));
     }
     let relative_path = Path::new(relative);
     let has_windows_drive_prefix = relative.as_bytes().get(1) == Some(&b':');
@@ -305,10 +301,10 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
         return if allow_root {
             Ok(())
         } else {
-            Err(Error::InvalidPath {
-                path: relative_path.to_path_buf(),
-                reason: "manifest path must identify an entry beneath the snapshot root".into(),
-            })
+            Err(Error::invalid_path(
+                relative_path,
+                "manifest path must identify an entry beneath the snapshot root",
+            ))
         };
     }
     if relative.is_empty()
@@ -326,25 +322,25 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
             )
         })
     {
-        return Err(Error::InvalidPath {
-            path: relative_path.to_path_buf(),
-            reason: format!(
+        return Err(Error::invalid_path(
+            relative_path,
+            format!(
                 "manifest path must stay within the snapshot root: '{}'",
                 relative
             ),
-        });
+        ));
     }
     if relative
         .split('/')
         .any(|part| part.is_empty() || part == "." || part == "..")
     {
-        return Err(Error::InvalidPath {
-            path: relative_path.to_path_buf(),
-            reason: format!(
+        return Err(Error::invalid_path(
+            relative_path,
+            format!(
                 "manifest path must be normalized beneath the snapshot root: '{}'",
                 relative
             ),
-        });
+        ));
     }
     Ok(())
 }
@@ -358,12 +354,9 @@ fn ensure_existing_ancestors_stay_within_root(
     validated_ancestors: &Mutex<HashSet<PathBuf>>,
 ) -> Result<()> {
     let mut current = root.to_path_buf();
-    let relative = candidate
-        .strip_prefix(root)
-        .map_err(|_| Error::InvalidPath {
-            path: candidate.to_path_buf(),
-            reason: "candidate path is not beneath the snapshot root".into(),
-        })?;
+    let relative = candidate.strip_prefix(root).map_err(|_| {
+        Error::invalid_path(candidate, "candidate path is not beneath the snapshot root")
+    })?;
     for component in relative.components() {
         current.push(component);
         // Successful components already passed containment validation for this
@@ -386,15 +379,17 @@ fn ensure_existing_ancestors_stay_within_root(
                 return Err(Error::io_context("inspecting path", &current, error));
             }
         }
-        let canonical_current = current.canonicalize().map_err(|error| Error::InvalidPath {
-            path: current.clone(),
-            reason: format!("failed to resolve snapshot path component: {error}"),
+        let canonical_current = current.canonicalize().map_err(|error| {
+            Error::invalid_path(
+                current.clone(),
+                format!("failed to resolve snapshot path component: {error}"),
+            )
         })?;
         if !canonical_current.starts_with(canonical_root) {
-            return Err(Error::InvalidPath {
-                path: current,
-                reason: "snapshot path resolves outside the snapshot root".into(),
-            });
+            return Err(Error::invalid_path(
+                current,
+                "snapshot path resolves outside the snapshot root",
+            ));
         }
         validated_ancestors
             .lock()
@@ -407,10 +402,10 @@ fn ensure_existing_ancestors_stay_within_root(
 pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Result<String> {
     let link_path = Path::new(relative_path);
     if target.is_absolute() {
-        return Err(Error::InvalidPath {
-            path: link_path.to_path_buf(),
-            reason: "absolute symbolic-link target".into(),
-        });
+        return Err(Error::invalid_path(
+            link_path,
+            "absolute symbolic-link target",
+        ));
     }
     let combined = Path::new(relative_path)
         .parent()
@@ -419,19 +414,16 @@ pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Resul
     let mut normalized = Vec::new();
     for component in combined.components() {
         match component {
-            Component::Normal(part) => {
-                normalized.push(part.to_str().ok_or_else(|| Error::InvalidPath {
-                    path: link_path.to_path_buf(),
-                    reason: "symbolic-link target is not valid Unicode".into(),
-                })?)
-            }
+            Component::Normal(part) => normalized.push(part.to_str().ok_or_else(|| {
+                Error::invalid_path(link_path, "symbolic-link target is not valid Unicode")
+            })?),
             Component::CurDir => {}
             Component::ParentDir if normalized.pop().is_some() => {}
             _ => {
-                return Err(Error::InvalidPath {
-                    path: link_path.to_path_buf(),
-                    reason: "symbolic-link target escapes root".into(),
-                });
+                return Err(Error::invalid_path(
+                    link_path,
+                    "symbolic-link target escapes root",
+                ));
             }
         }
     }

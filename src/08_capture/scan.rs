@@ -148,10 +148,7 @@ pub(crate) fn collect_scanned_chunks(
 fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
     let relative = path
         .strip_prefix(root)
-        .map_err(|error| Error::InvalidPath {
-            path: path.to_path_buf(),
-            reason: error.to_string(),
-        })?;
+        .map_err(|error| Error::invalid_path(path, error.to_string()))?;
     manifest_path_from_native(relative)
 }
 
@@ -164,10 +161,7 @@ fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Re
     }
     let link_relative = link_path
         .strip_prefix(root)
-        .map_err(|error| Error::InvalidPath {
-            path: link_path.to_path_buf(),
-            reason: error.to_string(),
-        })?;
+        .map_err(|error| Error::invalid_path(link_path, error.to_string()))?;
     let combined = link_relative
         .parent()
         .unwrap_or_else(|| Path::new(""))

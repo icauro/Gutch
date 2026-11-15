@@ -147,6 +147,13 @@ impl Error {
         }
     }
 
+    pub(crate) fn invalid_path(path: impl Into<PathBuf>, reason: impl Into<String>) -> Self {
+        Error::InvalidPath {
+            path: path.into(),
+            reason: reason.into(),
+        }
+    }
+
     pub fn invalid_input(message: impl Into<String>) -> Self {
         Error::InvalidInput(message.into())
     }

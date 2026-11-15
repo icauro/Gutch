@@ -60,16 +60,16 @@ pub(crate) fn create_snapshot_staging(
     let resolved_staging = resolve_operation_path(staging_parent)?;
     let resolved_repo = resolve_operation_path(repo_root)?;
     if resolved_repo.starts_with(resolve_operation_path(destination)?) {
-        return Err(Error::InvalidPath {
-            path: destination.to_path_buf(),
-            reason: "destination must not contain the repository".into(),
-        });
+        return Err(Error::invalid_path(
+            destination,
+            "destination must not contain the repository",
+        ));
     }
     if resolved_repo.starts_with(&resolved_staging) {
-        return Err(Error::InvalidPath {
-            path: staging_parent.to_path_buf(),
-            reason: "staging must not contain the repository".into(),
-        });
+        return Err(Error::invalid_path(
+            staging_parent,
+            "staging must not contain the repository",
+        ));
     }
     let created_parent = (!staging_parent.exists()).then(|| staging_parent.to_path_buf());
     filesystem::create_dir_all(staging_parent)?;
@@ -117,10 +117,10 @@ pub(crate) fn validate_installation_paths(
     let resolved_destination = resolve_operation_path(destination)?;
     let repository = resolve_operation_path(repository_path)?;
     if repository.starts_with(&resolved_destination) {
-        return Err(Error::InvalidPath {
-            path: destination.to_path_buf(),
-            reason: "destination must not contain the repository".into(),
-        });
+        return Err(Error::invalid_path(
+            destination,
+            "destination must not contain the repository",
+        ));
     }
     for owned in RepoPaths::from_repo_root(repository_path).owned_entries() {
         require_disjoint_paths(destination, &owned)?;

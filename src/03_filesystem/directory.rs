@@ -23,13 +23,6 @@ const BACKUP_OWNER_MARKER: &[u8] = b"GUTCH_PROMOTION_V1";
 /// How often a blocked promotion lock checks for cancellation.
 const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
-fn invalid_path(path: &Path, reason: &str) -> Error {
-    Error::InvalidPath {
-        path: path.to_path_buf(),
-        reason: reason.to_owned(),
-    }
-}
-
 fn is_owner_marker(owner_path: &Path) -> bool {
     read(owner_path).is_ok_and(|owner| owner == BACKUP_OWNER_MARKER)
 }
@@ -107,7 +100,7 @@ fn replace_directory_with_operations(
     let backup_dir = if destination_dir.exists() {
         if backup_path.exists() {
             // Recovery just cleared it, so another process is promoting here.
-            return Err(invalid_path(
+            return Err(Error::invalid_path(
                 &backup_path,
                 "a promotion backup appeared during promotion; another process may be writing this destination",
             ));
@@ -275,7 +268,7 @@ pub(crate) fn lock_directory_promotion(
         create_dir_all(parent)?;
     }
     if fs::symlink_metadata(&lock_path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err(invalid_path(
+        return Err(Error::invalid_path(
             &lock_path,
             "promotion lock must not be a symbolic link",
         ));
@@ -307,10 +300,10 @@ pub(crate) fn lock_directory_promotion(
 fn promotion_backup_path(destination: &Path) -> Result<PathBuf, Error> {
     let parent = destination
         .parent()
-        .ok_or_else(|| invalid_path(destination, "destination has no parent directory"))?;
+        .ok_or_else(|| Error::invalid_path(destination, "destination has no parent directory"))?;
     let name = destination
         .file_name()
-        .ok_or_else(|| invalid_path(destination, "destination has no file name"))?;
+        .ok_or_else(|| Error::invalid_path(destination, "destination has no file name"))?;
     #[cfg(windows)]
     let name = name.to_string_lossy().to_lowercase();
     #[cfg(windows)]
@@ -353,7 +346,7 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
     }
     // A missing marker means Gutch did not create this backup; report it as unowned.
     if !is_owner_marker(&owner_path) {
-        return Err(invalid_path(
+        return Err(Error::invalid_path(
             &backup,
             "a promotion backup exists that Gutch did not create; move or remove it",
         ));
@@ -361,7 +354,7 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
     let metadata =
         fs::symlink_metadata(&backup).io_context("inspecting promotion backup", &backup)?;
     if metadata.file_type().is_symlink() {
-        return Err(invalid_path(
+        return Err(Error::invalid_path(
             &backup,
             "promotion backup must not be a symbolic link",
         ));

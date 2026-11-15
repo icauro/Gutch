@@ -117,10 +117,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(PathBuf, Com
     if root_path.is_file() {
         let file_name = root_path
             .file_name()
-            .ok_or_else(|| crate::Error::InvalidPath {
-                path: root_path.to_path_buf(),
-                reason: "file path has no file name".to_string(),
-            })?;
+            .ok_or_else(|| crate::Error::invalid_path(root_path, "file path has no file name"))?;
         return Ok(vec![(
             PathBuf::from(file_name),
             ComparableEntry {
@@ -140,10 +137,7 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(PathBuf, Com
             let relative_path = entry
                 .path()
                 .strip_prefix(root_path)
-                .map_err(|err| crate::Error::InvalidPath {
-                    path: entry.path().to_path_buf(),
-                    reason: err.to_string(),
-                })?
+                .map_err(|err| crate::Error::invalid_path(entry.path(), err.to_string()))?
                 .to_path_buf();
             let kind = if entry.file_type().is_file() {
                 ComparableKind::File
@@ -152,10 +146,10 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(PathBuf, Com
             } else if entry.file_type().is_symlink() {
                 ComparableKind::Symlink
             } else {
-                return Err(crate::Error::InvalidPath {
-                    path: entry.path().to_path_buf(),
-                    reason: "unsupported filesystem entry".to_string(),
-                });
+                return Err(crate::Error::invalid_path(
+                    entry.path(),
+                    "unsupported filesystem entry",
+                ));
             };
             files.push((
                 relative_path,
@@ -168,10 +162,10 @@ fn collect_comparable_files(root_path: &Path) -> crate::Result<Vec<(PathBuf, Com
         return Ok(files);
     }
 
-    Err(crate::Error::InvalidPath {
-        path: root_path.to_path_buf(),
-        reason: "path does not exist or is unsupported".to_string(),
-    })
+    Err(crate::Error::invalid_path(
+        root_path,
+        "path does not exist or is unsupported",
+    ))
 }
 
 fn entries_match(
