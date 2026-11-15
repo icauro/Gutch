@@ -10,13 +10,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Crate-root re-exports declared in `lib.rs`, mapped to their owning module.
-const ROOT_ITEMS: &[(&str, &str)] = &[("Error", "error"), ("Result", "error")];
-
 #[test]
 fn engine_modules_use_only_lower_layers() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let modules = declared_modules(&source_root.join("lib.rs"));
+    let lib = fs::read_to_string(source_root.join("lib.rs")).unwrap();
+    let modules = declared_modules(&lib);
+    let root_items = root_items(&lib);
     let layers: BTreeMap<&str, usize> = modules
         .iter()
         .map(|(name, module)| (name.as_str(), module.layer))
@@ -25,7 +24,12 @@ fn engine_modules_use_only_lower_layers() {
     let mut violations = Vec::new();
     for (module, declared) in &modules {
         let layer = declared.layer;
-        let used = used_modules(&source_root.join(&declared.path), module, &layers);
+        let used = used_modules(
+            &source_root.join(&declared.path),
+            module,
+            &layers,
+            &root_items,
+        );
         for name in &used {
             if layers[name.as_str()] >= layer {
                 violations.push(format!(
@@ -64,8 +68,7 @@ struct DeclaredModule {
 
 /// Production `mod name;` declarations with their `#[path = "NN_name..."]`,
 /// skipping any gated by `#[cfg(test)]`.
-fn declared_modules(lib: &Path) -> BTreeMap<String, DeclaredModule> {
-    let source = fs::read_to_string(lib).unwrap();
+fn declared_modules(source: &str) -> BTreeMap<String, DeclaredModule> {
     let mut test_only = false;
     let mut path = None;
     let mut modules = BTreeMap::new();
@@ -80,8 +83,7 @@ fn declared_modules(lib: &Path) -> BTreeMap<String, DeclaredModule> {
             }
             continue;
         }
-        let declaration = line.trim_prefix("pub ");
-        if let Some(name) = declaration
+        if let Some(name) = without_visibility(line)
             .strip_prefix("mod ")
             .and_then(|rest| rest.strip_suffix(';'))
             && !test_only
@@ -109,7 +111,38 @@ fn declared_modules(lib: &Path) -> BTreeMap<String, DeclaredModule> {
     modules
 }
 
-fn used_modules(location: &Path, module: &str, layers: &BTreeMap<&str, usize>) -> BTreeSet<String> {
+/// The item after any `pub`, `pub(crate)` or `pub(in path)` visibility.
+fn without_visibility(line: &str) -> &str {
+    let Some(rest) = line.strip_prefix("pub") else {
+        return line;
+    };
+    let rest = match rest.strip_prefix('(') {
+        Some(scope) => scope.split_once(')').map_or("", |(_, after)| after),
+        None => rest,
+    };
+    rest.trim_start()
+}
+
+/// Crate-root `use module::...::Item;` re-exports in `lib.rs`, mapped to the owning module.
+fn root_items(lib: &str) -> BTreeMap<String, String> {
+    lib.lines()
+        .filter_map(|line| without_visibility(line.trim()).strip_prefix("use "))
+        .filter_map(|path| path.strip_suffix(';'))
+        .filter_map(|path| {
+            let path = path.trim_start_matches("crate::");
+            let (owner, _) = path.split_once("::")?;
+            let item = path.rsplit("::").next()?;
+            Some((item.to_string(), owner.to_string()))
+        })
+        .collect()
+}
+
+fn used_modules(
+    location: &Path,
+    module: &str,
+    layers: &BTreeMap<&str, usize>,
+    root_items: &BTreeMap<String, String>,
+) -> BTreeSet<String> {
     let files = if location.is_dir() {
         rust_files(location)
     } else {
@@ -118,12 +151,7 @@ fn used_modules(location: &Path, module: &str, layers: &BTreeMap<&str, usize>) -
     files
         .iter()
         .flat_map(|file| crate_paths(&production_source(file)))
-        .map(|name| {
-            ROOT_ITEMS
-                .iter()
-                .find(|(item, _)| *item == name)
-                .map_or(name.clone(), |(_, owner)| owner.to_string())
-        })
+        .map(|name| root_items.get(&name).cloned().unwrap_or(name))
         .filter(|name| name != module && layers.contains_key(name.as_str()))
         .collect()
 }
@@ -132,10 +160,11 @@ fn rust_files(directory: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for entry in walkdir::WalkDir::new(directory) {
         let path = entry.unwrap().into_path();
-        let is_test_file = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.contains("test"));
+        let is_test_file = path.components().any(|part| part.as_os_str() == "tests")
+            || path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == "tests.rs" || name.ends_with("_tests.rs"));
         if path.extension().is_some_and(|extension| extension == "rs") && !is_test_file {
             files.push(path);
         }
@@ -191,15 +220,13 @@ fn production_source_keeps_code_after_inline_test_modules() {
     );
 }
 
-/// First path segment after each `crate::`, including each `crate::{...}` group member.
+/// First path segment after each `crate::`, including each top-level member
+/// of a `crate::{...}` group, however deeply the members nest.
 fn crate_paths(source: &str) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     for rest in source.split("crate::").skip(1) {
         match rest.strip_prefix('{') {
-            Some(group) => {
-                let group = &group[..group.find('}').unwrap_or(group.len())];
-                names.extend(group.split(',').map(identifier));
-            }
+            Some(group) => names.extend(top_level_members(group).map(identifier)),
             None => {
                 names.insert(identifier(rest));
             }
@@ -209,9 +236,66 @@ fn crate_paths(source: &str) -> BTreeSet<String> {
     names
 }
 
+/// Splits a group body (after its `{`) at top-level commas, up to its closing `}`.
+fn top_level_members(group: &str) -> impl Iterator<Item = &str> {
+    let mut depth = 0usize;
+    let mut start = 0;
+    let mut members = Vec::new();
+    for (offset, character) in group.char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' if depth == 0 => {
+                members.push(&group[start..offset]);
+                return members.into_iter();
+            }
+            '}' => depth -= 1,
+            ',' if depth == 0 => {
+                members.push(&group[start..offset]);
+                start = offset + 1;
+            }
+            _ => {}
+        }
+    }
+    members.push(&group[start..]);
+    members.into_iter()
+}
+
 fn identifier(text: &str) -> String {
     text.trim_start()
         .chars()
         .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
         .collect()
+}
+
+#[test]
+fn crate_paths_reads_every_member_of_nested_groups() {
+    let source = "use crate::{a::{b, c::{d}}, cli, e::f};
+use crate::g;";
+    assert_eq!(
+        crate_paths(source),
+        ["a", "cli", "e", "g"].map(String::from).into()
+    );
+}
+
+#[test]
+fn declared_modules_accepts_any_visibility_and_root_items_follow_lib_rs() {
+    let lib = "#[path = \"01_a/mod.rs\"]
+pub(crate) mod a;
+#[path = \"02_b.rs\"]
+pub mod b;
+#[cfg(test)]
+mod tests;
+pub(crate) use a::Error;
+pub use b::nested::Thing;
+";
+    let modules = declared_modules(lib);
+    assert_eq!(modules.keys().collect::<Vec<_>>(), ["a", "b"]);
+    assert_eq!(modules["a"].layer, 1);
+    assert_eq!(
+        root_items(lib),
+        BTreeMap::from([
+            ("Error".to_string(), "a".to_string()),
+            ("Thing".to_string(), "b".to_string()),
+        ])
+    );
 }
