@@ -143,13 +143,52 @@ fn rust_files(directory: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Source text before the file's first inline test module.
+/// Source text without its `#[cfg(test)]` modules.
 fn production_source(file: &Path) -> String {
     let source = fs::read_to_string(file).unwrap().replace("\r\n", "\n");
-    match source.find("#[cfg(test)]\nmod ") {
-        Some(test_module_start) => source[..test_module_start].to_string(),
-        None => source,
+    without_test_modules(&source)
+}
+
+/// Removes each `#[cfg(test)] mod` declaration or brace-matched body and keeps
+/// the production code around it. Test bodies are assumed to balance braces.
+fn without_test_modules(source: &str) -> String {
+    const MARKER: &str = "#[cfg(test)]\nmod ";
+    let mut production = String::new();
+    let mut rest = source;
+    while let Some(start) = rest.find(MARKER) {
+        production.push_str(&rest[..start]);
+        let module = &rest[start..];
+        let body_start = module.find(['{', ';']).unwrap_or(module.len());
+        let end = if module[body_start..].starts_with('{') {
+            let mut depth = 0usize;
+            module[body_start..]
+                .char_indices()
+                .find_map(|(offset, character)| {
+                    match character {
+                        '{' => depth += 1,
+                        '}' => depth -= 1,
+                        _ => {}
+                    }
+                    (depth == 0).then_some(body_start + offset + 1)
+                })
+                .unwrap_or(module.len())
+        } else {
+            (body_start + 1).min(module.len())
+        };
+        rest = &module[end..];
     }
+    production.push_str(rest);
+    production
+}
+
+#[test]
+fn production_source_keeps_code_after_inline_test_modules() {
+    let source = "use crate::a;\n#[cfg(test)]\nmod tests {\n    fn f() { let _ = crate::t; }\n}\nuse crate::b;\n#[cfg(test)]\nmod more;\nuse crate::c;\n";
+    let production = without_test_modules(source);
+    assert_eq!(
+        crate_paths(&production),
+        ["a", "b", "c"].map(String::from).into()
+    );
 }
 
 /// First path segment after each `crate::`, including each `crate::{...}` group member.

@@ -124,6 +124,7 @@ pub use crate::installation::resolve_snapshot_state;
 pub use crate::installation::verify_installation;
 
 // Repository operations and remote providers
+pub use crate::artifact::bundle::BundleTableEntry;
 pub use crate::capture::sources::discovery::SourceSnapshotCandidate;
 pub use crate::capture::sources::discovery::SourceSnapshotDisposition;
 pub use crate::capture::sources::discovery::discover_source_snapshots;
