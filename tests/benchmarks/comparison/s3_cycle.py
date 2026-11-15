@@ -227,7 +227,6 @@ def run_s3_cycle(
         make_artifact_url_manifest(client, settings, repo, prefix, manifest)
         fetch_seconds = 0.0
         verify_seconds = 0.0
-        differences: list[str] = []
         fetch_records: list[tuple[str, str, Path, Path]] = []
         for index, (name, snapshot_id) in enumerate(reversed(captures), start=1):
             if on_step is not None:
@@ -279,7 +278,6 @@ def run_s3_cycle(
                 repair_seconds += float(recovery["repair"])
                 traces["corrupt"].extend(recovery["corrupt_traces"])  # type: ignore[arg-type]
                 traces["repair"].extend(recovery["repair_traces"])  # type: ignore[arg-type]
-            differences = []
             for source, source_name in entries:
                 destination = output / source_name if len(entries) > 1 else output
                 selection.validate(
@@ -298,7 +296,7 @@ def run_s3_cycle(
                 "verify": verify_seconds,
                 "corrupt": corrupt_seconds,
                 "repair": repair_seconds,
-                "compare": 0.0 if not differences else 1.0,
+                "compare": 0.0,
                 "repo_size": repo_stats.total_bytes,
                 "repo_files": repo_stats.file_count,
                 "uploaded_bytes": upload["bytes"],
@@ -310,7 +308,7 @@ def run_s3_cycle(
                 "verify_invocations": len(entries),
                 "corrupt_repair_after_reconstruct": fixture.corrupt_repair,
                 "s3_prefix": prefix,
-                "differences": differences,
+                "differences": [],
             },
         )
         result.metadata.update(
