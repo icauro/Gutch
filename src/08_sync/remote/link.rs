@@ -24,8 +24,7 @@ fn not_linked(repo_root: &Path) -> Error {
 }
 
 pub fn bind_remote_repo(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::write(&operation_root, || {
+    coordination::write(repo_root, || {
         let remote_repo_id = remote_repo_id.trim();
         if remote_repo_id.is_empty() {
             return Err(Error::repository("remote repo ID is required"));
@@ -48,8 +47,7 @@ pub fn create_remote_repo(
     scope_id: &str,
     provider: &dyn RemoteRepositoryCommandProvider,
 ) -> Result<()> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::write(&operation_root, || {
+    coordination::write(repo_root, || {
         let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
         if let Some(remote_repo_id) = &manifest.remote_repo_id {
             return Err(Error::repository(format!(
@@ -79,8 +77,7 @@ pub fn unbind_remote_repo(
     delete_remote: bool,
     provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> Result<()> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::write(&operation_root, || {
+    coordination::write(repo_root, || {
         let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
         let Some(remote_repo_id) = manifest.remote_repo_id.take() else {
             return Ok(());

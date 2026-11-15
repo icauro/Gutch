@@ -42,10 +42,9 @@ pub fn fetch_and_reconstruct_snapshot(
     request: SnapshotFetchAndReconstructRequest,
 ) -> Result<SnapshotFetchAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
-    let operation_root = request.fetch_request.repo_path.to_path_buf();
-    fs::create_dir_all(&operation_root)?;
+    fs::create_dir_all(&request.fetch_request.repo_path)?;
     write_with_control(
-        &operation_root,
+        &request.fetch_request.repo_path,
         &request.fetch_request.control.clone(),
         || {
             request.fetch_request.control.checkpoint()?;

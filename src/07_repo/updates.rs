@@ -93,8 +93,7 @@ pub fn update_repository_constraints(
 }
 
 pub fn rename_repo(repo_root: &Path, name: &str) -> Result<()> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::write(&operation_root, || {
+    coordination::write(repo_root, || {
         let name = validated_repo_name(name)?;
         let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
         repo_manifest.name = name;

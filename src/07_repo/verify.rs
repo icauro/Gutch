@@ -75,8 +75,7 @@ pub fn verify_gutch_repo_artifacts(
     snapshot_id: Option<&str>,
     mode: RepoArtifactVerification,
 ) -> Result<RepoArtifactVerifyResult> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::read(&operation_root, || {
+    coordination::read(repo_root, || {
         let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let constraints = repo_manifest.constraints.clone().unwrap_or_default();

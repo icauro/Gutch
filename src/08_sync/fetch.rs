@@ -76,9 +76,8 @@ pub fn fetch_snapshot_for_artifact_ids(
     required_artifact_ids_override: Option<&HashSet<String>>,
 ) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
-    let operation_root = request.repo_path.to_path_buf();
-    fs::create_dir_all(&operation_root)?;
-    write_with_control(&operation_root, &request.control.clone(), || {
+    fs::create_dir_all(&request.repo_path)?;
+    write_with_control(&request.repo_path, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span("transfer.fetch");
         let progress = request.control.progress().clone();

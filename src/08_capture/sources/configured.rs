@@ -149,8 +149,7 @@ pub fn capture_snapshot_sources(
     sources_path: &Path,
     control: &OperationControl,
 ) -> Result<SnapshotSourcesCaptureResult> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::write(&operation_root, || {
+    coordination::write(repo_root, || {
         control.checkpoint()?;
         let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path), control)?;
         if !plan.sources_ready {

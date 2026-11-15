@@ -35,8 +35,7 @@ pub fn delete_repo_snapshot_and_cleanup(
     snapshot_id: &str,
     control: &OperationControl,
 ) -> Result<usize> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::write(&operation_root, || {
+    coordination::write(repo_root, || {
         control.checkpoint()?;
         validate_snapshot_id(snapshot_id)?;
         let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;

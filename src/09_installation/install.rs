@@ -48,8 +48,7 @@ pub fn install_snapshot_from_repo(
     publication: InstallationPublication,
 ) -> Result<InstallationResult> {
     request.control.checkpoint()?;
-    let operation_root = request.repo_path.to_path_buf();
-    read_with_control(&operation_root, &request.control.clone(), || {
+    read_with_control(&request.repo_path, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span(match publication {
             InstallationPublication::ReplaceDirectory => "installation.reconstruct",

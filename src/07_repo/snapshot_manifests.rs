@@ -188,8 +188,7 @@ pub fn save_snapshot_product_metadata_for_snapshots(
     snapshot_ids: &[String],
     product_metadata: Option<SnapshotProductMetadata>,
 ) -> Result<()> {
-    let operation_root = (repo_root).to_path_buf();
-    coordination::write(&operation_root, || {
+    coordination::write(repo_root, || {
         validate_snapshot_product_metadata_for_snapshots(
             repo_root,
             snapshot_ids,
