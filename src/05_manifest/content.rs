@@ -146,3 +146,7 @@ pub struct Estimate {
     pub artifact_count: usize,
     pub bundle_count: usize,
 }
+
+#[cfg(test)]
+#[path = "content_tests.rs"]
+mod tests;
