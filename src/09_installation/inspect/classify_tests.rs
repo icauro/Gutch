@@ -4,7 +4,6 @@ use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::CancellationHook;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
 use std::fs;
@@ -15,15 +14,6 @@ use std::sync::OnceLock;
 fn default_runtime_hints() -> &'static RuntimeResourceHints {
     static DEFAULT_HINTS: OnceLock<RuntimeResourceHints> = OnceLock::new();
     DEFAULT_HINTS.get_or_init(RuntimeResourceHints::default)
-}
-
-#[derive(Debug)]
-struct AlwaysCancelled;
-
-impl CancellationHook for AlwaysCancelled {
-    fn is_cancelled(&self) -> bool {
-        true
-    }
 }
 
 fn empty_manifest() -> SnapshotManifest {
@@ -69,7 +59,8 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
         dir: &missing_dir,
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
-        control: OperationControl::default().with_cancellation(Arc::new(AlwaysCancelled)),
+        control: OperationControl::default()
+            .with_cancellation(Arc::new(crate::test_util::TestCancellation::cancelled())),
         spans: &InspectionSpans::VERIFY,
         pool: None,
     });

@@ -451,26 +451,16 @@ mod tests {
     }
     #[test]
     fn cancellation_interrupts_a_writer_waiting_for_a_reader() {
-        use std::sync::{
-            Arc,
-            atomic::{AtomicBool, Ordering},
-        };
-        #[derive(Debug)]
-        struct Cancel(AtomicBool);
-        impl crate::progress::CancellationHook for Cancel {
-            fn is_cancelled(&self) -> bool {
-                self.0.load(Ordering::Acquire)
-            }
-        }
+        use std::sync::Arc;
         let root = tempfile::tempdir().unwrap();
-        let cancelled = Arc::new(Cancel(AtomicBool::new(false)));
+        let cancelled = Arc::new(crate::test_util::TestCancellation::default());
         let control =
             crate::progress::OperationControl::default().with_cancellation(cancelled.clone());
         read(root.path(), || {
             let path = root.path().to_path_buf();
             let worker = std::thread::spawn(move || write_with_control(&path, &control, || Ok(())));
             std::thread::sleep(std::time::Duration::from_millis(50));
-            cancelled.0.store(true, Ordering::Release);
+            cancelled.cancel();
             assert!(matches!(worker.join().unwrap(), Err(Error::Cancelled)));
             Ok(())
         })

@@ -152,18 +152,11 @@ mod tests {
 
     #[test]
     fn streaming_hash_observes_cancellation_between_reads() {
-        #[derive(Debug)]
-        struct CancelAfterRead(std::sync::atomic::AtomicUsize);
-        impl crate::progress::CancellationHook for CancelAfterRead {
-            fn is_cancelled(&self) -> bool {
-                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
-            }
-        }
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("content");
         std::fs::write(&path, vec![17; STREAM_BUFFER_BYTES * 2]).unwrap();
         let control = OperationControl::default().with_cancellation(std::sync::Arc::new(
-            CancelAfterRead(std::sync::atomic::AtomicUsize::new(0)),
+            crate::test_util::TestCancellation::after_checks(2),
         ));
         assert!(matches!(
             hash_file_streaming(&path, &control),

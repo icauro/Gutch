@@ -16,7 +16,6 @@ use crate::installation::reconstruct_snapshot;
 use crate::manifest;
 use crate::manifest::ChunkRef;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::CancellationHook;
 use crate::progress::OperationControl;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_gutch_repo_layout;
@@ -98,15 +97,6 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
     )
     .unwrap();
     assert_eq!(plan.snapshot_tags, manifest::SnapshotTagSet::default());
-}
-
-#[derive(Debug)]
-struct CancelledHook;
-
-impl CancellationHook for CancelledHook {
-    fn is_cancelled(&self) -> bool {
-        true
-    }
 }
 
 fn test_tags() -> manifest::SnapshotTagSet {
@@ -283,7 +273,8 @@ fn cancelled_capture_retains_first_snapshot() {
         &test_tags(),
         OperationControl::default(),
     );
-    let cancelled = OperationControl::default().with_cancellation(Arc::new(CancelledHook));
+    let cancelled = OperationControl::default()
+        .with_cancellation(Arc::new(crate::test_util::TestCancellation::cancelled()));
     let failed = capture_snapshot(SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source_b,

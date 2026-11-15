@@ -199,3 +199,47 @@ pub fn index_manifest(paths: &RepoPaths, manifest: &SnapshotManifest) {
         .collect();
     write_chunk_index(paths, &ChunkIndex { entries }).unwrap();
 }
+
+/// Cancellation fake: cancelled after `cancel`, or once a set number of
+/// checks have passed.
+#[derive(Debug, Default)]
+pub(crate) struct TestCancellation {
+    cancelled: std::sync::atomic::AtomicBool,
+    checks_until_cancel: Option<std::sync::atomic::AtomicUsize>,
+}
+
+impl TestCancellation {
+    /// Already cancelled at the first check.
+    pub(crate) fn cancelled() -> Self {
+        Self::after_checks(0)
+    }
+
+    /// Passes the first `checks` checks, then reports cancellation.
+    pub(crate) fn after_checks(checks: usize) -> Self {
+        Self {
+            checks_until_cancel: Some(std::sync::atomic::AtomicUsize::new(checks)),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+impl crate::progress::CancellationHook for TestCancellation {
+    fn is_cancelled(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        if self.cancelled.load(Ordering::Acquire) {
+            return true;
+        }
+        self.checks_until_cancel.as_ref().is_some_and(|remaining| {
+            remaining
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |left| {
+                    left.checked_sub(1)
+                })
+                .is_err()
+        })
+    }
+}

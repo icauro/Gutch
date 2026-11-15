@@ -850,18 +850,13 @@ mod streaming_tests {
 
     #[test]
     fn cancelled_bundle_publication_keeps_the_existing_cache() {
-        #[derive(Debug)]
-        struct Cancelled;
-        impl crate::progress::CancellationHook for Cancelled {
-            fn is_cancelled(&self) -> bool {
-                true
-            }
-        }
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("bundle");
         std::fs::write(&destination, b"previous").unwrap();
         let client = crate::transfer::http::build_download_client().unwrap();
-        let control = OperationControl::default().with_cancellation(std::sync::Arc::new(Cancelled));
+        let control = OperationControl::default().with_cancellation(std::sync::Arc::new(
+            crate::test_util::TestCancellation::cancelled(),
+        ));
         let (id, source) = bundle_source();
         assert!(
             download_and_publish_bundle(&source, &client, &id, &destination, &control).is_err()

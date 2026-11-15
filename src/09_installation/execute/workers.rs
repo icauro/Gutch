@@ -423,14 +423,6 @@ mod tests {
 
     #[test]
     fn failed_or_cancelled_verification_batch_releases_resources_before_terminal_event() {
-        #[derive(Debug)]
-        struct CancelAfterFirstFile(std::sync::atomic::AtomicUsize);
-        impl crate::progress::CancellationHook for CancelAfterFirstFile {
-            fn is_cancelled(&self) -> bool {
-                // Each file checks once; cancellation begins at the second file.
-                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 1
-            }
-        }
         for cancel in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let files = verification_files(&[4, 4, 4]);
@@ -454,9 +446,10 @@ mod tests {
             let weak_handles = Arc::downgrade(&handles);
             let mut control = OperationControl::default();
             if cancel {
-                control = control.with_cancellation(Arc::new(CancelAfterFirstFile(
-                    std::sync::atomic::AtomicUsize::new(0),
-                )));
+                // Each file checks once; cancellation begins at the second file.
+                control = control.with_cancellation(Arc::new(
+                    crate::test_util::TestCancellation::after_checks(1),
+                ));
             }
             let context = Arc::new(ReconstructWorkContext {
                 memory: memory.clone(),
@@ -663,13 +656,6 @@ mod tests {
 
     #[test]
     fn source_batch_reports_success_or_stops_on_failure_and_releases_resources() {
-        #[derive(Debug)]
-        struct CancelAfterFirstChunk(std::sync::atomic::AtomicUsize);
-        impl crate::progress::CancellationHook for CancelAfterFirstChunk {
-            fn is_cancelled(&self) -> bool {
-                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
-            }
-        }
         for outcome in [
             "success",
             "short_read",
@@ -727,9 +713,9 @@ mod tests {
             ));
             let weak_handles = Arc::downgrade(&handles);
             let control = if cancel {
-                OperationControl::default().with_cancellation(Arc::new(CancelAfterFirstChunk(
-                    std::sync::atomic::AtomicUsize::new(0),
-                )))
+                OperationControl::default().with_cancellation(Arc::new(
+                    crate::test_util::TestCancellation::after_checks(2),
+                ))
             } else {
                 OperationControl::default()
             };

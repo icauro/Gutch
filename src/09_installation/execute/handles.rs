@@ -473,25 +473,18 @@ mod output_handle_tests {
 
     #[test]
     fn buffered_output_propagates_flush_errors_and_discards_pending_bytes_on_drop() {
-        #[derive(Debug)]
-        struct Cancellation(std::sync::atomic::AtomicBool);
-        impl crate::progress::CancellationHook for Cancellation {
-            fn is_cancelled(&self) -> bool {
-                self.0.load(std::sync::atomic::Ordering::Relaxed)
-            }
-        }
         for cancel in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("missing-parent/output");
             let cache =
                 OutputHandleCache::new(Arc::new(vec![path.clone()]), Arc::new(vec![8]), &[1], 1);
-            let cancellation = Arc::new(Cancellation(std::sync::atomic::AtomicBool::new(false)));
+            let cancellation = Arc::new(crate::test_util::TestCancellation::default());
             let control = OperationControl::default().with_cancellation(cancellation.clone());
             let mut writer = ReconstructOutputWriter::new(&cache, &control);
             writer.write(0, 0, b"data").unwrap();
-            cancellation
-                .0
-                .store(cancel, std::sync::atomic::Ordering::Relaxed);
+            if cancel {
+                cancellation.cancel();
+            }
             let error = writer.flush().unwrap_err();
             if cancel {
                 assert!(matches!(error, Error::Cancelled));

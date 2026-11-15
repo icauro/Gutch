@@ -195,16 +195,7 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
-
-    #[derive(Debug, Default)]
-    struct Cancellation(AtomicBool);
-    impl crate::progress::CancellationHook for Cancellation {
-        fn is_cancelled(&self) -> bool {
-            self.0.load(Ordering::Acquire)
-        }
-    }
 
     fn assert_stalled_download_cancels(response: &'static [u8], wait_for_chunk: bool) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -230,7 +221,7 @@ mod tests {
             // Keep the peer stalled until the caller has observed cancellation.
             let _ = release_rx.recv_timeout(Duration::from_secs(10));
         });
-        let cancel = Arc::new(Cancellation::default());
+        let cancel = Arc::new(crate::test_util::TestCancellation::default());
         let control = OperationControl::default().with_cancellation(cancel.clone());
         let (result_tx, result_rx) = mpsc::channel();
         let directory = tempfile::tempdir().unwrap();
@@ -260,7 +251,7 @@ mod tests {
             result_tx.send(result).unwrap();
         });
         let ready = ready_rx.recv_timeout(Duration::from_secs(5));
-        cancel.0.store(true, Ordering::Release);
+        cancel.cancel();
         let result = result_rx.recv_timeout(Duration::from_secs(2));
         let _ = release_tx.send(());
         server.join().unwrap();

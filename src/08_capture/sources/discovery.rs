@@ -193,15 +193,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    #[derive(Debug)]
-    struct AlwaysCancelled;
-
-    impl crate::progress::CancellationHook for AlwaysCancelled {
-        fn is_cancelled(&self) -> bool {
-            true
-        }
-    }
-
     #[test]
     fn cancelled_discovery_stops_instead_of_marking_sources_invalid() {
         let temp = tempfile::tempdir().unwrap();
@@ -213,8 +204,9 @@ mod tests {
         crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &repo_manifest).unwrap();
         std::fs::create_dir_all(source_root.join("game")).unwrap();
         std::fs::write(source_root.join("game/file.bin"), b"data").unwrap();
-        let control =
-            OperationControl::default().with_cancellation(std::sync::Arc::new(AlwaysCancelled));
+        let control = OperationControl::default().with_cancellation(std::sync::Arc::new(
+            crate::test_util::TestCancellation::cancelled(),
+        ));
 
         let error = discover_source_snapshots(&repo_root, &source_root, &control).unwrap_err();
 
