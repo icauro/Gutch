@@ -37,7 +37,6 @@ pub enum ProgressPhase {
     ChunkIndex,
     Artifact,
     Reconstruct,
-    Json,
     Done,
     ScanSnapshots,
     LoadManifests,
@@ -57,46 +56,15 @@ pub enum ProgressPhase {
     Verify,
 }
 
-impl ProgressPhase {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ProgressPhase::Prepare => "prepare",
-            ProgressPhase::RepoMetadata => "repo_metadata",
-            ProgressPhase::SnapshotMetadata => "snapshot_metadata",
-            ProgressPhase::ChunkIndex => "chunk_index",
-            ProgressPhase::Artifact => "artifact",
-            ProgressPhase::Reconstruct => "reconstruct",
-            ProgressPhase::Json => "json",
-            ProgressPhase::Done => "done",
-            ProgressPhase::ScanSnapshots => "scan_snapshots",
-            ProgressPhase::LoadManifests => "load_manifests",
-            ProgressPhase::ScanArtifacts => "scan_artifacts",
-            ProgressPhase::DeleteOrphans => "delete_orphans",
-            ProgressPhase::RemoveManifest => "remove_manifest",
-            ProgressPhase::Scan => "scan",
-            ProgressPhase::Planning => "planning",
-            ProgressPhase::RemoveSnapshots => "remove_snapshots",
-            ProgressPhase::UploadRepoMetadata => "upload_repo_metadata",
-            ProgressPhase::UploadChunkIndex => "upload_chunk_index",
-            ProgressPhase::UploadSnapshotMetadata => "upload_snapshot_metadata",
-            ProgressPhase::UploadSnapshotBlueprint => "upload_snapshot_blueprint",
-            ProgressPhase::UploadBundle => "upload_bundle",
-            ProgressPhase::Prune => "prune",
-            ProgressPhase::Capture => "capture",
-            ProgressPhase::Verify => "verify",
-        }
-    }
-}
-
 /// A single unified progress event for all gutch operations.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressEvent {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub feedback: Option<LiveFeedback>,
     /// Which operation is running.
     pub operation: OperationKind,
-    /// Current phase within the operation (e.g. "scan", "capture", "upload", "apply").
+    /// Current phase within the operation.
     pub phase: ProgressPhase,
     /// Human-readable message for the current step.
     pub message: String,
@@ -105,16 +73,13 @@ pub struct ProgressEvent {
     /// Total expected count for this phase.
     pub total: usize,
     /// Bytes transferred so far (for network operations).
-    #[serde(default)]
     pub transferred_bytes: u64,
     /// Total bytes expected (for network operations).
-    #[serde(default)]
     pub total_bytes: u64,
     /// Optional extra detail (current file name, bundle id, etc.).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     /// True when the engine has emitted its final progress stage. Errors still return through Result.
-    #[serde(default)]
     pub done: bool,
 }
 
@@ -168,7 +133,7 @@ impl OperationControl {
     pub fn with_progress(mut self, progress: Arc<dyn ProgressSink>) -> Self {
         let feedback = feedback::LiveProgress::new(progress);
         if let Some(profiler) = &self.profiler {
-            feedback.with_profiler(profiler.clone());
+            feedback.set_profiler(profiler.clone());
         }
         self.progress = Some(feedback.clone());
         self.feedback = Some(feedback);
@@ -221,7 +186,7 @@ impl OperationControl {
 
     pub fn with_profiler(mut self, profiler: Arc<Profiler>) -> Self {
         if let Some(feedback) = &self.feedback {
-            feedback.with_profiler(profiler.clone());
+            feedback.set_profiler(profiler.clone());
         }
         self.profiler = Some(profiler);
         self

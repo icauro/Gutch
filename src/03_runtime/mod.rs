@@ -8,13 +8,17 @@ use crate::Error;
 use crate::Result;
 use crate::progress::OperationControl;
 use std::num::NonZeroU64;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
+use std::sync::MutexGuard;
 use std::thread::available_parallelism;
 use std::time::Duration;
 
 const FALLBACK_MEMORY_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
+/// How often a blocked admission checks for cancellation.
+const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Shared per-operation admission for payload and codec working memory.
 pub(crate) struct MemoryBudget {
@@ -43,9 +47,16 @@ impl MemoryBudget {
         }
         Ok(())
     }
+    /// The counter stays consistent across panics: every update is a single
+    /// arithmetic step, so a poisoned lock still holds a valid count.
+    fn available(&self) -> MutexGuard<'_, u64> {
+        self.available
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
     pub(crate) fn try_acquire(self: &Arc<Self>, bytes: u64) -> Result<Option<MemoryPermit>> {
         self.validate_request(bytes)?;
-        let mut available = self.available.lock().map_err(memory_budget_poisoned)?;
+        let mut available = self.available();
         if *available < bytes {
             return Ok(None);
         }
@@ -60,47 +71,57 @@ impl MemoryBudget {
         bytes: u64,
         control: &OperationControl,
     ) -> Result<MemoryPermit> {
-        self.validate_request(bytes)?;
-        let mut available = self.available.lock().map_err(memory_budget_poisoned)?;
-        // Keep one measured wait across cancellation polling, not one slice per timeout.
-        let waiting = (*available < bytes).then(|| control.profile_span("runtime.memory.wait"));
-        while *available < bytes {
-            control.checkpoint()?;
-            available = self
-                .changed
-                .wait_timeout(available, Duration::from_millis(50))
-                .map_err(memory_budget_poisoned)?
-                .0;
-        }
+        let permit = match self.try_acquire(bytes)? {
+            Some(permit) => permit,
+            None => self.wait_for(bytes, control)?,
+        };
+        // A cancelled operation gives the reservation back when the permit drops.
         control.checkpoint()?;
-        drop(waiting);
-        *available -= bytes;
-        Ok(MemoryPermit {
-            budget: self.clone(),
-            bytes,
-        })
+        Ok(permit)
+    }
+    /// Blocks until `bytes` fit, polling for cancellation. The profiling span
+    /// and checkpoints run outside the budget lock.
+    fn wait_for(self: &Arc<Self>, bytes: u64, control: &OperationControl) -> Result<MemoryPermit> {
+        // Keep one measured wait across cancellation polling, not one slice per timeout.
+        let _waiting = control.profile_span("runtime.memory.wait");
+        loop {
+            control.checkpoint()?;
+            let available = self.available();
+            let (mut available, _) = self
+                .changed
+                .wait_timeout_while(available, CANCELLATION_POLL_INTERVAL, |available| {
+                    *available < bytes
+                })
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *available >= bytes {
+                *available -= bytes;
+                return Ok(MemoryPermit {
+                    budget: self.clone(),
+                    bytes,
+                });
+            }
+        }
     }
 }
 impl Drop for MemoryPermit {
     fn drop(&mut self) {
-        if let Ok(mut available) = self.budget.available.lock() {
-            *available += self.bytes;
-            self.budget.changed.notify_all();
-        }
+        *self.budget.available() += self.bytes;
+        self.budget.changed.notify_all();
     }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct RuntimeResourceHints {
     pub jobs: Option<usize>,
-    /// Shared payload/codec admission budget; None selects 25% of usable RAM.
+    /// Shared payload/codec admission budget; None selects 25% of physical
+    /// RAM, or of the container memory limit when that is lower.
     pub memory_budget_bytes: Option<NonZeroU64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuntimePlan {
-    pub worker_count: usize,
-    pub memory_budget_bytes: u64,
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimePlan {
+    pub(crate) worker_count: usize,
+    pub(crate) memory_budget_bytes: u64,
 }
 
 pub(crate) fn build_thread_pool(
@@ -111,14 +132,15 @@ pub(crate) fn build_thread_pool(
         .num_threads(worker_count.max(1))
         .thread_name(move |index| format!("{thread_name} #{}", index + 1))
         .build()
-        .map_err(|err| Error::invalid_input(format!("failed to create thread pool: {err}")))
+        .map_err(|err| {
+            Error::Io(std::io::Error::other(format!(
+                "failed to create {thread_name} pool: {err}"
+            )))
+        })
 }
 
 pub(crate) fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    let logical_workers = available_parallelism()
-        .map(|value| value.get())
-        .unwrap_or(1)
-        .max(1);
+    let logical_workers = available_parallelism().map_or(1, NonZeroUsize::get);
     let default_workers = num_cpus::get_physical().max(1).min(logical_workers);
     let worker_count = hints
         .jobs
@@ -153,10 +175,6 @@ fn budget_from_limits(total: u64, cgroup_limit: Option<u64>) -> u64 {
     } else {
         (total / 4).max(1)
     }
-}
-
-fn memory_budget_poisoned<T>(_: T) -> Error {
-    Error::invalid_input("memory budget poisoned")
 }
 
 #[cfg(test)]
@@ -207,12 +225,16 @@ mod tests {
             std::sync::Arc::new(Cancellation(std::sync::atomic::AtomicBool::new(false)));
         let waiting_control = control.clone().with_cancellation(cancellation.clone());
         std::thread::scope(|scope| {
-            let waiter =
-                scope.spawn(|| budget.acquire(16 * 1024 * 1024, &waiting_control).is_err());
+            let waiter = scope.spawn(|| budget.acquire(16 * 1024 * 1024, &waiting_control));
             cancellation
                 .0
                 .store(true, std::sync::atomic::Ordering::Release);
-            assert!(waiter.join().unwrap());
+            assert!(
+                waiter
+                    .join()
+                    .unwrap()
+                    .is_err_and(|error| error.is_cancelled())
+            );
         });
         let summary = profiler.summary();
         let waits: Vec<_> = summary

@@ -1,17 +1,15 @@
 //! `repo remote` command handlers: push, pull and linking.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::Error;
 use crate::cli::Profile;
 use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::output::dry_run;
+use crate::cli::progress::CliProgressSink;
 use crate::cli::prompt_yes_no;
 use crate::cli::reporting::write_json_file;
-use crate::progress::ProgressEvent;
-use crate::progress::ProgressSink;
 use crate::repo::read::load_gutch_repo_manifest;
 use crate::sync::remote::PullConflictPolicy;
 use crate::sync::remote::RemoteRepositoryCommandProvider;
@@ -28,23 +26,6 @@ use crate::sync::remote::plan_push_with_provider;
 use crate::sync::remote::pull_repo;
 use crate::sync::remote::push_repo;
 use crate::sync::remote::unbind_remote_repo;
-
-#[derive(Debug)]
-struct CliProgressSink;
-
-impl ProgressSink for CliProgressSink {
-    fn emit(&self, event: ProgressEvent) {
-        if !event.done && event.total > 0 {
-            eprintln!(
-                "[{}] {}/{} {}",
-                event.phase.as_str(),
-                event.current,
-                event.total,
-                event.message
-            );
-        }
-    }
-}
 
 pub(crate) fn push(
     repo: PathBuf,
@@ -65,7 +46,7 @@ pub(crate) fn push(
     }
 
     provider.prepare_repository_push(&repo)?;
-    let progress = Arc::new(CliProgressSink);
+    let progress = CliProgressSink::new();
     let stats = push_repo(
         repo,
         repository_provider,
@@ -118,7 +99,7 @@ pub(crate) fn pull(
         return Err(crate::Error::Cancelled);
     }
 
-    let progress = Arc::new(CliProgressSink);
+    let progress = CliProgressSink::new();
     let stats = pull_repo(
         repo,
         repository_provider,

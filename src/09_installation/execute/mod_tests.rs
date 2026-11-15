@@ -1,4 +1,5 @@
 use super::*;
+use crate::Error;
 use crate::artifact::bundle::BundleBuilder;
 use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::hash::ChunkHash;

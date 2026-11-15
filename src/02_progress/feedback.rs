@@ -5,10 +5,17 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::Builder;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+/// How often the feedback thread refreshes rates while a stream is active.
+const REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+/// History that the recent rate covers.
+const RECENT_WINDOW: Duration = Duration::from_secs(2);
+/// One sample per refresh across the window, plus the window's two edges.
+const MAX_SAMPLES: usize = (RECENT_WINDOW.as_millis() / REFRESH_INTERVAL.as_millis()) as usize + 2;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +38,23 @@ struct ThroughputHistory {
     samples: VecDeque<(Instant, u64)>,
 }
 impl ThroughputHistory {
+    /// Starts the stream once; later starts keep the original history.
+    fn start(&mut self, now: Instant) {
+        if self.start.is_none() {
+            self.start = Some(now);
+            self.samples.push_back((now, 0));
+        }
+    }
+
+    /// Ends a started stream once. Returns whether this call ended it.
+    fn finish(&mut self, now: Instant) -> bool {
+        let ends = self.start.is_some() && self.end.is_none();
+        if ends {
+            self.end = Some(now);
+        }
+        ends
+    }
+
     fn snapshot(&mut self, bytes: u64, now: Instant) -> Option<Throughput> {
         let start = self.start?;
         let end = self.end.unwrap_or(now);
@@ -38,10 +62,10 @@ impl ThroughputHistory {
             self.samples.push_back((end, bytes));
         }
         loop {
-            let exceeds_sample_limit = self.samples.len() > 10;
+            let exceeds_sample_limit = self.samples.len() > MAX_SAMPLES;
             // Retain two samples even after a pause so a recent rate can be computed.
             let oldest_sample_outside_window = self.samples.len() > 2
-                && end.saturating_duration_since(self.samples[1].0) > Duration::from_secs(2);
+                && end.saturating_duration_since(self.samples[1].0) > RECENT_WINDOW;
             if !exceeds_sample_limit && !oldest_sample_outside_window {
                 break;
             }
@@ -69,11 +93,13 @@ pub(crate) enum Stream {
 #[derive(Debug, Default)]
 struct FeedbackState {
     event: Option<ProgressEvent>,
+    /// Counts every change worth emitting.
     revision: u64,
+    /// Counts phase and completion changes, which are emitted without waiting.
+    transitions: u64,
     stop: bool,
     download: ThroughputHistory,
     output: ThroughputHistory,
-    profiler: Option<Arc<Profiler>>,
 }
 impl FeedbackState {
     fn history(&mut self, stream: Stream) -> &mut ThroughputHistory {
@@ -89,6 +115,14 @@ struct SharedFeedbackState {
     changed: Condvar,
     downloaded: AtomicU64,
     written: AtomicU64,
+    profiler: OnceLock<Arc<Profiler>>,
+}
+
+/// What the feedback thread last emitted.
+#[derive(Default)]
+struct Emitted {
+    revision: u64,
+    transitions: u64,
 }
 impl SharedFeedbackState {
     fn counter(&self, stream: Stream) -> &AtomicU64 {
@@ -101,9 +135,9 @@ impl SharedFeedbackState {
     /// Emits the latest event, with current rates, whenever it changes or a
     /// transfer is still active, until the feedback stops.
     fn run_feedback_loop(&self, sink: &dyn ProgressSink) {
-        let mut previous_revision = 0;
+        let mut emitted = Emitted::default();
         loop {
-            let Some((event, stop)) = self.wait_for_event(&mut previous_revision) else {
+            let Some((event, stop)) = self.wait_for_event(&mut emitted) else {
                 return;
             };
             if let Some(event) = event {
@@ -118,16 +152,16 @@ impl SharedFeedbackState {
 
     /// Waits for a phase change or the refresh interval. Returns the event to
     /// emit, if any, and whether to stop; `None` when the state is poisoned.
-    fn wait_for_event(&self, previous_revision: &mut u64) -> Option<(Option<ProgressEvent>, bool)> {
+    fn wait_for_event(&self, emitted: &mut Emitted) -> Option<(Option<ProgressEvent>, bool)> {
         let state = self.state.lock().ok()?;
-        let mut state = if state.stop {
-            state
-        } else {
-            self.changed
-                .wait_timeout(state, Duration::from_millis(250))
-                .ok()?
-                .0
-        };
+        // A transition that arrived while the sink was busy needs no wait.
+        let (mut state, _) = self
+            .changed
+            .wait_timeout_while(state, REFRESH_INTERVAL, |state| {
+                !state.stop && state.transitions == emitted.transitions
+            })
+            .ok()?;
+        emitted.transitions = state.transitions;
         let now = Instant::now();
         let feedback = LiveFeedback {
             download: state
@@ -140,24 +174,19 @@ impl SharedFeedbackState {
         let active = [&feedback.download, &feedback.output_write]
             .into_iter()
             .any(|rate| rate.as_ref().is_some_and(|rate| !rate.finished));
-        let event = (state.revision != *previous_revision || active || state.stop)
+        let event = (state.revision != emitted.revision || active)
             .then(|| state.event.clone())
             .flatten()
             .map(|mut event| {
                 event.feedback = Some(feedback);
                 event
             });
-        *previous_revision = state.revision;
+        emitted.revision = state.revision;
         Some((event, state.stop))
     }
 
     fn profile_event(&self, event: &ProgressEvent) {
-        let profiler = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|state| state.profiler.clone());
-        let (Some(profiler), Some(feedback)) = (profiler, &event.feedback) else {
+        let (Some(profiler), Some(feedback)) = (self.profiler.get(), &event.feedback) else {
             return;
         };
         profiler.event_with_args("operation.progress", || feedback_profile_args(feedback));
@@ -187,42 +216,41 @@ fn feedback_profile_args(feedback: &LiveFeedback) -> BTreeMap<String, serde_json
 #[derive(Debug)]
 pub(crate) struct LiveProgress {
     shared: Arc<SharedFeedbackState>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: Option<JoinHandle<()>>,
+    /// Receives events directly when the feedback thread could not start.
+    unthreaded_sink: Option<Arc<dyn ProgressSink>>,
 }
 impl LiveProgress {
     pub(crate) fn new(sink: Arc<dyn ProgressSink>) -> Arc<Self> {
         let shared = Arc::new(SharedFeedbackState::default());
         let thread_shared = shared.clone();
+        let thread_sink = sink.clone();
         let thread = Builder::new()
             .name("gutch-progress".into())
-            .spawn(move || thread_shared.run_feedback_loop(sink.as_ref()))
+            .spawn(move || thread_shared.run_feedback_loop(thread_sink.as_ref()))
             .ok();
+        // Without the thread, events go straight through without live rates.
+        let unthreaded_sink = thread.is_none().then_some(sink);
         Arc::new(Self {
             shared,
-            thread: Mutex::new(thread),
+            thread,
+            unthreaded_sink,
         })
     }
-    pub(crate) fn with_profiler(&self, profiler: Arc<Profiler>) {
-        if let Ok(mut state) = self.shared.state.lock() {
-            state.profiler = Some(profiler);
-        }
+    /// Records profiling events for emitted feedback. The first profiler set
+    /// is kept for every clone of the control.
+    pub(crate) fn set_profiler(&self, profiler: Arc<Profiler>) {
+        let _ = self.shared.profiler.set(profiler);
     }
     pub(crate) fn start(&self, stream: Stream) {
         if let Ok(mut state) = self.shared.state.lock() {
-            let history = state.history(stream);
-            if history.start.is_none() {
-                let now = Instant::now();
-                history.start = Some(now);
-                history.samples.push_back((now, 0));
-            }
+            state.history(stream).start(Instant::now());
         }
     }
     pub(crate) fn finish(&self, stream: Stream) {
-        if let Ok(mut state) = self.shared.state.lock() {
-            let history = state.history(stream);
-            if history.start.is_some() && history.end.is_none() {
-                history.end = Some(Instant::now());
-            }
+        if let Ok(mut state) = self.shared.state.lock()
+            && state.history(stream).finish(Instant::now())
+        {
             state.revision += 1;
         }
     }
@@ -234,6 +262,10 @@ impl LiveProgress {
 }
 impl ProgressSink for LiveProgress {
     fn emit(&self, event: ProgressEvent) {
+        if let Some(sink) = &self.unthreaded_sink {
+            sink.emit(event);
+            return;
+        }
         if let Ok(mut state) = self.shared.state.lock() {
             let transition = state
                 .event
@@ -242,6 +274,7 @@ impl ProgressSink for LiveProgress {
             state.event = Some(event);
             state.revision += 1;
             if transition {
+                state.transitions += 1;
                 self.shared.changed.notify_one();
             }
         }
@@ -252,17 +285,16 @@ impl Drop for LiveProgress {
         if let Ok(mut state) = self.shared.state.lock() {
             state.stop = true;
             let now = Instant::now();
-            if state.download.start.is_some() {
-                state.download.end.get_or_insert(now);
-            }
-            if state.output.start.is_some() {
-                state.output.end.get_or_insert(now);
+            // Only newly finished streams need a final event; the last one
+            // already delivered is not repeated.
+            let download_ended = state.download.finish(now);
+            let output_ended = state.output.finish(now);
+            if download_ended || output_ended {
+                state.revision += 1;
             }
         }
         self.shared.changed.notify_one();
-        if let Ok(mut thread) = self.thread.lock()
-            && let Some(thread) = thread.take()
-        {
+        if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
@@ -351,14 +383,45 @@ mod tests {
         assert!(rates.download.as_ref().unwrap().finished);
         assert!(rates.output_write.as_ref().unwrap().finished);
     }
+    #[derive(Debug, Default)]
+    struct RecordingSink(Mutex<Vec<ProgressEvent>>);
+    impl ProgressSink for RecordingSink {
+        fn emit(&self, event: ProgressEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
+
+    #[test]
+    fn the_final_done_event_is_delivered_once() {
+        let sink = Arc::new(RecordingSink::default());
+        let feedback = LiveProgress::new(sink.clone());
+        feedback.emit(ProgressEvent {
+            feedback: None,
+            operation: super::super::OperationKind::Fetch,
+            phase: super::super::ProgressPhase::Done,
+            message: "done".into(),
+            current: 1,
+            total: 1,
+            transferred_bytes: 0,
+            total_bytes: 0,
+            detail: None,
+            done: true,
+        });
+        // Let the thread deliver the transition before the drop stops it.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while sink.0.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(feedback);
+        let events = sink.0.lock().unwrap();
+        assert_eq!(events.iter().filter(|event| event.done).count(), 1);
+    }
+
     #[test]
     fn recent_rate_includes_stalls_and_average_freezes() {
         let start = Instant::now();
-        let mut rate = ThroughputHistory {
-            start: Some(start),
-            ..Default::default()
-        };
-        rate.samples.push_back((start, 0));
+        let mut rate = ThroughputHistory::default();
+        rate.start(start);
         assert_eq!(
             rate.snapshot(200, start + Duration::from_secs(1))
                 .unwrap()
@@ -374,7 +437,7 @@ mod tests {
                 .recent_bytes_per_second,
             Some(0.0)
         );
-        rate.end = Some(start + Duration::from_secs(2));
+        assert!(rate.finish(start + Duration::from_secs(2)));
         assert_eq!(
             rate.snapshot(200, start + Duration::from_secs(8))
                 .unwrap()

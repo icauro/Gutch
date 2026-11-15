@@ -9,6 +9,7 @@ mod pipeline;
 pub(crate) mod publish;
 mod workers;
 
+use crate::Result;
 use crate::filesystem::directory::replace_directory;
 use crate::filesystem::paths::validate_destination_paths;
 use crate::installation::contracts::ReconstructTimings;
@@ -22,7 +23,6 @@ use crate::manifest::snapshot::SnapshotManifest;
 use crate::profiling::ProfileInstant;
 use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
-use crate::{Error, Result};
 use entries::{finalize_snapshot_entries, prepare_snapshot_entries};
 use jobs::{ReconstructPipelineApplyRequest, ReconstructPipelinePlan};
 use pipeline::{ExecuteReconstructPipelineRequest, run_reconstruction_jobs};
@@ -44,10 +44,7 @@ pub(crate) fn apply_reconstruct_pipeline(
         None
     } else {
         let _pool_span = control.profile_span("installation.reconstruct.prepare.pool");
-        Some(
-            build_thread_pool(worker_count, "Reconstruction worker")
-                .map_err(|error| Error::reconstruct(error.to_string()))?,
-        )
+        Some(build_thread_pool(worker_count, "Reconstruction worker")?)
     };
     let staging = create_staging(&request)?;
     let staging_dir = staging.path().to_path_buf();
