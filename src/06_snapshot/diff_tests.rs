@@ -43,7 +43,7 @@ fn diff_ignores_packaging_but_preserves_properties_links_and_type_changes() {
     repacked.executable = true;
     assert_eq!(
         changed_entry_kind(&base, &repacked.clone().into()),
-        Some(SnapshotChangeKind::Metadata)
+        Some(SnapshotChangeKind::PropertiesChanged)
     );
     repacked.full_file_hash = ChunkHash::from_bytes([0xcc; 32]);
     assert_eq!(
@@ -58,7 +58,7 @@ fn diff_ignores_packaging_but_preserves_properties_links_and_type_changes() {
     };
     assert_eq!(
         changed_entry_kind(&directory(false), &directory(true)),
-        Some(SnapshotChangeKind::Metadata)
+        Some(SnapshotChangeKind::PropertiesChanged)
     );
     let link = |target: &str| {
         SnapshotEntry::Symlink(SymlinkManifest {
@@ -73,6 +73,44 @@ fn diff_ignores_packaging_but_preserves_properties_links_and_type_changes() {
     assert_eq!(changed_entry_kind(&link("one"), &link("one")), None);
     let changed =
         compare_snapshot_entries(&[base], &[directory(false)], &Default::default()).unwrap();
-    assert_eq!(changed.changes[0].change, SnapshotChangeKind::Modified);
+    assert_eq!(changed.changes[0].change, SnapshotChangeKind::TypeChanged);
     assert_eq!(changed.delta_bytes, -4);
+}
+
+#[test]
+fn diff_lists_changes_in_path_order_and_omits_unchanged_entries() {
+    let before = [file("z", 1), file("b", 2), file("same", 3), file("a", 1)];
+    let after = [file("same", 3), file("c", 5), file("a", 4), file("z", 1)];
+    let diff = compare_snapshot_entries(&before, &after, &Default::default()).unwrap();
+    let changes = diff
+        .changes
+        .iter()
+        .map(|change| (change.path.as_str(), change.change, change.delta_bytes))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changes,
+        [
+            ("a", SnapshotChangeKind::Modified, 3),
+            ("b", SnapshotChangeKind::Removed, -2),
+            ("c", SnapshotChangeKind::Added, 5),
+        ]
+    );
+    assert_eq!(diff.delta_bytes, 6);
+    assert!(
+        compare_snapshot_entries(&after, &after, &Default::default())
+            .unwrap()
+            .changes
+            .is_empty()
+    );
+}
+
+#[test]
+fn change_kind_labels_match_serialized_names() {
+    use SnapshotChangeKind::*;
+    for kind in [Added, Removed, Modified, PropertiesChanged, TypeChanged] {
+        assert_eq!(
+            serde_json::to_string(&kind).unwrap(),
+            format!("\"{}\"", kind.as_str())
+        );
+    }
 }

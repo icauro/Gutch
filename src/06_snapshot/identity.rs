@@ -1,59 +1,12 @@
-//! Content-derived snapshot identity and source modification times.
+//! Content-derived snapshot identity.
 
-use std::path::Path;
-
-use crate::Error;
-use crate::Result;
 use crate::artifact::hash::hash_hex;
 use crate::manifest::SnapshotEntry;
-use std::time::SystemTime;
 
-pub(crate) fn source_modified_at_from_directory(dir: &Path) -> Result<String> {
-    Ok(format_system_time_utc(max_file_modified_time(dir)?))
-}
-
-pub(crate) fn format_system_time_utc(time: SystemTime) -> String {
-    chrono::DateTime::<chrono::Utc>::from(time)
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string()
-}
-
-fn max_file_modified_time(dir: &Path) -> Result<SystemTime> {
-    if !dir.is_dir() {
-        return Err(Error::invalid_input(format!(
-            "source path is not a directory: {}",
-            dir.display()
-        )));
-    }
-
-    let mut max_mtime = SystemTime::UNIX_EPOCH;
-    let mut found_file = false;
-    for entry in walkdir::WalkDir::new(dir) {
-        let entry = entry?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let mtime = entry.metadata()?.modified()?;
-        if !found_file || mtime > max_mtime {
-            max_mtime = mtime;
-            found_file = true;
-        }
-    }
-
-    if found_file {
-        return Ok(max_mtime);
-    }
-
-    dir.metadata()?.modified().map_err(|err| {
-        Error::invalid_input(format!(
-            "failed to read source directory mtime for {}: {err}",
-            dir.display()
-        ))
-    })
-}
-
-pub(crate) fn compute_snapshot_id_from_entries(entries: &[SnapshotEntry]) -> String {
-    // Capture already sorts entries. Avoid allocating or sorting again on that path.
+/// Hashes entries in path order, so the ID ignores input order. Paths must be
+/// unique, as manifest validation guarantees; capture already sorts entries,
+/// so that path neither allocates nor sorts again.
+pub(crate) fn snapshot_id_from_entries(entries: &[SnapshotEntry]) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"gutch-installation-id-v2");
     hasher.update(&(entries.len() as u64).to_le_bytes());
@@ -62,13 +15,13 @@ pub(crate) fn compute_snapshot_id_from_entries(entries: &[SnapshotEntry]) -> Str
         .all(|pair| pair[0].path() <= pair[1].path())
     {
         for entry in entries {
-            hash_installation_entry(&mut hasher, entry);
+            hash_identity_entry(&mut hasher, entry);
         }
     } else {
         let mut sorted_entries: Vec<_> = entries.iter().collect();
         sorted_entries.sort_unstable_by(|left, right| left.path().cmp(right.path()));
         for entry in sorted_entries {
-            hash_installation_entry(&mut hasher, entry);
+            hash_identity_entry(&mut hasher, entry);
         }
     }
     hash_hex(&hasher.finalize())
@@ -79,7 +32,7 @@ fn hash_identity_field(hasher: &mut blake3::Hasher, value: &str) {
     hasher.update(value.as_bytes());
 }
 
-fn hash_installation_entry(hasher: &mut blake3::Hasher, entry: &SnapshotEntry) {
+fn hash_identity_entry(hasher: &mut blake3::Hasher, entry: &SnapshotEntry) {
     hash_identity_field(hasher, entry.path());
     match entry {
         SnapshotEntry::File(file) => {
@@ -121,10 +74,7 @@ mod tests {
             path: "empty".into(),
             read_only: false,
         });
-        let id = compute_snapshot_id_from_entries(&[
-            SnapshotEntry::File(file.clone()),
-            directory.clone(),
-        ]);
+        let id = snapshot_id_from_entries(&[SnapshotEntry::File(file.clone()), directory.clone()]);
         let mut repacked = file.clone();
         repacked.chunks = vec![ChunkRef {
             chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&"a".repeat(64)).unwrap(),
@@ -132,7 +82,7 @@ mod tests {
         }];
         assert_eq!(
             id,
-            compute_snapshot_id_from_entries(&[directory.clone(), SnapshotEntry::File(repacked)])
+            snapshot_id_from_entries(&[directory.clone(), SnapshotEntry::File(repacked)])
         );
         for changed in [
             FileManifest {
@@ -154,10 +104,7 @@ mod tests {
         ] {
             assert_ne!(
                 id,
-                compute_snapshot_id_from_entries(&[
-                    SnapshotEntry::File(changed),
-                    directory.clone()
-                ])
+                snapshot_id_from_entries(&[SnapshotEntry::File(changed), directory.clone()])
             );
         }
         let link = |target: &str| {
@@ -167,29 +114,56 @@ mod tests {
             })
         };
         assert_ne!(
-            compute_snapshot_id_from_entries(&[link("one")]),
-            compute_snapshot_id_from_entries(&[link("two")])
+            snapshot_id_from_entries(&[link("one")]),
+            snapshot_id_from_entries(&[link("two")])
         );
-    }
-
-    #[test]
-    fn identity_changes_with_supported_filesystem_metadata() {
-        let directory = SnapshotEntry::Directory(DirectoryManifest {
-            path: "target".into(),
-            read_only: false,
-        });
-        let link = SnapshotEntry::Symlink(SymlinkManifest {
-            path: "current".into(),
-            target_path: "target".into(),
-        });
-        let original = compute_snapshot_id_from_entries(&[directory.clone(), link.clone()]);
-        let changed_permissions = SnapshotEntry::Directory(DirectoryManifest {
-            path: "target".into(),
+        let read_only_directory = SnapshotEntry::Directory(DirectoryManifest {
+            path: "empty".into(),
             read_only: true,
         });
         assert_ne!(
-            original,
-            compute_snapshot_id_from_entries(&[changed_permissions, link])
+            id,
+            snapshot_id_from_entries(&[SnapshotEntry::File(file.clone()), read_only_directory])
+        );
+        let directory_at_file_path = SnapshotEntry::Directory(DirectoryManifest {
+            path: file.path.clone(),
+            read_only: false,
+        });
+        assert_ne!(
+            snapshot_id_from_entries(&[SnapshotEntry::File(file)]),
+            snapshot_id_from_entries(&[directory_at_file_path])
+        );
+    }
+
+    /// Stored repositories depend on this exact encoding; a change here makes
+    /// every existing snapshot fail its integrity check.
+    #[test]
+    fn identity_encoding_is_pinned() {
+        let entries = [
+            SnapshotEntry::File(crate::manifest::FileManifest {
+                path: "bin/app".into(),
+                size: 4,
+                executable: true,
+                read_only: false,
+                full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
+                chunks: vec![],
+            }),
+            SnapshotEntry::Symlink(SymlinkManifest {
+                path: "current".into(),
+                target_path: "bin".into(),
+            }),
+            SnapshotEntry::Directory(DirectoryManifest {
+                path: "empty".into(),
+                read_only: true,
+            }),
+        ];
+        assert_eq!(
+            snapshot_id_from_entries(&[]),
+            "7fc0260419cc769d8b36885f26217943238a988ca6aa722179645f5548486a94"
+        );
+        assert_eq!(
+            snapshot_id_from_entries(&entries),
+            "8368fd370c0898f5c1aacc27c9d0bce45071d66be95bd7f6df8fd57400fc7a8a"
         );
     }
 }

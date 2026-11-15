@@ -153,11 +153,13 @@ and a total. `--json` emits one object:
 }
 ```
 
-Changes are sorted by exact path. The change is `added`, `removed`, `modified`,
-or `metadata`. File deltas are new size minus old size; added files contribute
-their size and removed files its negative. Directories and symlinks contribute
-zero bytes. Empty files and same-size content changes remain visible. Type or
-symlink-target changes are `modified`; renames appear as removal and addition.
+Changes are sorted by exact path. The change is `added`, `removed`, `modified`
+(content or symlink target), `properties_changed` (executable or read-only
+flags) or `type_changed` (file, directory or symlink replaced by another kind).
+The readable output prints the same names. File deltas are new size minus old
+size; added files contribute their size and removed files its negative.
+Directories and symlinks contribute zero bytes. Empty files and same-size
+content changes remain visible. Renames appear as removal and addition.
 Content changes take precedence when properties change at the same time.
 
 The diff excludes unchanged entries, packaging, tags and launch configuration.

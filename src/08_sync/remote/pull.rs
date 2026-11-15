@@ -56,7 +56,7 @@ use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::updates::validate_existing_constraints;
 use crate::repo::verify::RepoArtifactVerification;
 use crate::repo::verify::verify_snapshot_artifacts;
-use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::transfer::http::DownloadClient;
 use crate::transfer::http::build_download_client;
 use crate::transfer::http::download_url_streaming;
@@ -106,7 +106,7 @@ pub(super) fn compute_pull_plan(
             &local_snapshot_blueprint_hash_b3(repo_paths, &snapshot.snapshot_id)?,
             &snapshot.blueprint_hash_b3,
         ) && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
-            && compute_snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
+            && snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
             && let Ok(index) = load_chunk_index(repo_paths)
             && verify_snapshot_artifacts(
                 repo_paths,
@@ -755,7 +755,7 @@ mod constraint_tests {
                 read_only: false,
             },
         )];
-        let id = crate::snapshot::identity::compute_snapshot_id_from_entries(&entries);
+        let id = crate::snapshot::identity::snapshot_id_from_entries(&entries);
         let mut manifest = crate::manifest::SnapshotManifest::new(id.clone(), Default::default());
         manifest.entries = entries;
         let blueprint_path = root.path().join("incoming.gtcbin");

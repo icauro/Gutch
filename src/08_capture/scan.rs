@@ -215,8 +215,7 @@ pub(crate) fn scan_source_inventory(
 
     let mut metadata_entries = Vec::new();
     let mut files = Vec::new();
-    let mut max_file_modified_at = SystemTime::UNIX_EPOCH;
-    let mut found_file = false;
+    let mut newest_file_time = NewestFileTime::default();
     {
         let _enumerate_span = control.profile_span("capture.scan_source.inventory");
         for entry in walkdir::WalkDir::new(root)
@@ -234,11 +233,7 @@ pub(crate) fn scan_source_inventory(
             let metadata = entry.metadata()?;
             let normalized_relative = normalized_relative(root, &path)?;
             if entry.file_type().is_file() {
-                let modified_at = metadata.modified()?;
-                if !found_file || modified_at > max_file_modified_at {
-                    max_file_modified_at = modified_at;
-                    found_file = true;
-                }
+                newest_file_time.observe(metadata.modified()?);
                 files.push(SourceFileEntry {
                     path,
                     normalized_relative,
@@ -293,17 +288,56 @@ pub(crate) fn scan_source_inventory(
                 .collect::<Result<Vec<_>>>()
         })
     }?;
-    let source_modified_at = if found_file {
-        max_file_modified_at
-    } else {
-        fs::metadata(root)?.modified()?
-    };
-
     Ok(SourceInventory {
         metadata_entries,
         files,
-        source_modified_at,
+        source_modified_at: newest_file_time.resolve(root)?,
     })
+}
+
+/// Tracks a source tree's newest file modification time. Timestamps describe
+/// the source only; they never contribute to snapshot identity.
+#[derive(Default)]
+struct NewestFileTime(Option<SystemTime>);
+
+impl NewestFileTime {
+    fn observe(&mut self, modified_at: SystemTime) {
+        if self.0.is_none_or(|newest| modified_at > newest) {
+            self.0 = Some(modified_at);
+        }
+    }
+
+    /// A tree without files falls back to its root directory's own time.
+    fn resolve(self, root: &Path) -> Result<SystemTime> {
+        match self.0 {
+            Some(newest) => Ok(newest),
+            None => Ok(fs::metadata(root)?.modified()?),
+        }
+    }
+}
+
+/// Returns the newest file modification time under `dir`, as `scan` records it.
+pub(crate) fn source_modified_at(dir: &Path) -> Result<SystemTime> {
+    if !dir.is_dir() {
+        return Err(Error::invalid_input(format!(
+            "source path is not a directory: {}",
+            dir.display()
+        )));
+    }
+    let mut newest_file_time = NewestFileTime::default();
+    for entry in walkdir::WalkDir::new(dir) {
+        let entry = entry?;
+        if entry.file_type().is_file() {
+            newest_file_time.observe(entry.metadata()?.modified()?);
+        }
+    }
+    newest_file_time.resolve(dir)
+}
+
+pub(crate) fn format_system_time_utc(time: SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(time)
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
 }
 
 pub(crate) fn scan_directory_into_file_entries(

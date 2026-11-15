@@ -7,10 +7,11 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::Result;
+use crate::capture::scan::format_system_time_utc;
+use crate::capture::scan::source_modified_at;
 use crate::manifest;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_tag_summary::summarize_snapshot_tags;
-use crate::snapshot::identity::source_modified_at_from_directory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,8 +63,12 @@ pub fn discover_source_snapshots(
 
     for snapshot in config.discover_snapshot_sources(source_snapshots_root)? {
         let explicit_tags = snapshot.config_tags.clone().unwrap_or_default();
-        let candidate = source_modified_at_from_directory(&snapshot.path).and_then(|modified_at| {
-            source_snapshot_candidate(&snapshot.path, &explicit_tags, modified_at)
+        let candidate = source_modified_at(&snapshot.path).and_then(|modified_at| {
+            source_snapshot_candidate(
+                &snapshot.path,
+                &explicit_tags,
+                format_system_time_utc(modified_at),
+            )
         });
         match candidate {
             Ok(candidate) => candidates.push(candidate),

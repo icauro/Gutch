@@ -54,10 +54,10 @@ def run(case):
         ("empty-added", "added", 0),
         ("empty-removed", "removed", 0),
         ("grow", "modified", 3),
-        ("permissions", "metadata", 0),
+        ("permissions", "properties_changed", 0),
         ("removed", "removed", -3),
         ("same-size", "modified", 0),
-        ("type", "modified", -2),
+        ("type", "type_changed", -2),
     ]
     result = diff(first, second)
     assert result == {
@@ -70,7 +70,7 @@ def run(case):
     readable = diff(first, second, json_output=False)
     for path, change, delta in expected:
         line = next(line for line in readable.splitlines() if f'"{path}"' in line)
-        assert line.startswith(change.title()) and f"{delta:+}" in line
+        assert line.startswith(change) and f"{delta:+}" in line
     assert "8 changes; total +3 B" in readable
     reverse = diff(second, first)
     assert reverse["delta_bytes"] == -3
@@ -78,7 +78,8 @@ def run(case):
         "added": "removed",
         "removed": "added",
         "modified": "modified",
-        "metadata": "metadata",
+        "properties_changed": "properties_changed",
+        "type_changed": "type_changed",
     }
     assert reverse["changes"] == [
         dict(path=path, change=inverse[change], delta_bytes=-delta)

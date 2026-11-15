@@ -51,7 +51,7 @@ use crate::progress::ProgressPhase;
 use crate::runtime::MemoryBudget;
 use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
-use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id_from_entries;
 use std::env::temp_dir;
 use std::time::Duration;
 
@@ -777,7 +777,7 @@ pub(crate) fn build_from_inventory(
             .control
             .profile_span("capture.build_snapshot_manifest.construct");
         let mut snapshot_manifest = SnapshotManifest::new(
-            compute_snapshot_id_from_entries(&snapshot_entries),
+            snapshot_id_from_entries(&snapshot_entries),
             config.snapshot_tags.clone(),
         );
         snapshot_manifest.chunker = config.chunk_profile.chunker;

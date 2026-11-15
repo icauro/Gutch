@@ -41,7 +41,6 @@ use crate::repo::snapshots::delete_repo_snapshot_and_cleanup;
 use crate::repo::snapshots::plan_snapshot_tag_updates;
 use crate::repo::snapshots::retag_snapshots;
 use crate::repo::status::read_repo_status;
-use crate::snapshot::diff::SnapshotChangeKind;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -163,15 +162,11 @@ fn diff(repo: &Path, from: &str, to: &str, profile: &Profile) -> crate::Result<(
     let result = diff_repo_snapshots(repo, from, to, &control_with_profile(profile))?;
     output::record(&result)?;
     for entry in &result.changes {
-        let label = match entry.change {
-            SnapshotChangeKind::Added => "Added",
-            SnapshotChangeKind::Removed => "Removed",
-            SnapshotChangeKind::Modified => "Modified",
-            SnapshotChangeKind::Metadata => "Metadata",
-        };
         output::line(format_args!(
-            "{label:<8} {:>+12} B  {:?}",
-            entry.delta_bytes, entry.path
+            "{:<18} {:>+12} B  {:?}",
+            entry.change.as_str(),
+            entry.delta_bytes,
+            entry.path
         ));
     }
     output::line(format_args!(

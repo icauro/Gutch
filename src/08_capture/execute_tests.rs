@@ -8,6 +8,8 @@ use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
 use crate::capture::plan::plan_snapshot_capture;
+use crate::capture::scan::format_system_time_utc;
+use crate::capture::scan::source_modified_at;
 use crate::capture::sources::discovery::source_snapshot_candidate;
 use crate::installation::InstallationRequest;
 use crate::installation::reconstruct_snapshot;
@@ -25,8 +27,7 @@ use crate::repo::snapshots::retag_snapshot_by_id;
 use crate::repo::verify::RepoArtifactVerification;
 use crate::repo::verify::verify_gutch_repo_artifacts;
 use crate::runtime::RuntimeResourceHints;
-use crate::snapshot::identity::compute_snapshot_id_from_entries;
-use crate::snapshot::identity::source_modified_at_from_directory;
+use crate::snapshot::identity::snapshot_id_from_entries;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
@@ -73,10 +74,11 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
         .cloned()
         .map(Into::into)
         .collect::<Vec<_>>();
-    let old_snapshot_id = compute_snapshot_id_from_entries(&old_entries);
+    let old_snapshot_id = snapshot_id_from_entries(&old_entries);
     let mut old_manifest =
         SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
-    old_manifest.source_modified_at = source_modified_at_from_directory(&new_source).unwrap();
+    old_manifest.source_modified_at =
+        format_system_time_utc(source_modified_at(&new_source).unwrap());
     old_manifest.set_files(old_files);
     write_snapshot_manifest_artifacts(
         &repo_paths,

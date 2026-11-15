@@ -357,7 +357,7 @@ mod tests {
             }],
         });
         snapshot_manifest.snapshot_id =
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot_manifest.entries);
+            crate::snapshot::identity::snapshot_id_from_entries(&snapshot_manifest.entries);
         write_snapshot_manifest_artifacts(
             &repo_paths,
             &snapshot_manifest,

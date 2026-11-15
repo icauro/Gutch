@@ -253,7 +253,7 @@ mod tests {
             },
         });
         manifest.snapshot_id =
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+            crate::snapshot::identity::snapshot_id_from_entries(&manifest.entries);
         crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
             paths,
             &manifest,

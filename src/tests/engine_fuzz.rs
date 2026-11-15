@@ -10,7 +10,7 @@ use crate::filesystem::paths::validate_manifest_relative_path;
 use crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes;
 use crate::manifest::blueprint_columns;
 use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
-use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id_from_entries;
 use std::io::{Cursor, Read};
 use std::str::from_utf8;
 
@@ -142,8 +142,8 @@ fn fuzz_blueprint_roundtrip() {
         let encoded = metadata::encode(SNAPSHOT_BLUEPRINT_MAGIC, &groups).unwrap();
         let restored = read_snapshot_blueprint_bytes(&encoded).unwrap();
         assert_eq!(
-            compute_snapshot_id_from_entries(&entries),
-            compute_snapshot_id_from_entries(&restored)
+            snapshot_id_from_entries(&entries),
+            snapshot_id_from_entries(&restored)
         );
         assert_eq!(blueprint_columns::encode(&restored).unwrap(), groups);
         let mut mutated = groups;

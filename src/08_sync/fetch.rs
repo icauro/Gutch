@@ -41,7 +41,7 @@ use crate::repo::snapshot_manifests::snapshot_manifest_from_parts;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::verify::RepoArtifactVerification;
 use crate::repo::verify::verify_snapshot_artifacts;
-use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::sync::fetch_types::SnapshotFetchResult;
 use crate::transfer::artifact_download::TransferDownloadRequest;
@@ -398,7 +398,7 @@ fn prefer_verified_local_snapshot(
     }
     let local = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let local_index = load_chunk_index(repo_paths)?;
-    let local_is_complete = compute_snapshot_id_from_entries(&local.entries) == snapshot_id
+    let local_is_complete = snapshot_id_from_entries(&local.entries) == snapshot_id
         && verify_snapshot_artifacts(
             repo_paths,
             &local_index,

@@ -288,13 +288,13 @@ impl ProgressSink for SnapshotSourcesCandidateProgress {
 mod tests {
     use super::super::discovery::discover_source_snapshots;
     use super::*;
+    use crate::capture::scan::format_system_time_utc;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
     use crate::repo::paths::RepoPaths;
     use crate::repo::paths::ensure_gutch_repo_layout;
     use crate::repo::paths::load_gutch_repo_manifest;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
-    use crate::snapshot::identity::format_system_time_utc;
     use std::time::Duration;
     use std::time::SystemTime;
 
@@ -352,7 +352,7 @@ mod tests {
             }],
         }]);
         manifest.snapshot_id =
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+            crate::snapshot::identity::snapshot_id_from_entries(&manifest.entries);
         write_snapshot_manifest_artifacts(
             &repo_paths,
             &manifest,

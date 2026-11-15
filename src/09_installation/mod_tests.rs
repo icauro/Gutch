@@ -26,7 +26,7 @@ use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::runtime::RuntimeResourceHints;
-use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::sync::fetch;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::test_util::chunk_entries;
@@ -56,7 +56,7 @@ fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
             })
             .collect(),
     );
-    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     manifest
 }
 
@@ -166,7 +166,7 @@ fn resolved_snapshot_state_uses_product_runtime() {
             raw_size: 1,
         }],
     });
-    snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
+    snapshot.snapshot_id = snapshot_id_from_entries(&snapshot.entries);
     write_snapshot_manifest_artifacts(
         &paths,
         &snapshot,
@@ -183,7 +183,7 @@ fn resolved_snapshot_state_uses_product_runtime() {
             working_directory: None,
         }],
     });
-    snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
+    snapshot.snapshot_id = snapshot_id_from_entries(&snapshot.entries);
     write_snapshot_manifest_artifacts(
         &paths,
         &snapshot,
@@ -323,7 +323,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             }],
         },
     ]);
-    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     write_snapshot_manifest_artifacts(
         &paths,
         &manifest,
@@ -364,7 +364,7 @@ fn repair_restores_manifest_file_attributes() {
         file.read_only = true;
         file.executable = true;
     }
-    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
     repair_installation(InstallationRepairRequest {
         repo_path: root.path().to_path_buf(),
@@ -429,7 +429,7 @@ fn repair_restores_files_inside_read_only_directories() {
             read_only: true,
         },
     ));
-    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
 
     repair_installation(InstallationRepairRequest {
@@ -513,7 +513,7 @@ fn repaired_links_to_intact_directories_still_point_at_directories() {
             target_path: "data".to_string(),
         },
     ));
-    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
 
     // The link is missing; its target directory is intact.

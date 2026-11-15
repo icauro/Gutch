@@ -20,7 +20,7 @@ use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::validate_path_component;
 use crate::snapshot::diff::SnapshotDiff;
 use crate::snapshot::diff::compare_snapshot_entries;
-use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id_from_entries;
 use std::fs;
 use std::path::Path;
 use std::str::from_utf8;
@@ -125,7 +125,7 @@ pub(crate) fn snapshot_manifest_from_parts(
 }
 
 fn validate_snapshot_identity(manifest: &SnapshotManifest) -> Result<()> {
-    let actual_id = compute_snapshot_id_from_entries(&manifest.entries);
+    let actual_id = snapshot_id_from_entries(&manifest.entries);
     if actual_id != manifest.snapshot_id {
         return Err(crate::Error::SnapshotIntegrityMismatch {
             snapshot_id: manifest.snapshot_id.clone(),
@@ -335,10 +335,10 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn rejects_blueprints_with_a_different_installation_id() {
+    fn rejects_blueprints_with_a_different_snapshot_id() {
         let root = tempfile::tempdir().unwrap();
         let manifest = SnapshotManifest::new(
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&[]),
+            crate::snapshot::identity::snapshot_id_from_entries(&[]),
             Default::default(),
         );
         let path = root.path().join("blueprint");
