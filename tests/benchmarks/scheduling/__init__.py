@@ -1,26 +1,26 @@
 """Shared benchmark infrastructure."""
 
-from comparison_benchmark_suite.support.artifacts import (
+from tests.benchmarks.support.artifacts import (
     LaneLayout,
     RunLayout,
     create_run_dir,
 )
-from comparison_benchmark_suite.support.command import (
+from tests.benchmarks.support.command import (
     CommandError,
     CommandResult,
     CommandRunner,
 )
-from comparison_benchmark_suite.scheduling.config import (
+from tests.benchmarks.scheduling.config import (
     ScenarioCatalog,
     ScenarioDocument,
     load_scenario,
 )
-from comparison_benchmark_suite.support.filesystem import (
+from tests.benchmarks.support.filesystem import (
     TreeStats,
     compare_directories,
     scan_tree,
 )
-from comparison_benchmark_suite.support.recovery import (
+from tests.benchmarks.support.recovery import (
     apply_corruption_plan,
     build_corruption_plan,
 )

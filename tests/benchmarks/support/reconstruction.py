@@ -6,19 +6,19 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from comparison_benchmark_suite.support.artifacts import RunLayout, create_run_dir
-from comparison_benchmark_suite.support.command import CommandRunner
-from comparison_benchmark_suite.support.filesystem import (
+from tests.benchmarks.support.artifacts import RunLayout, create_run_dir
+from tests.benchmarks.support.command import CommandRunner
+from tests.benchmarks.support.filesystem import (
     compare_directories,
     scan_tree,
     validate_output,
 )
-from comparison_benchmark_suite.support.traces import (
+from tests.benchmarks.support.traces import (
     combine_labeled_traces,
     open_trace_in_perfetto,
 )
-from comparison_benchmark_suite.support.commands import GutchCli
-from comparison_benchmark_suite.support.models import GutchProfile
+from tests.benchmarks.support.commands import GutchCli
+from tests.benchmarks.support.models import GutchProfile
 from tests.benchmarks.support.s3 import (
     S3Settings,
     fetch_command,
@@ -27,7 +27,7 @@ from tests.benchmarks.support.s3 import (
     metadata_urls,
     publish_repository,
 )
-from comparison_benchmark_suite.support.gutch import (
+from tests.benchmarks.support.gutch import (
     GutchOperations,
     snapshot_id as _snapshot_id,
     verification_seconds as _verify_seconds,

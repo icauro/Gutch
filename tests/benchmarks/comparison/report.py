@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult
+from tests.benchmarks.comparison.models import FixtureSpec, LaneResult
 
 
 def _format_mib(byte_count: int) -> str:

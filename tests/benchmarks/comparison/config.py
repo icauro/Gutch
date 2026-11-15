@@ -1,17 +1,17 @@
-"""Internal Gutch fixtures extend the shared parser with diagnostic capture modes."""
+"""Gutch fixture catalog with diagnostic capture modes."""
 
 from pathlib import Path
-from comparison_benchmark_suite.scheduling.config import ScenarioCatalog
-from comparison_benchmark_suite.tools.config import (
-    load_fixture as load_comparison_fixture,
+from tests.benchmarks.scheduling.config import ScenarioCatalog
+from tests.benchmarks.comparison.fixture_config import (
+    load_fixture as load_lane_fixture,
 )
-from comparison_benchmark_suite.tools.models import FixtureSpec
+from tests.benchmarks.comparison.models import FixtureSpec
 
 FIXTURE_ROOT = Path(__file__).with_name("fixtures")
 
 
 def load_fixture(path: Path) -> FixtureSpec:
-    return load_comparison_fixture(
+    return load_lane_fixture(
         path, gutch_workloads=("individual", "batch", "product-bulk")
     )
 

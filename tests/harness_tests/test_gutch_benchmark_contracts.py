@@ -7,13 +7,13 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from comparison_benchmark_suite.scheduling.dataset import DatasetSelection
-from comparison_benchmark_suite.scheduling.runner import execute_cases
-from comparison_benchmark_suite.tools.models import FixtureSpec, LaneSpec, LaneResult
-from comparison_benchmark_suite.support.artifacts import RunLayout
-from comparison_benchmark_suite.support.command import CommandRunner, CommandError
-from comparison_benchmark_suite.support.gutch import verification_seconds
-from comparison_benchmark_suite.support.filesystem import compare_directories
+from tests.benchmarks.scheduling.dataset import DatasetSelection
+from tests.benchmarks.scheduling.runner import execute_cases
+from tests.benchmarks.comparison.models import FixtureSpec, LaneSpec, LaneResult
+from tests.benchmarks.support.artifacts import RunLayout
+from tests.benchmarks.support.command import CommandRunner, CommandError
+from tests.benchmarks.support.gutch import verification_seconds
+from tests.benchmarks.support.filesystem import compare_directories
 
 
 def fixture_spec(tmp_path):
@@ -153,7 +153,7 @@ class GutchBenchmarkContractTests(unittest.TestCase):
     def test_long_artifact_names_remain_bounded_distinct_and_reusable(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             tmp_path = Path(temporary_directory)
-            from comparison_benchmark_suite.support.artifacts import create_run_dir
+            from tests.benchmarks.support.artifacts import create_run_dir
 
             common = "blender-validation-" * 12
             first = create_run_dir(tmp_path, common, common + "first")
@@ -196,8 +196,8 @@ class GutchBenchmarkContractTests(unittest.TestCase):
 class SnapshotComparisonTests(unittest.TestCase):
     def test_filesystem_uses_selected_snapshots_and_restores_from_storage(self):
         import shutil
-        from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
-        from comparison_benchmark_suite.support.commands import GutchCli
+        from tests.benchmarks.comparison.local_runner import LocalFixtureRunner
+        from tests.benchmarks.support.commands import GutchCli
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -219,7 +219,7 @@ class SnapshotComparisonTests(unittest.TestCase):
                 return original_copy(source, destination, **kwargs)
 
             with patch(
-                "comparison_benchmark_suite.tools.workflow.shutil.copytree",
+                "tests.benchmarks.comparison.local_runner.shutil.copytree",
                 side_effect=copy,
             ):
                 result = runner.run_lane(
@@ -254,8 +254,8 @@ class SnapshotComparisonTests(unittest.TestCase):
 
     def test_filesystem_validates_initial_restore_before_recovery(self):
         import shutil
-        from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
-        from comparison_benchmark_suite.support.commands import GutchCli
+        from tests.benchmarks.comparison.local_runner import LocalFixtureRunner
+        from tests.benchmarks.support.commands import GutchCli
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -274,11 +274,11 @@ class SnapshotComparisonTests(unittest.TestCase):
 
             with (
                 patch(
-                    "comparison_benchmark_suite.tools.workflow.shutil.copytree",
+                    "tests.benchmarks.comparison.local_runner.shutil.copytree",
                     side_effect=broken_copy,
                 ),
                 patch(
-                    "comparison_benchmark_suite.tools.workflow.build_corruption_plan"
+                    "tests.benchmarks.comparison.local_runner.build_corruption_plan"
                 ) as recovery,
             ):
                 with self.assertRaises(RuntimeError):

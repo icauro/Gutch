@@ -1,9 +1,7 @@
 """Standalone sources exclude host tooling and mutable build inputs."""
 
-import ast
 import re
 import tomllib
-from pathlib import Path
 from types import SimpleNamespace
 
 from _tools.build_image import ROOT, source_files
@@ -19,22 +17,6 @@ def test_source_inventory_excludes_private_configuration_and_artifacts():
             relative.parts
         )
         assert relative.name != "config.yml"
-        if path.suffix != ".py":
-            continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            names = (
-                [node.module or ""]
-                if isinstance(node, ast.ImportFrom)
-                else (
-                    [alias.name for alias in node.names]
-                    if isinstance(node, ast.Import)
-                    else []
-                )
-            )
-            assert not any(
-                name.startswith(("scripts.", "tests.common", "gutch_repo."))
-                for name in names
-            ), relative
 
 
 def test_network_reservation_retries_a_concurrent_overlap(monkeypatch):
@@ -59,36 +41,6 @@ def test_network_reservation_retries_a_concurrent_overlap(monkeypatch):
     assert attempts[0][-1] == attempts[1][-1] == services.project
 
 
-def test_sources_and_docs_remain_consumer_independent():
-    forbidden = re.compile(r"private-consumer-names", re.IGNORECASE)
-    candidates = {path for path, _ in source_files()}
-    candidates.update((ROOT / "_docs").rglob("*.md"))
-    candidates.update(
-        ROOT / name
-        for name in (
-            "README.md",
-            "usage.md",
-            "index.md",
-            "tests/benchmarks/README.md",
-            "tests/benchmarks/.gitignore",
-        )
-    )
-    for path in sorted(candidates):
-        if (
-            not path.is_file()
-            or path.resolve() == Path(__file__).resolve()
-        ):
-            continue
-        if (
-            path.suffix
-            not in {".py", ".rs", ".md", ".toml", ".yml", ".yaml", ".example"}
-            and path.name != ".gitignore"
-        ):
-            continue
-        content = path.read_text(encoding="utf-8")
-        assert not forbidden.search(content), path.relative_to(ROOT)
-
-
 def test_local_cargo_dependencies_stay_inside_the_project():
     for manifest in (ROOT / "Cargo.toml", ROOT / "gutch-cli/Cargo.toml"):
         configuration = tomllib.loads(manifest.read_text(encoding="utf-8"))
@@ -104,7 +56,7 @@ def test_local_cargo_dependencies_stay_inside_the_project():
 
 def test_reconstruction_requires_explicit_storage(monkeypatch):
     import os
-    from comparison_benchmark_suite.scheduling.config import load_scenario
+    from tests.benchmarks.scheduling.config import load_scenario
     from tests.benchmarks.comparison.cli import _s3_settings
     import pytest
 

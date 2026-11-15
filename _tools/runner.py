@@ -12,16 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_module(module, arguments):
-    if module.startswith("tests.benchmarks."):
-        import importlib.util
-
-        if importlib.util.find_spec("comparison_benchmark_suite") is None:
-            print(
-                "Install the standalone comparison suite in this Python environment first: "
-                f'uv pip install --python "{sys.executable}" -e <suite-checkout>',
-                file=sys.stderr,
-            )
-            return 1
     environment = os.environ.copy()
     return subprocess.call(
         [sys.executable, "-m", module, *arguments], cwd=ROOT, env=environment

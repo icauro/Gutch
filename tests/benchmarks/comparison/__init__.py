@@ -1,6 +1,6 @@
 """Gutch internal fixture models and diagnostic workflows."""
 
-from comparison_benchmark_suite.tools.models import (
+from tests.benchmarks.comparison.models import (
     FixtureSpec,
     GutchProfile,
     LaneResult,

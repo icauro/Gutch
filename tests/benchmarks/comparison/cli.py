@@ -6,13 +6,13 @@ import os
 from pathlib import Path
 
 from tests.benchmarks.scheduling.environment import load_benchmark_environment
-from comparison_benchmark_suite.scheduling.config import load_scenario
+from tests.benchmarks.scheduling.config import load_scenario
 from tests.benchmarks.benchmark_config import load_benchmark_config
 from tests.benchmarks.comparison.binary import resolve_gutch_executable
-from comparison_benchmark_suite.support.commands import GutchCli
+from tests.benchmarks.support.commands import GutchCli
 from tests.benchmarks.comparison.config import FixtureCatalog
-from comparison_benchmark_suite.tools.config import _wait_seconds, _profile
-from comparison_benchmark_suite.tools.models import LaneResult
+from tests.benchmarks.comparison.fixture_config import _wait_seconds, _profile
+from tests.benchmarks.comparison.models import LaneResult
 from tests.benchmarks.comparison.report import print_fixture_report
 from tests.benchmarks.support.reconstruction import run_reconstruction_storage
 from tests.benchmarks.support.s3 import S3Settings

@@ -4,26 +4,26 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from comparison_benchmark_suite.support.artifacts import (
+from tests.benchmarks.support.artifacts import (
     LaneLayout,
     RunLayout,
     create_run_dir,
 )
-from comparison_benchmark_suite.support.command import CommandRunner
-from comparison_benchmark_suite.support.commands import GutchCli
-from comparison_benchmark_suite.support.filesystem import remove_tree, scan_tree
-from comparison_benchmark_suite.support.gutch import (
+from tests.benchmarks.support.command import CommandRunner
+from tests.benchmarks.support.commands import GutchCli
+from tests.benchmarks.support.filesystem import remove_tree, scan_tree
+from tests.benchmarks.support.gutch import (
     read_stats,
     snapshot_id as _snapshot_id,
     verification_seconds as _verify_seconds,
 )
-from comparison_benchmark_suite.scheduling.dataset import (
+from tests.benchmarks.scheduling.dataset import (
     DatasetSelection,
     select_sources as _selected_product_sources,
 )
-from comparison_benchmark_suite.scheduling.runner import execute_cases
-from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult, LaneSpec
-from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
+from tests.benchmarks.scheduling.runner import execute_cases
+from tests.benchmarks.comparison.models import FixtureSpec, LaneResult, LaneSpec
+from tests.benchmarks.comparison.local_runner import LocalFixtureRunner
 
 
 class GutchDiagnosticRunner(LocalFixtureRunner):
@@ -226,14 +226,6 @@ def run_fixture(
     on_step: Callable[[str], None] | None = None,
 ) -> list[LaneResult]:
     """Run Gutch's internal diagnostics using the shared measurement runtime."""
-    unsupported_tools = sorted(
-        {lane.tool for lane in fixture.lanes} - {"gutch", "filesystem"}
-    )
-    if unsupported_tools:
-        raise ValueError(
-            "External-tool comparisons belong in the standalone suite: "
-            + ", ".join(unsupported_tools)
-        )
     if fixture.snapshot_limit is not None:
         supported_kinds = {
             "gutch-individual",

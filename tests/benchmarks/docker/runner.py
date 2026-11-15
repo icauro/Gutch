@@ -11,8 +11,8 @@ import zipfile
 import yaml
 
 from tests.benchmarks.benchmark_config import BenchmarkConfig, load_benchmark_config
-from comparison_benchmark_suite.support.artifacts import create_run_dir
-from comparison_benchmark_suite.support.traces import open_trace_in_perfetto
+from tests.benchmarks.support.artifacts import create_run_dir
+from tests.benchmarks.support.traces import open_trace_in_perfetto
 from tests.benchmarks.comparison.config import load_fixture
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
 from tests.benchmarks.docker.launcher import DockerLauncher, DockerTarget
@@ -32,10 +32,6 @@ def _package_sources(destination: Path) -> None:
             if path.suffix not in {".py", ".yaml"}:
                 continue
             package.write(path, path.relative_to(REPOSITORY_ROOT).as_posix())
-        from _tools.build_image import benchmark_dependency_files
-
-        for path, relative in benchmark_dependency_files():
-            package.write(path, relative.as_posix())
         package.write(REPOSITORY_ROOT / "tests/__init__.py", "tests/__init__.py")
         for name in ("__init__.py", "artifacts.py"):
             package.write(REPOSITORY_ROOT / "_tools" / name, "_tools/" + name)

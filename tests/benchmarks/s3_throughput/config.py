@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from comparison_benchmark_suite.scheduling.config import load_scenario
+from tests.benchmarks.scheduling.config import load_scenario
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ from tests.benchmarks.comparison.binary import resolve_gutch_executable
 from tests.benchmarks.comparison.config import FixtureCatalog
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
 from tests.benchmarks.docker.runner import run_docker_benchmark
-from comparison_benchmark_suite.scheduling.config import load_scenario
+from tests.benchmarks.scheduling.config import load_scenario
 from tests.benchmarks.benchmark_config import load_benchmark_config
 
 

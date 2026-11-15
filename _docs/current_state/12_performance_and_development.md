@@ -156,9 +156,8 @@ python gutch.py benchmark --dataset 02_chunk_boundaries
 Python benchmark fixtures separate tool selection from workload and Gutch
 profile configuration. Local and S3 cycle workflows share a scheduler that
 runs warmups, rotates repeated cases, and retains partial results and payloads
-on failure. Benchmark operation mechanics live in
-`comparison_benchmark_suite/support/`. Optional S3 transports remain in
-`tests/benchmarks/support/`.
+on failure. Benchmark operation mechanics and optional S3
+transports live in `tests/benchmarks/support/`.
 
 Dataset inventories determine numeric version order, selected input size,
 and a reproducible fingerprint before execution. Reconstruction is checked
@@ -169,17 +168,16 @@ repository checks and native restore-over-existing behavior.
 
 `python gutch.py benchmark` lists internal Gutch fixtures. The interactive,
 explicit fixture, Docker, reconstruction-storage, and S3 commands remain.
-External-tool fixtures and their binary provisioning have been removed from
-Gutch; cross-tool comparisons run only in the separately installed
-`comparison-benchmark-suite` package.
+Comparisons with other tools live in [Gutch-Benchmarks](https://github.com/icauro/Gutch-Benchmarks).
 
 Internal diagnostics retain chunk/compression/worker profiles, individual versus
 batch capture, filesystem baselines, and storage/recovery workloads. Reports
 show per-snapshot measurements, totals and throughput; verification and recovery
 appear separately. Batch capture does not invent per-snapshot capture timings.
 Internal fixture loading, diagnostic reports, and batch/whole-product workflows
-are owned by `tests/benchmarks/comparison/`; the separate suite provides shared
-process execution, Gutch operations, validation, and measurement helpers.
+are owned by `tests/benchmarks/comparison/`; `tests/benchmarks/support/` and
+`tests/benchmarks/scheduling/` provide process execution, Gutch operations,
+validation, scheduling and measurement helpers.
 
 `profile_mode` selects `off`, `summary`, or `detailed`; only detailed records engine
 spans and sampled memory. The comparison timeline includes subprocess wall times
@@ -248,12 +246,6 @@ Detailed comparisons report sampled CPU usage (100% per logical core) and peak
 RSS for direct tool processes. CPU is weighted by observed command sampling time;
 child processes and the harness are excluded. Off-mode and unavailable samples
 remain missing values rather than zero utilization.
-
-The comparison suite is a separate root project. Before using Gutch benchmark
-commands, install its checkout into the same Python environment:
-`uv pip install --python .venv -e <suite-checkout>`. Gutch does not search sibling folders.
-Its build image includes the installed suite when available; build and engine
-correctness commands do not require it.
 
 ## Selectable jump chunking
 

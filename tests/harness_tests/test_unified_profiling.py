@@ -2,8 +2,8 @@
 
 import json
 from pathlib import Path
-from comparison_benchmark_suite.support.commands import GutchCli
-from comparison_benchmark_suite.support.traces import combine_labeled_traces
+from tests.benchmarks.support.commands import GutchCli
+from tests.benchmarks.support.traces import combine_labeled_traces
 from tests.benchmarks.comparison.report import _read_trace_spans
 
 

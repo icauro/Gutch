@@ -58,10 +58,10 @@ Docker is required only for the S3 suite and container benchmarks. Run
 checks with `docker run --rm --init gutch-builder python gutch.py test --suite check`;
 `--init` reaps descendants terminated by timeout tests.
 
-Start with [your first change](CONTRIBUTING.md), the [test map](tests/README.md),
-and the separately installed `comparison-benchmark-suite` package.
-`python gutch.py benchmark` lists internal engine diagnostics. Cross-tool
-comparisons run only through the separate suite. See the [benchmark guide](tests/benchmarks/README.md). Failed cases print an
+Start with [your first change](CONTRIBUTING.md) and the [test map](tests/README.md).
+`python gutch.py benchmark` lists Gutch's own diagnostic benchmarks; see the
+[benchmark guide](tests/benchmarks/README.md). Comparisons with other tools live in
+[Gutch-Benchmarks](https://github.com/icauro/Gutch-Benchmarks). Failed cases print an
 absolute evidence path and a `python gutch.py replay` command. Build outputs
 live in `.builds/`; generated test data and reports live in `.artifacts/tests/`.
 
@@ -99,9 +99,3 @@ Output is readable by default; use `--json-lines` to stream structured events. S
 for verification levels, extra files, estimates, and failure behavior.
 
 See [CLI usage](usage.md) and [engine contracts](_docs/current_state/README.md).
-
-The comparison suite is a separate root project. Before using Gutch benchmark
-commands, install its checkout into the same Python environment:
-`uv pip install --python .venv -e <suite-checkout>`. Gutch does not search sibling folders.
-Its build image includes the installed suite when available; build and engine
-correctness commands do not require it.

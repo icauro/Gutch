@@ -7,33 +7,27 @@ from pathlib import Path
 from types import SimpleNamespace
 import zipfile
 
-import comparison_benchmark_suite.support.command as command_module
-from comparison_benchmark_suite.support.artifacts import RunLayout
-from comparison_benchmark_suite.support.command import CommandResult, CommandRunner
-from comparison_benchmark_suite.scheduling.config import ScenarioCatalog
+import tests.benchmarks.support.command as command_module
+from tests.benchmarks.support.artifacts import RunLayout
+from tests.benchmarks.support.command import CommandResult, CommandRunner
+from tests.benchmarks.scheduling.config import ScenarioCatalog
 from tests.benchmarks.scheduling.environment import load_benchmark_environment
-from comparison_benchmark_suite.support.traces import combine_labeled_traces
+from tests.benchmarks.support.traces import combine_labeled_traces
 from tests.benchmarks.benchmark_config import load_benchmark_config
 import tests.benchmarks.comparison.cli as gutch_cli
 import tests.benchmarks.comparison.binary as gutch_binary
-from comparison_benchmark_suite.support.commands import GutchCli
+from tests.benchmarks.support.commands import GutchCli
 from tests.benchmarks.comparison.config import FixtureCatalog, load_fixture
 import tests.benchmarks.comparison.__main__ as gutch_launcher
 from tests.benchmarks.comparison.__main__ import _prompt_product, main as gutch_main
 from tests.benchmarks.comparison.binary import resolve_gutch_executable
-from comparison_benchmark_suite.tools.external import (
-    ExternalTools,
-    _plakar_cache_directory,
-    _plakar_command,
-    run_external,
-)
 from tests.benchmarks.support.s3 import S3Settings, s3_key
 from tests.benchmarks.comparison.s3_cycle import load_s3_cycle
-from comparison_benchmark_suite.tools.models import FixtureSpec, LaneResult, LaneSpec
+from tests.benchmarks.comparison.models import FixtureSpec, LaneResult, LaneSpec
 from tests.benchmarks.comparison.report import print_gutch_profile_table
 import tests.benchmarks.comparison.workflow as gutch_workflow
-import comparison_benchmark_suite.scheduling.runner as benchmark_runner
-from comparison_benchmark_suite.tools.workflow import LocalFixtureRunner
+import tests.benchmarks.scheduling.runner as benchmark_runner
+from tests.benchmarks.comparison.local_runner import LocalFixtureRunner
 from tests.benchmarks.docker.launcher import DockerTarget
 import tests.benchmarks.docker.runner as container_runner
 import tests.benchmarks.docker.__main__ as container_launcher
@@ -74,181 +68,12 @@ def test_internal_fixture_catalog_excludes_external_tools():
     )
 
 
-def test_internal_runner_rejects_external_tools_before_creating_artifacts(tmp_path):
-    import comparison_benchmark_suite
-    import pytest
-
-    fixture = load_fixture(
-        Path(comparison_benchmark_suite.__file__).resolve().parent
-        / "fixtures/gutch_vs_restic.yaml"
-    )
-    artifacts = tmp_path / "runs"
-    with pytest.raises(ValueError, match="standalone suite"):
-        gutch_workflow.run_fixture(
-            fixture, tmp_path, GutchCli(Path("unused")), artifacts, keep_artifacts=False
-        )
-    assert not artifacts.exists()
-
-
 def test_fixture_waits_default_to_four_seconds() -> None:
     fixture = FixtureCatalog(
         Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures"
     ).resolve("02_gutch_storage_layout_baseline")
     assert fixture.lane_wait_seconds == 4.0
     assert fixture.step_wait_seconds == 4.0
-
-
-def test_external_tools_use_explicit_binary(tmp_path: Path) -> None:
-    executable = tmp_path / "plakar"
-    executable.write_bytes(b"plakar")
-    assert (
-        ExternalTools(CommandRunner(), plakar=executable).executable("plakar")
-        == executable
-    )
-
-
-def test_kopia_init_uses_supported_keyring_flag(tmp_path: Path) -> None:
-    product = tmp_path / "product"
-    source = product / "1.0.0-linux-x64-public"
-    source.mkdir(parents=True)
-    (source / "payload.bin").write_bytes(b"payload")
-    executable = tmp_path / "kopia"
-    executable.write_bytes(b"kopia")
-
-    class FakeCommands:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, ...]] = []
-
-        def run(
-            self,
-            command,
-            *,
-            description,
-            cwd=None,
-            env=None,
-            expected_failure=False,
-            on_output=None,
-        ):
-            rendered = tuple(str(item) for item in command)
-            self.calls.append(rendered)
-            if rendered[1:4] == ("repository", "create", "filesystem"):
-                Path(rendered[rendered.index("--path") + 1]).mkdir(
-                    parents=True, exist_ok=True
-                )
-            elif rendered[1:3] == ("snapshot", "restore"):
-                shutil.copytree(rendered[3], rendered[4])
-            return CommandResult(rendered, 0.01, 0, "", "")
-
-    commands = FakeCommands()
-    lane_spec = LaneSpec(
-        label="kopia",
-        tool="kopia",
-        profile=FixtureCatalog(
-            Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures"
-        )
-        .resolve("07_gutch_default_trace_with_corrupt_repair")
-        .lanes[0]
-        .profile,
-    )
-    result = run_external(
-        ExternalTools(commands, kopia=executable),
-        RunLayout(tmp_path / "run").lane("kopia"),
-        product,
-        lane_spec,
-    )
-
-    assert result.metadata["snapshot_metrics"][source.name] == {
-        "input_bytes": 7,
-        "backup": 0.01,
-        "restore": 0.01,
-    }
-    init = commands.calls[0]
-    assert "--no-use-keyring" not in init
-    assert "--no-use-credential-manager" not in init
-
-
-def test_borg_lane_uses_supported_repository_syntax(tmp_path: Path) -> None:
-    product = tmp_path / "product"
-    source = product / "1.0.0-linux-x64-public"
-    source.mkdir(parents=True)
-    (source / "payload.bin").write_bytes(b"payload")
-    executable = tmp_path / "borg"
-    executable.write_bytes(b"borg")
-
-    class FakeCommands:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, ...]] = []
-            self.archives: dict[str, Path] = {}
-
-        def run(
-            self,
-            command,
-            *,
-            description,
-            cwd=None,
-            env=None,
-            expected_failure=False,
-            on_output=None,
-        ):
-            rendered = tuple(str(item) for item in command)
-            self.calls.append(rendered)
-            if rendered[1] == "repo-create":
-                Path(rendered[rendered.index("--repo") + 1]).mkdir(
-                    parents=True, exist_ok=True
-                )
-            elif rendered[1] == "create":
-                archive = rendered[-2]
-                self.archives[archive] = Path(cwd) / rendered[-1]
-            elif rendered[1] == "extract":
-                source_path = self.archives[rendered[-1]]
-                shutil.copytree(source_path, Path(cwd) / source_path.name)
-            return CommandResult(
-                rendered,
-                0.01,
-                0,
-                "borg 2.0.0b25" if rendered[1] == "--version" else "",
-                "",
-            )
-
-    commands = FakeCommands()
-    lane_spec = LaneSpec(
-        label="borg",
-        tool="borg",
-        profile=FixtureCatalog(
-            Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures"
-        )
-        .resolve("07_gutch_default_trace_with_corrupt_repair")
-        .lanes[0]
-        .profile,
-        arguments=("--compression", "zstd,1"),
-    )
-    run_external(
-        ExternalTools(commands, borg=executable),
-        RunLayout(tmp_path / "run").lane("borg"),
-        product,
-        lane_spec,
-    )
-
-    assert commands.calls[1][1:] == (
-        "repo-create",
-        "--repo",
-        str(tmp_path / "run/lanes/borg/payload/repo"),
-        "--encryption",
-        "authenticated-sha256",
-    )
-    assert all("--repo" in call for call in commands.calls[1:])
-
-
-def test_plakar_uses_short_unique_cache_socket_path(tmp_path: Path) -> None:
-    cache_directory = _plakar_cache_directory(tmp_path / "long" / "benchmark" / "lane")
-    command = _plakar_command(
-        Path("plakar.exe"), tmp_path / "repo", cache_directory, "ls"
-    )
-
-    assert command[1] == "-quiet"
-    assert "-disable-security-check" not in command
-    assert command[command.index("-cachedir") + 1] == cache_directory
-    assert len(str(cache_directory / "cached.sock")) < 108
 
 
 def test_fixture_waits_are_configurable_and_non_negative(tmp_path: Path) -> None:
@@ -500,49 +325,25 @@ def test_fixture_loader_accepts_explicit_list_shape(tmp_path: Path) -> None:
     assert loaded.lanes[0].profile.compression_level == 1
 
 
-def test_fixture_loader_accepts_external_lane_arguments(tmp_path: Path) -> None:
-    fixture = tmp_path / "external-arguments.yaml"
-    fixture.write_text(
-        "\n".join(
-            [
-                "name: external-arguments",
-                "runner: gutch-fixture",
-                "lanes:",
-                "  - label: restic",
-                "    tool: restic",
-                "    arguments: [--compression, fastest]",
-            ]
-        ),
-        encoding="utf-8",
-    )
+def test_fixture_loader_rejects_other_tools_and_lane_arguments(tmp_path: Path) -> None:
+    import pytest
 
-    loaded = load_fixture(fixture)
-
-    assert loaded.lanes[0].arguments == ("--compression", "fastest")
-
-
-def test_fixture_loader_rejects_arguments_on_gutch_lane(tmp_path: Path) -> None:
-    fixture = tmp_path / "gutch-arguments.yaml"
-    fixture.write_text(
-        "\n".join(
-            [
-                "name: gutch-arguments",
-                "runner: gutch-fixture",
-                "lanes:",
-                "  - label: gutch",
-                "    tool: gutch",
-                "    arguments: [--jobs, '2']",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    try:
-        load_fixture(fixture)
-    except ValueError as error:
-        assert "only supported for external lanes" in str(error)
-    else:
-        raise AssertionError("Gutch lanes should use typed profile options")
+    lanes = {
+        "other-tool": ["  - label: restic", "    tool: restic"],
+        "lane-arguments": [
+            "  - label: gutch",
+            "    tool: gutch",
+            "    arguments: [--jobs, '2']",
+        ],
+    }
+    for name, lane in lanes.items():
+        fixture = tmp_path / f"{name}.yaml"
+        fixture.write_text(
+            "\n".join([f"name: {name}", "runner: gutch-fixture", "lanes:", *lane]),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="unsupported lane"):
+            load_fixture(fixture)
 
 
 def test_gutch_profile_uses_rust_cli_flag_names() -> None:
@@ -1094,11 +895,11 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
                     json.dumps({"verify_timings": {"total_seconds": 0.25}}),
                     encoding="utf-8",
                 )
-            elif rendered[1:3] == ("debug", "corrupt-installation"):
-                Path(rendered[rendered.index("--output") + 1]).write_text(
-                    "{}", encoding="utf-8"
-                )
             elif rendered[1:3] == ("installation", "repair"):
+                snapshot_id = rendered[rendered.index("--snapshot") + 1]
+                destination = Path(rendered[rendered.index("--destination") + 1])
+                shutil.rmtree(destination)
+                shutil.copytree(self.sources[snapshot_id], destination)
                 Path(rendered[rendered.index("--output") + 1]).write_text(
                     "{}", encoding="utf-8"
                 )
@@ -1126,8 +927,10 @@ def test_gutch_recovery_sequence_has_no_second_verify(tmp_path: Path) -> None:
         ("repo", "init"),
         ("snapshot", "capture"),
         ("installation", "reconstruct"),
-        ("debug", "corrupt-installation"),
         ("installation", "repair"),
+        ("installation", "repair"),
+        ("installation", "repair"),
+        ("installation", "reconstruct"),
     ]
     assert result.metadata["verify_invocations"] == 1
 
@@ -1460,7 +1263,7 @@ def test_perfetto_url_changes_when_trace_contents_change(
     tmp_path: Path, monkeypatch
 ) -> None:
     import urllib.parse
-    import comparison_benchmark_suite.support.traces as traces
+    import tests.benchmarks.support.traces as traces
 
     class Server:
         def __init__(self, *_args):
@@ -1515,7 +1318,7 @@ def test_perfetto_url_changes_when_trace_contents_change(
 def test_perfetto_does_not_open_empty_or_metadata_only_traces(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import comparison_benchmark_suite.support.traces as traces
+    import tests.benchmarks.support.traces as traces
 
     def unexpected_browser_open(_url):
         raise AssertionError("Empty traces must not open a browser")

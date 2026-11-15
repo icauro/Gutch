@@ -7,14 +7,11 @@ Run these commands from the Gutch project root.
 `--product` / `--dataset` for a scripted run. These compare Gutch profiles,
 capture modes, reconstruction paths, storage layouts, and a filesystem baseline.
 
-Comparisons against other tools belong exclusively to the separately
-installed `comparison-benchmark-suite` package. From its checkout, run
-`gutch-bench`; Gutch no longer downloads or uploads competitor binaries.
+Comparisons against other tools live in [Gutch-Benchmarks](https://github.com/icauro/Gutch-Benchmarks).
 
-This directory retains advanced diagnostic fixtures and optional Docker/S3
-workflows. They import the same command, validation, scheduling, and comparison
-runtime from `comparison_benchmark_suite/`; there is no second implementation.
-Correctness tests retain their independent helpers and input expectations.
+This directory also holds advanced diagnostic fixtures and optional Docker/S3
+workflows. Correctness tests keep their own independent helpers and input
+expectations.
 
 Fixture lanes declare `tool` and `workload` separately. Only Gutch lanes accept
 Gutch profiles. `profile_mode: "off"` is the default; `summary` adds coarse
@@ -162,18 +159,19 @@ select the newest N targets for individual capture and filesystem copy lanes.
 ## Source tree
 
     tests/benchmarks/
-      comparison/       internal fixture launcher, binary selection, S3 cycles
+      comparison/       fixture launcher, models, lane runner, binary selection, S3 cycles
         fixtures/       Gutch profiles, capture modes, storage and recovery cases
-      scheduling/       benchmark-owned environment configuration
-      support/          S3 transport and reconstruction diagnostics
+      scheduling/       scenario loading, datasets, case scheduling, environment
+      support/          commands, run layout, validation, memory, traces, S3, reconstruction
       s3_throughput/    object-storage workload measurements
       docker/           Linux execution and evidence export
 
-The installed `comparison_benchmark_suite` package supplies shared process,
-validation, scheduling, and Gutch operation helpers. Internal diagnostic reports,
-fixture catalogs, and batch/whole-product capture live in `comparison/report.py`,
-`comparison/config.py`, and `comparison/workflow.py`. The independent suite owns
-external-tool adapters and comparison fixtures.
+`support/` owns process execution, run layout, validation and measurement helpers;
+`scheduling/` owns scenario loading, dataset selection and case scheduling.
+Fixture parsing and individual/filesystem lanes live in `comparison/fixture_config.py`
+and `comparison/local_runner.py`; diagnostic reports, the fixture catalog and
+batch/whole-product capture live in `comparison/report.py`, `comparison/config.py`
+and `comparison/workflow.py`.
 
 Each measured lane gets an isolated artifact directory. Reconstruct owns its single
 verification measurement through the Gutch stats payload; corruption and
@@ -228,9 +226,3 @@ Results, input hashes, script identity and warm Python timings are written to
 `.artifacts/tests/binary-layouts/results.json`. Timings are prototype measurements,
 not native Gutch performance claims. The script handles trusted experiment inputs;
 it is not a production decoder or a substitute for malformed-input fuzzing.
-
-The comparison suite is a separate root project. Before using Gutch benchmark
-commands, install its checkout into the same Python environment:
-`uv pip install --python .venv -e <suite-checkout>`. Gutch does not search sibling folders.
-Its build image includes the installed suite when available; build and engine
-correctness commands do not require it.

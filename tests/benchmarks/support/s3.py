@@ -8,8 +8,8 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from comparison_benchmark_suite.support.commands import GutchCli
-from comparison_benchmark_suite.support.models import GutchProfile
+from tests.benchmarks.support.commands import GutchCli
+from tests.benchmarks.support.models import GutchProfile
 
 
 @dataclass(frozen=True)

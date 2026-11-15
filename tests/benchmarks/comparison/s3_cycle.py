@@ -7,18 +7,18 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from comparison_benchmark_suite.support.artifacts import RunLayout, create_run_dir
-from comparison_benchmark_suite.support.command import CommandRunner
-from comparison_benchmark_suite.scheduling.config import load_scenario
-from comparison_benchmark_suite.support.filesystem import remove_tree, scan_tree
-from comparison_benchmark_suite.support.commands import GutchCli
+from tests.benchmarks.support.artifacts import RunLayout, create_run_dir
+from tests.benchmarks.support.command import CommandRunner
+from tests.benchmarks.scheduling.config import load_scenario
+from tests.benchmarks.support.filesystem import remove_tree, scan_tree
+from tests.benchmarks.support.commands import GutchCli
 from tests.benchmarks.comparison.config import load_fixture
-from comparison_benchmark_suite.scheduling.dataset import (
+from tests.benchmarks.scheduling.dataset import (
     DatasetSelection,
     select_sources,
 )
-from comparison_benchmark_suite.scheduling.runner import execute_cases
-from comparison_benchmark_suite.tools.models import (
+from tests.benchmarks.scheduling.runner import execute_cases
+from tests.benchmarks.comparison.models import (
     FixtureSpec,
     GutchProfile,
     LaneResult,
@@ -31,7 +31,7 @@ from tests.benchmarks.support.s3 import (
     metadata_urls,
     publish_repository,
 )
-from comparison_benchmark_suite.support.gutch import (
+from tests.benchmarks.support.gutch import (
     GutchOperations,
     snapshot_id as _snapshot_id,
     verification_seconds as _verify_seconds,
