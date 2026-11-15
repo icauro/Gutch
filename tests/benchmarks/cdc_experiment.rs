@@ -5,7 +5,7 @@ use super::jc::{JumpChunker, Parameters};
 use super::jc_tests::random_bytes;
 mod cdc_baseline;
 use crate::artifact::profiles::{ChunkSizingPreset, ChunkSizingProfile};
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use serde_json::json;
 use std::{
     collections::HashSet,
@@ -84,7 +84,7 @@ fn direct_fastcdc(data: &[Vec<u8>], profile: &ChunkSizingProfile, hash: bool) ->
 
 fn stream<C: ChunkBoundary>(factory: impl Fn() -> C, data: &[Vec<u8>]) -> usize {
     let mut chunks = 0;
-    let control = GutchOperationControl::default();
+    let control = OperationControl::default();
     for file in data {
         let mut stream =
             ChunkStream::with_boundary(Cursor::new(file), factory(), file.len() as u64);
@@ -99,7 +99,7 @@ fn stream<C: ChunkBoundary>(factory: impl Fn() -> C, data: &[Vec<u8>]) -> usize 
 
 fn baseline_stream(data: &[Vec<u8>], profile: &ChunkSizingProfile) -> usize {
     let mut chunks = 0;
-    let control = GutchOperationControl::default();
+    let control = OperationControl::default();
     for file in data {
         let mut stream =
             cdc_baseline::ChunkStream::new(Cursor::new(file), profile, file.len() as u64);

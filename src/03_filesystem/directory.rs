@@ -217,7 +217,7 @@ fn attach_promotion_diagnostic(
 /// Held across staging and promotion, after the operation's path checks.
 pub(crate) fn lock_directory_promotion(
     destination: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<std::fs::File, Error> {
     let backup = promotion_backup_path(destination)?;
     let lock_path = backup.with_extension("lock");

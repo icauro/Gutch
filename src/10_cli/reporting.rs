@@ -99,7 +99,7 @@ fn print_table_cells(phase: &str, seconds: &str, bytes: &str, throughput: &str) 
     print_table_border();
 }
 
-pub(crate) fn print_profile_summary(profile: Option<&crate::profile::GutchProfiler>) {
+pub(crate) fn print_profile_summary(profile: Option<&crate::profiling::Profiler>) {
     let Some(profile) = profile else {
         return;
     };
@@ -353,9 +353,9 @@ pub(crate) struct WallTimingPhaseSummary {
 
 pub(crate) fn build_timings_summary(
     timings: &crate::capture::types::BuildTimings,
-    mode: crate::profile::GutchProfileMode,
+    mode: crate::profiling::ProfileMode,
 ) -> BuildTimingsSummary {
-    let detailed = mode == crate::profile::GutchProfileMode::Detailed;
+    let detailed = mode == crate::profiling::ProfileMode::Detailed;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -492,9 +492,9 @@ pub(crate) fn build_timings_summary(
 
 pub(crate) fn reconstruct_timings_summary(
     timings: &crate::installation::ReconstructTimings,
-    mode: crate::profile::GutchProfileMode,
+    mode: crate::profiling::ProfileMode,
 ) -> ReconstructTimingsSummary {
-    let detailed = mode == crate::profile::GutchProfileMode::Detailed;
+    let detailed = mode == crate::profiling::ProfileMode::Detailed;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -572,9 +572,9 @@ pub(crate) fn reconstruct_timings_summary(
 
 pub(crate) fn verify_timings_summary(
     timings: &crate::installation::inspect::VerifyTimings,
-    mode: crate::profile::GutchProfileMode,
+    mode: crate::profiling::ProfileMode,
 ) -> VerifyTimingsSummary {
-    let detailed = mode == crate::profile::GutchProfileMode::Detailed;
+    let detailed = mode == crate::profiling::ProfileMode::Detailed;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -645,7 +645,7 @@ pub(crate) fn ensure_parent_directory(path: &std::path::Path) -> crate::Result<(
 pub(crate) fn write_stats_json_output<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
-    profile: Option<&crate::profile::GutchProfiler>,
+    profile: Option<&crate::profiling::Profiler>,
 ) -> crate::Result<()> {
     let mut value = serde_json::to_value(stats)?;
     let mode = profile.map(|p| p.mode()).unwrap_or_default();
@@ -686,14 +686,14 @@ pub(crate) fn print_transfer_timings(t: &crate::transfer::types::TransferStats) 
 mod tests;
 
 pub(crate) fn profile_mode(
-    profile: Option<&crate::profile::GutchProfiler>,
-) -> crate::profile::GutchProfileMode {
+    profile: Option<&crate::profiling::Profiler>,
+) -> crate::profiling::ProfileMode {
     profile.map(|profile| profile.mode()).unwrap_or_default()
 }
 
 pub(crate) fn diagnostic_seconds(
     duration: std::time::Duration,
-    profile: Option<&crate::profile::GutchProfiler>,
+    profile: Option<&crate::profiling::Profiler>,
 ) -> Option<f64> {
-    (profile_mode(profile) == crate::profile::GutchProfileMode::Detailed).then_some(secs(duration))
+    (profile_mode(profile) == crate::profiling::ProfileMode::Detailed).then_some(secs(duration))
 }

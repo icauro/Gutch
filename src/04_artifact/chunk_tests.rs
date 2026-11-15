@@ -119,7 +119,7 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
     )
     .unwrap();
     let streaming = scan.chunks;
@@ -150,7 +150,7 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
     )
     .unwrap();
 
@@ -179,14 +179,14 @@ fn repeated_chunk_scans_have_identical_boundaries() {
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
     )
     .unwrap();
     let parallel = scan_file_chunks(
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
     )
     .unwrap();
 

@@ -60,7 +60,7 @@ pub(crate) fn run(
             let result = crate::repo::recovery::rebuild_index(
                 &repo,
                 apply && !crate::cli::output::dry_run(),
-                &crate::progress::GutchOperationControl::default(),
+                &crate::progress::OperationControl::default(),
             )?;
             crate::cli::output::record(&result)?;
             let json = serde_json::to_vec_pretty(&result)?;

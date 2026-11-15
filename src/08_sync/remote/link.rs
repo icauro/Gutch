@@ -3,7 +3,7 @@ use super::provider::RemoteRepositorySummary;
 use super::provider::RemoteTagReferencesResult;
 use crate::Error;
 use crate::Result;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::write_gutch_repo_manifest;
 use crate::repo::tag_references::advisory_tag_references;
@@ -135,7 +135,7 @@ pub fn inspect_repo_tag_references(
 }
 
 pub(super) fn bound_remote_repo_id(repo_root: &Path) -> Result<Option<String>> {
-    let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
+    let repo_paths = RepoPaths::from_repo_root(repo_root);
     if !repo_paths.repo_metadata_path.exists() {
         return Ok(None);
     }

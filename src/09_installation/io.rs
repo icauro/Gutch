@@ -1,7 +1,7 @@
 use super::handles::ReconstructionOutputWriter;
 use super::handles::{OutputHandleCache, SourceHandleCache, cached_target_handle, write_file_at};
 use super::types::SnapshotReconstructSource;
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -21,7 +21,7 @@ use super::jobs::SourceChunkLocation;
 use crate::Error;
 use crate::Result;
 use crate::installation::types::ReconstructTimings;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 
 pub(super) struct ReconstructJobRequest<'a> {
     pub(super) job: &'a ReconstructJob,
@@ -30,7 +30,7 @@ pub(super) struct ReconstructJobRequest<'a> {
     pub(super) output_handles: &'a OutputHandleCache,
     pub(super) source_handles: &'a SourceHandleCache,
     pub(super) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
-    pub(super) control: &'a GutchOperationControl,
+    pub(super) control: &'a OperationControl,
 }
 
 pub(super) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<ReconstructTimings> {
@@ -63,7 +63,7 @@ fn reconstruct_artifact_job(
     job: &ReconstructArtifactJob,
     output_handles: &OutputHandleCache,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let artifact_span_name = match &job.artifact {
@@ -228,7 +228,7 @@ fn reconstruct_source_chunk_job(
     job: &ReconstructSourceChunkJob,
     output_handles: &OutputHandleCache,
     source_handles: &SourceHandleCache,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let _source_job_span =
@@ -266,7 +266,7 @@ pub(super) fn reconstruct_source_chunk_batch(
     jobs: &[ReconstructJob],
     output_handles: &OutputHandleCache,
     source_handles: &SourceHandleCache,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<Vec<ReconstructTimings>> {
     let chunks: Vec<&ReconstructSourceChunkJob> = jobs
         .iter()
@@ -333,7 +333,7 @@ fn verify_and_write_source_chunk(
     bytes: &[u8],
     read_elapsed: Duration,
     output_handles: &OutputHandleCache,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     mut output_writer: Option<&mut ReconstructionOutputWriter<'_>>,
 ) -> Result<ReconstructTimings> {
     let hash_started_at = ProfileInstant::detailed(control.profiler());
@@ -389,14 +389,14 @@ fn copy_source_file_job(
     source_path: &Path,
     file_plans: &[ReconstructPipelineFile],
     output_paths: &[PathBuf],
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<ReconstructTimings> {
     let file_plan = file_plans.get(file_index).ok_or_else(|| {
         Error::reconstruct(format!("source file job references file {file_index}"))
     })?;
     control.checkpoint()?;
     let _source_span = control.profile_span_with_args("installation.file.copy_and_hash", || {
-        crate::profile::file_trace_args(&file_plan.path, file_plan.size)
+        crate::profiling::file_trace_args(&file_plan.path, file_plan.size)
     });
     let mut input = {
         File::open(source_path)
@@ -474,7 +474,7 @@ fn write_reconstruct_targets(
     targets: &[ReconstructTarget],
     bytes: &[u8],
     output_writer: &mut ReconstructionOutputWriter<'_>,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {
     if bytes.len() as u64 != u64::from(chunk.raw_size) {
@@ -549,7 +549,7 @@ pub(super) struct ReconstructedFileVerification {
 pub(super) fn verify_reconstructed_output_file(
     file_plan: &ReconstructPipelineFile,
     output_path: &Path,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<ReconstructedFileVerification> {
     control.checkpoint()?;
     let started_at = ProfileInstant::detailed(control.profiler());

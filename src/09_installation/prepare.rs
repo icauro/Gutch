@@ -2,11 +2,11 @@ use std::path::Path;
 
 use crate::Result;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 
 pub(super) struct LoadedRepoSnapshot {
-    pub repo_paths: GutchRepoPaths,
-    pub repo_manifest: crate::manifest::gutch_repo::GutchRepoManifest,
+    pub repo_paths: RepoPaths,
+    pub repo_manifest: crate::manifest::repo_manifest::RepoManifest,
     pub snapshot_manifest: SnapshotManifest,
 }
 
@@ -38,11 +38,11 @@ pub(super) fn load_repo_snapshot_manifest(
 pub(crate) struct ReconstructionInputs<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub chunk_index: &'a crate::repo::index::ChunkIndex,
-    pub repo_paths: &'a GutchRepoPaths,
+    pub repo_paths: &'a RepoPaths,
     pub existing_artifacts: &'a std::collections::HashSet<crate::artifact::reference::ArtifactRef>,
     pub source: Option<super::types::SnapshotReconstructSource<'a>>,
     pub runtime_hints: &'a crate::runtime::RuntimeResourceHints,
-    pub control: &'a crate::progress::GutchOperationControl,
+    pub control: &'a crate::progress::OperationControl,
 }
 
 pub(crate) struct PreparedReconstruction {

@@ -38,7 +38,7 @@ pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> 
 
 pub(crate) fn cleanup_orphan_artifacts_in_repo(
     repo_root: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<usize> {
     let orphan_paths = plan_orphan_artifact_cleanup(repo_root, None, control)?;
     remove_orphan_artifacts(&orphan_paths, control)
@@ -47,11 +47,11 @@ pub(crate) fn cleanup_orphan_artifacts_in_repo(
 pub(crate) fn plan_orphan_artifact_cleanup(
     repo_root: &Path,
     excluded_snapshot: Option<&str>,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<Vec<PathBuf>> {
-    use crate::progress::GutchOperation;
-    use crate::progress::GutchProgressEvent;
-    use crate::progress::GutchProgressPhase;
+    use crate::progress::OperationKind;
+    use crate::progress::ProgressEvent;
+    use crate::progress::ProgressPhase;
     use crate::progress::emit_progress;
 
     const TOTAL: usize = 1000;
@@ -61,10 +61,10 @@ pub(crate) fn plan_orphan_artifact_cleanup(
 
     emit_progress(
         control.progress(),
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::SnapshotDelete,
-            phase: GutchProgressPhase::ScanSnapshots,
+            operation: OperationKind::SnapshotDelete,
+            phase: ProgressPhase::ScanSnapshots,
             message: "Scanning remaining snapshots".to_string(),
             current: 0,
             total: TOTAL,
@@ -89,10 +89,10 @@ pub(crate) fn plan_orphan_artifact_cleanup(
             SCAN_SNAPSHOTS_END + (LOAD_MANIFESTS_END - SCAN_SNAPSHOTS_END) * i / snapshot_count;
         emit_progress(
             control.progress(),
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::SnapshotDelete,
-                phase: GutchProgressPhase::LoadManifests,
+                operation: OperationKind::SnapshotDelete,
+                phase: ProgressPhase::LoadManifests,
                 message: format!(
                     "Loading snapshot manifests ({}/{})",
                     i + 1,
@@ -132,10 +132,10 @@ pub(crate) fn plan_orphan_artifact_cleanup(
                 LOAD_MANIFESTS_END + (SCAN_BUNDLES_END - LOAD_MANIFESTS_END) * i / artifact_count;
             emit_progress(
                 control.progress(),
-                GutchProgressEvent {
+                ProgressEvent {
                     feedback: None,
-                    operation: GutchOperation::SnapshotDelete,
-                    phase: GutchProgressPhase::ScanArtifacts,
+                    operation: OperationKind::SnapshotDelete,
+                    phase: ProgressPhase::ScanArtifacts,
                     message: format!("Scanning artifacts ({}/{})", i + 1, artifact_files.len()),
                     current: progress_current.min(SCAN_BUNDLES_END),
                     total: TOTAL,
@@ -153,10 +153,10 @@ pub(crate) fn plan_orphan_artifact_cleanup(
 
     emit_progress(
         control.progress(),
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::SnapshotDelete,
-            phase: GutchProgressPhase::DeleteOrphans,
+            operation: OperationKind::SnapshotDelete,
+            phase: ProgressPhase::DeleteOrphans,
             message: format!("Removing {} orphan artifact(s)", orphan_artifacts.len()),
             current: SCAN_BUNDLES_END,
             total: TOTAL,
@@ -171,7 +171,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
 
 pub(crate) fn remove_orphan_artifacts(
     orphan_artifacts: &[PathBuf],
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<usize> {
     for orphan_path in orphan_artifacts {
         control.checkpoint()?;

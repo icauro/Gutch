@@ -7,7 +7,7 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct GutchConfig {
+pub struct CliConfig {
     #[serde(default)]
     pub repos: Vec<TrackedRepo>,
 }
@@ -20,7 +20,7 @@ pub struct TrackedRepo {
     pub snapshot_sources_path: Option<String>,
 }
 
-impl GutchConfig {
+impl CliConfig {
     pub fn find_repo(&self, path: &str) -> Option<&TrackedRepo> {
         self.repos
             .iter()
@@ -75,18 +75,18 @@ fn repo_paths_match(left: &str, right: &str) -> bool {
     }
 }
 
-pub fn load_config(path: &Path) -> Result<GutchConfig, crate::Error> {
+pub fn load_config(path: &Path) -> Result<CliConfig, crate::Error> {
     if !path.exists() {
-        return Ok(GutchConfig::default());
+        return Ok(CliConfig::default());
     }
 
     let raw = crate::filesystem::read_to_string(path)?;
-    let config: GutchConfig = crate::filesystem::from_json_str(&raw)?;
+    let config: CliConfig = crate::filesystem::from_json_str(&raw)?;
     validate_config_paths(&config)?;
     Ok(config)
 }
 
-pub fn save_config(path: &Path, config: &GutchConfig) -> Result<(), crate::Error> {
+pub fn save_config(path: &Path, config: &CliConfig) -> Result<(), crate::Error> {
     validate_config_paths(config)?;
     if let Some(dir) = path.parent() {
         crate::filesystem::create_dir_all(dir)?;
@@ -94,7 +94,7 @@ pub fn save_config(path: &Path, config: &GutchConfig) -> Result<(), crate::Error
     crate::filesystem::write_json(path, config)
 }
 
-fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {
+fn validate_config_paths(config: &CliConfig) -> Result<(), crate::Error> {
     for repo in &config.repos {
         if !std::path::Path::new(repo.path.trim()).is_absolute() {
             return Err(crate::Error::manifest(
@@ -116,14 +116,14 @@ fn validate_config_paths(config: &GutchConfig) -> Result<(), crate::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::GutchConfig;
+    use super::CliConfig;
     use super::TrackedRepo;
 
     #[test]
     fn config_round_trips_at_explicit_path() {
         let temp = tempfile::tempdir().expect("temp dir");
         let path = temp.path().join("gutch.json");
-        let config = GutchConfig {
+        let config = CliConfig {
             repos: vec![TrackedRepo {
                 path: if cfg!(windows) {
                     "D:\\Repos\\game".to_string()
@@ -144,7 +144,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn set_repo_snapshot_sources_path_updates_existing_value() {
-        let mut config = GutchConfig {
+        let mut config = CliConfig {
             repos: vec![TrackedRepo {
                 path: "D:\\Repos\\game".to_string(),
                 snapshot_sources_path: Some("D:\\Builds\\game".to_string()),
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn upsert_repo_inserts_new_and_updates_existing() {
-        let mut config = GutchConfig { repos: vec![] };
+        let mut config = CliConfig { repos: vec![] };
 
         config.upsert_repo(TrackedRepo {
             path: "D:\\Repos\\game".to_string(),
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn repo_path_case_matters_only_on_windows() {
-        let mut config = GutchConfig { repos: vec![] };
+        let mut config = CliConfig { repos: vec![] };
         for path in ["/repos/Game", "/repos/game"] {
             config.upsert_repo(TrackedRepo {
                 path: path.to_string(),
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn inserted_repos_remain_sorted_by_path() {
-        let mut config = GutchConfig { repos: vec![] };
+        let mut config = CliConfig { repos: vec![] };
 
         for path in ["D:\\Repos\\game", "C:\\Repos\\game"] {
             config.upsert_repo(TrackedRepo {

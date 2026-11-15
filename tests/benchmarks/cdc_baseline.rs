@@ -1,6 +1,6 @@
 //! Frozen pre-interface streaming adapter, used only as a performance control.
 use crate::artifact::profiles::ChunkSizingProfile;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use std::io::Read;
 
 pub(crate) struct BoundaryFinder {
@@ -76,7 +76,7 @@ impl<R: Read> ChunkStream<R> {
 
     pub(crate) fn next(
         &mut self,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> crate::Result<Option<BorrowedChunk<'_>>> {
         control.checkpoint()?;
         if !self.eof && self.end - self.start < self.boundary.max {

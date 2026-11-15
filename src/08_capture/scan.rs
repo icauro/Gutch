@@ -45,7 +45,7 @@ pub(crate) struct ScanDirectoryOptions<'a> {
     pub available_chunk_sizes: &'a HashMap<ChunkHash, u64>,
     pub worker_count: usize,
     pub worker_pool: &'a ThreadPool,
-    pub control: crate::progress::GutchOperationControl,
+    pub control: crate::progress::OperationControl,
 }
 
 pub(crate) struct SourceFileEntry {
@@ -178,7 +178,7 @@ fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Re
 
 pub(crate) fn scan_source_inventory(
     root: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     worker_count: usize,
     worker_pool: &ThreadPool,
 ) -> Result<SourceInventory> {
@@ -302,7 +302,7 @@ pub(crate) fn scan_directory_into_file_entries(
 
     let progress = BuildProgressTracker::new(
         &options.control,
-        crate::progress::GutchProgressPhase::Scan,
+        crate::progress::ProgressPhase::Scan,
         "Scanning files",
     );
     progress.start(inventory.files.len());
@@ -322,7 +322,7 @@ pub(crate) fn scan_directory_into_file_entries(
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             let _file_span = control_for_scan.profile_span_with_args("capture.scan.file", || {
-                crate::profile::file_trace_args(&normalized_relative, source_metadata.len())
+                crate::profiling::file_trace_args(&normalized_relative, source_metadata.len())
             });
 
             scan_changed_file(ScanChangedFileRequest {
@@ -370,7 +370,7 @@ struct ScanChangedFileRequest<'a> {
     metadata: Duration,
     previous_candidates: &'a [FileManifest],
     options: &'a ScanDirectoryOptions<'a>,
-    control: &'a crate::progress::GutchOperationControl,
+    control: &'a crate::progress::OperationControl,
 }
 
 fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEntry> {
@@ -611,7 +611,7 @@ mod tests {
             .unwrap();
         scan_source_inventory(
             root,
-            &crate::progress::GutchOperationControl::default(),
+            &crate::progress::OperationControl::default(),
             1,
             &pool,
         )
@@ -652,7 +652,7 @@ mod tests {
                     available_chunk_sizes: &HashMap::new(),
                     worker_count: workers,
                     worker_pool: &pool,
-                    control: crate::progress::GutchOperationControl::default(),
+                    control: crate::progress::OperationControl::default(),
                 },
             )
             .unwrap()

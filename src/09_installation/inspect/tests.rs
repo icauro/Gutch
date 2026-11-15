@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 struct AlwaysCancelled;
 
-impl crate::progress::GutchCancellationHook for AlwaysCancelled {
+impl crate::progress::CancellationHook for AlwaysCancelled {
     fn is_cancelled(&self) -> bool {
         true
     }
@@ -28,7 +28,7 @@ fn verify_with<'a>(
         dir,
         mode,
         runtime_hints,
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })?;
     Ok((classification.into_messages(), timings))
 }
@@ -54,7 +54,7 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
         dir: &missing_dir,
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
-        control: crate::progress::GutchOperationControl::default()
+        control: crate::progress::OperationControl::default()
             .with_cancellation(Arc::new(AlwaysCancelled)),
     });
 
@@ -200,7 +200,7 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
         dir: &dir,
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap();
 
@@ -414,7 +414,7 @@ fn parallel_verification_preserves_issue_order_across_worker_counts() {
                 jobs: Some(workers),
                 ..Default::default()
             },
-            control: GutchOperationControl::default(),
+            control: OperationControl::default(),
         })
         .unwrap();
         let paths = classification

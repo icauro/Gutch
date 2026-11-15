@@ -1,8 +1,7 @@
 //! Shared transfer counters and live feedback.
 use super::types::{TransferConcurrencyPolicy, TransferStats};
 use crate::progress::{
-    GutchOperation, GutchOperationControl, GutchProgressEvent, GutchProgressPhase,
-    GutchProgressSink, emit_progress,
+    OperationControl, OperationKind, ProgressEvent, ProgressPhase, ProgressSink, emit_progress,
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
@@ -159,9 +158,9 @@ pub(crate) struct TransferPhaseCounters {
 }
 
 pub(super) struct TransferProgressReporter<'a> {
-    control: &'a GutchOperationControl,
+    control: &'a OperationControl,
     transfer_progress: &'a Arc<FetchTransferProgress>,
-    phase: GutchProgressPhase,
+    phase: ProgressPhase,
     message: &'a str,
     counters: TransferPhaseCounters,
     detail: Option<&'a str>,
@@ -170,9 +169,9 @@ pub(super) struct TransferProgressReporter<'a> {
 
 impl<'a> TransferProgressReporter<'a> {
     pub(super) fn new(
-        control: &'a GutchOperationControl,
+        control: &'a OperationControl,
         transfer_progress: &'a Arc<FetchTransferProgress>,
-        phase: GutchProgressPhase,
+        phase: ProgressPhase,
         message: &'a str,
         counters: TransferPhaseCounters,
         detail: Option<&'a str>,
@@ -219,9 +218,9 @@ impl<'a> TransferProgressReporter<'a> {
     pub(super) fn finish(&self) {
         emit_progress(
             self.control.progress(),
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::Fetch,
+                operation: OperationKind::Fetch,
                 phase: self.phase,
                 message: "Downloaded snapshot artifacts".to_string(),
                 current: self
@@ -239,9 +238,9 @@ impl<'a> TransferProgressReporter<'a> {
 }
 
 fn emit_transfer_progress(
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    progress: &Option<Arc<dyn ProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
-    phase: GutchProgressPhase,
+    phase: ProgressPhase,
     message: &str,
     counters: TransferPhaseCounters,
     detail: Option<&str>,
@@ -249,9 +248,9 @@ fn emit_transfer_progress(
 ) {
     emit_progress(
         progress,
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::Fetch,
+            operation: OperationKind::Fetch,
             phase,
             message: message.to_string(),
             current: counters.current,

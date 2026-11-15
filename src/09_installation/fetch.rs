@@ -145,7 +145,7 @@ pub fn fetch_and_reconstruct_snapshot(
 
 fn resolve_snapshot_source(
     request: &SnapshotFetchAndReconstructRequest,
-    repo_paths: &crate::repo::paths::GutchRepoPaths,
+    repo_paths: &crate::repo::paths::RepoPaths,
 ) -> Result<ResolvedSnapshotSource> {
     let source_manifest = match request.source_snapshot_id.as_ref() {
         Some(source_snapshot_id) => Some(crate::repo::snapshot_manifests::load_snapshot_manifest(

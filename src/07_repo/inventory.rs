@@ -3,10 +3,10 @@ use std::path::PathBuf;
 
 use crate::Result;
 
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_id_from_bundle_path;
 
-pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<String>> {
+pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
     if !paths.snapshots_root.is_dir() {
         return Ok(Vec::new());
     }
@@ -42,7 +42,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &GutchRepoPaths) -> Result<Vec<Strin
 }
 
 pub(crate) fn list_repo_artifact_paths(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
 ) -> Result<Vec<(crate::artifact::reference::ArtifactRef, PathBuf)>> {
     let mut artifacts = Vec::new();
     visit_repo_artifacts(paths, |artifact, entry| {
@@ -53,7 +53,7 @@ pub(crate) fn list_repo_artifact_paths(
 }
 
 fn visit_repo_artifacts(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     mut visit: impl FnMut(crate::artifact::reference::ArtifactRef, walkdir::DirEntry) -> Result<()>,
 ) -> Result<()> {
     if paths.bundles_root.exists() {
@@ -105,7 +105,7 @@ pub(crate) struct ArtifactInventory {
     pub bundle_bytes: u64,
 }
 
-pub(crate) fn scan_artifact_inventory(paths: &GutchRepoPaths) -> Result<ArtifactInventory> {
+pub(crate) fn scan_artifact_inventory(paths: &RepoPaths) -> Result<ArtifactInventory> {
     let mut inventory = ArtifactInventory::default();
     visit_repo_artifacts(paths, |artifact, entry| {
         let bytes = entry.metadata()?.len();
@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn inventory_counts_bundles_and_loose_chunks_in_one_pass() {
         let root = tempfile::tempdir().unwrap();
-        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let paths = RepoPaths::from_repo_root(root.path());
         let empty = scan_artifact_inventory(&paths).unwrap();
         assert_eq!(empty.artifact_count, 0);
         for (directory, name, bytes) in [
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn snapshot_listing_excludes_only_owned_promotion_backups() {
         let root = tempfile::tempdir().unwrap();
-        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let paths = RepoPaths::from_repo_root(root.path());
         let snapshot_id = "a".repeat(64);
         let snapshot = paths.snapshots_root.join(&snapshot_id);
         std::fs::create_dir_all(&snapshot).unwrap();

@@ -41,7 +41,7 @@ fn compare(bytes: &[u8], profile: &ChunkSizingProfile, hint: u64, read_limit: us
         profile,
         hint,
     );
-    let control = GutchOperationControl::default();
+    let control = OperationControl::default();
     let boundary = BoundaryFinder::new(profile);
     for chunk in expected {
         let actual = stream.next(&control).unwrap().expect("missing chunk");
@@ -128,12 +128,12 @@ fn stream_propagates_read_errors_and_retries_interruption() {
 fn cancellation_is_checked_during_buffer_refill() {
     #[derive(Debug)]
     struct CancelAfterTwoChecks(std::sync::atomic::AtomicUsize);
-    impl crate::progress::GutchCancellationHook for CancelAfterTwoChecks {
+    impl crate::progress::CancellationHook for CancelAfterTwoChecks {
         fn is_cancelled(&self) -> bool {
             self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
         }
     }
-    let control = GutchOperationControl::default().with_cancellation(std::sync::Arc::new(
+    let control = OperationControl::default().with_cancellation(std::sync::Arc::new(
         CancelAfterTwoChecks(std::sync::atomic::AtomicUsize::new(0)),
     ));
     let mut stream = ChunkStream::new(io::repeat(4).take(1), &ChunkSizingProfile::default(), 0);

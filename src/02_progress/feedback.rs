@@ -1,5 +1,5 @@
 //! Coalesced operation feedback, independent of diagnostic profiling.
-use super::{GutchProgressEvent, GutchProgressSink};
+use super::{ProgressEvent, ProgressSink};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GutchThroughput {
+pub struct Throughput {
     pub bytes: u64,
     pub average_bytes_per_second: Option<f64>,
     pub recent_bytes_per_second: Option<f64>,
@@ -16,9 +16,9 @@ pub struct GutchThroughput {
 }
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GutchLiveFeedback {
-    pub download: Option<GutchThroughput>,
-    pub output_write: Option<GutchThroughput>,
+pub struct LiveFeedback {
+    pub download: Option<Throughput>,
+    pub output_write: Option<Throughput>,
 }
 #[derive(Debug, Default)]
 struct ThroughputHistory {
@@ -27,7 +27,7 @@ struct ThroughputHistory {
     samples: VecDeque<(Instant, u64)>,
 }
 impl ThroughputHistory {
-    fn snapshot(&mut self, bytes: u64, now: Instant) -> Option<GutchThroughput> {
+    fn snapshot(&mut self, bytes: u64, now: Instant) -> Option<Throughput> {
         let start = self.start?;
         let end = self.end.unwrap_or(now);
         if self.samples.back().is_none_or(|(at, _)| *at < end) {
@@ -46,7 +46,7 @@ impl ThroughputHistory {
         let elapsed = end.saturating_duration_since(start).as_secs_f64();
         let (at, previous) = self.samples.front().copied().unwrap_or((start, 0));
         let recent_elapsed = end.saturating_duration_since(at).as_secs_f64();
-        Some(GutchThroughput {
+        Some(Throughput {
             bytes,
             average_bytes_per_second: (elapsed > 0.0).then(|| bytes as f64 / elapsed),
             recent_bytes_per_second: (recent_elapsed > 0.0)
@@ -57,12 +57,12 @@ impl ThroughputHistory {
 }
 #[derive(Debug, Default)]
 struct FeedbackState {
-    event: Option<GutchProgressEvent>,
+    event: Option<ProgressEvent>,
     revision: u64,
     stop: bool,
     download: ThroughputHistory,
     output: ThroughputHistory,
-    profiler: Option<Arc<crate::profile::GutchProfiler>>,
+    profiler: Option<Arc<crate::profiling::Profiler>>,
 }
 #[derive(Debug, Default)]
 struct SharedFeedbackState {
@@ -77,7 +77,7 @@ pub(crate) struct LiveProgress {
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 impl LiveProgress {
-    pub(crate) fn new(sink: Arc<dyn GutchProgressSink>) -> Arc<Self> {
+    pub(crate) fn new(sink: Arc<dyn ProgressSink>) -> Arc<Self> {
         let shared = Arc::new(SharedFeedbackState::default());
         let thread_shared = shared.clone();
         let thread = std::thread::Builder::new()
@@ -101,7 +101,7 @@ impl LiveProgress {
                             state
                         };
                         let now = Instant::now();
-                        let feedback = GutchLiveFeedback {
+                        let feedback = LiveFeedback {
                             download: state
                                 .download
                                 .snapshot(thread_shared.downloaded.load(Ordering::Relaxed), now),
@@ -166,7 +166,7 @@ impl LiveProgress {
             thread: Mutex::new(thread),
         })
     }
-    pub(crate) fn with_profiler(&self, profiler: Arc<crate::profile::GutchProfiler>) {
+    pub(crate) fn with_profiler(&self, profiler: Arc<crate::profiling::Profiler>) {
         if let Ok(mut state) = self.shared.state.lock() {
             state.profiler = Some(profiler);
         }
@@ -207,8 +207,8 @@ impl LiveProgress {
         .fetch_add(bytes, Ordering::Relaxed);
     }
 }
-impl GutchProgressSink for LiveProgress {
-    fn emit(&self, event: GutchProgressEvent) {
+impl ProgressSink for LiveProgress {
+    fn emit(&self, event: ProgressEvent) {
         if let Ok(mut state) = self.shared.state.lock() {
             let transition = state
                 .event
@@ -267,10 +267,10 @@ mod tests {
         entered: std::sync::mpsc::Sender<()>,
         resume: Mutex<std::sync::mpsc::Receiver<()>>,
         paused: std::sync::atomic::AtomicBool,
-        events: Mutex<Vec<GutchProgressEvent>>,
+        events: Mutex<Vec<ProgressEvent>>,
     }
-    impl GutchProgressSink for PausedSink {
-        fn emit(&self, event: GutchProgressEvent) {
+    impl ProgressSink for PausedSink {
+        fn emit(&self, event: ProgressEvent) {
             if !self.paused.swap(true, Ordering::Relaxed) {
                 self.entered.send(()).unwrap();
                 self.resume.lock().unwrap().recv().unwrap();
@@ -291,10 +291,10 @@ mod tests {
         let feedback = LiveProgress::new(sink.clone());
         feedback.start(true);
         feedback.start(false);
-        let mut event = GutchProgressEvent {
+        let mut event = ProgressEvent {
             feedback: None,
-            operation: super::super::GutchOperation::Fetch,
-            phase: super::super::GutchProgressPhase::Reconstruct,
+            operation: super::super::OperationKind::Fetch,
+            phase: super::super::ProgressPhase::Reconstruct,
             message: "work".into(),
             current: 0,
             total: 10000,

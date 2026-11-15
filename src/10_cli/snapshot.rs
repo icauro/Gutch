@@ -19,11 +19,11 @@ use crate::cli::tags::parse_cli_tags;
 fn capture_stats_from_engine_result(
     repo_root: &str,
     input_path: &str,
-    repository: &crate::manifest::gutch_repo::GutchRepoManifest,
+    repository: &crate::manifest::repo_manifest::RepoManifest,
     explicit_tags: &crate::manifest::SnapshotTagSet,
     storage_mode_cli: String,
     result: &crate::capture::contracts::SnapshotCaptureResult,
-    mode: crate::profile::GutchProfileMode,
+    mode: crate::profiling::ProfileMode,
 ) -> SnapshotCaptureStats {
     SnapshotCaptureStats {
         command: "snapshot capture",
@@ -208,7 +208,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &crate::cli::Profile) -> c
                     .sum::<Option<f64>>()
                     .filter(|_| {
                         crate::cli::reporting::profile_mode(profile.as_deref())
-                            == crate::profile::GutchProfileMode::Detailed
+                            == crate::profiling::ProfileMode::Detailed
                     });
                 let aggregate_stats = SnapshotCaptureManyStats {
                     command: "snapshot capture",

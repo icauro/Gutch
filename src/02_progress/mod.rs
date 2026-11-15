@@ -1,7 +1,7 @@
 //! Operation control, cancellation, progress events, and bounded live feedback.
 
 mod feedback;
-pub use feedback::{GutchLiveFeedback, GutchThroughput};
+pub use feedback::{LiveFeedback, Throughput};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -12,7 +12,7 @@ use crate::Result;
 /// Identifies which gutch operation is emitting progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum GutchOperation {
+pub enum OperationKind {
     SnapshotCapture,
     SnapshotDelete,
     Push,
@@ -24,7 +24,7 @@ pub enum GutchOperation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum GutchProgressPhase {
+pub enum ProgressPhase {
     Prepare,
     RepoMetadata,
     SnapshotMetadata,
@@ -51,33 +51,33 @@ pub enum GutchProgressPhase {
     Verify,
 }
 
-impl GutchProgressPhase {
+impl ProgressPhase {
     pub fn as_str(self) -> &'static str {
         match self {
-            GutchProgressPhase::Prepare => "prepare",
-            GutchProgressPhase::RepoMetadata => "repo_metadata",
-            GutchProgressPhase::SnapshotMetadata => "snapshot_metadata",
-            GutchProgressPhase::ChunkIndex => "chunk_index",
-            GutchProgressPhase::Artifact => "artifact",
-            GutchProgressPhase::Reconstruct => "reconstruct",
-            GutchProgressPhase::Json => "json",
-            GutchProgressPhase::Done => "done",
-            GutchProgressPhase::ScanSnapshots => "scan_snapshots",
-            GutchProgressPhase::LoadManifests => "load_manifests",
-            GutchProgressPhase::ScanArtifacts => "scan_artifacts",
-            GutchProgressPhase::DeleteOrphans => "delete_orphans",
-            GutchProgressPhase::RemoveManifest => "remove_manifest",
-            GutchProgressPhase::Scan => "scan",
-            GutchProgressPhase::Planning => "planning",
-            GutchProgressPhase::RemoveSnapshots => "remove_snapshots",
-            GutchProgressPhase::UploadRepoMetadata => "upload_repo_metadata",
-            GutchProgressPhase::UploadChunkIndex => "upload_chunk_index",
-            GutchProgressPhase::UploadSnapshotMetadata => "upload_snapshot_metadata",
-            GutchProgressPhase::UploadSnapshotBlueprint => "upload_snapshot_blueprint",
-            GutchProgressPhase::UploadBundle => "upload_bundle",
-            GutchProgressPhase::Prune => "prune",
-            GutchProgressPhase::Capture => "capture",
-            GutchProgressPhase::Verify => "verify",
+            ProgressPhase::Prepare => "prepare",
+            ProgressPhase::RepoMetadata => "repo_metadata",
+            ProgressPhase::SnapshotMetadata => "snapshot_metadata",
+            ProgressPhase::ChunkIndex => "chunk_index",
+            ProgressPhase::Artifact => "artifact",
+            ProgressPhase::Reconstruct => "reconstruct",
+            ProgressPhase::Json => "json",
+            ProgressPhase::Done => "done",
+            ProgressPhase::ScanSnapshots => "scan_snapshots",
+            ProgressPhase::LoadManifests => "load_manifests",
+            ProgressPhase::ScanArtifacts => "scan_artifacts",
+            ProgressPhase::DeleteOrphans => "delete_orphans",
+            ProgressPhase::RemoveManifest => "remove_manifest",
+            ProgressPhase::Scan => "scan",
+            ProgressPhase::Planning => "planning",
+            ProgressPhase::RemoveSnapshots => "remove_snapshots",
+            ProgressPhase::UploadRepoMetadata => "upload_repo_metadata",
+            ProgressPhase::UploadChunkIndex => "upload_chunk_index",
+            ProgressPhase::UploadSnapshotMetadata => "upload_snapshot_metadata",
+            ProgressPhase::UploadSnapshotBlueprint => "upload_snapshot_blueprint",
+            ProgressPhase::UploadBundle => "upload_bundle",
+            ProgressPhase::Prune => "prune",
+            ProgressPhase::Capture => "capture",
+            ProgressPhase::Verify => "verify",
         }
     }
 }
@@ -85,13 +85,13 @@ impl GutchProgressPhase {
 /// A single unified progress event for all gutch operations.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GutchProgressEvent {
+pub struct ProgressEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub feedback: Option<GutchLiveFeedback>,
+    pub feedback: Option<LiveFeedback>,
     /// Which operation is running.
-    pub operation: GutchOperation,
+    pub operation: OperationKind,
     /// Current phase within the operation (e.g. "scan", "capture", "upload", "apply").
-    pub phase: GutchProgressPhase,
+    pub phase: ProgressPhase,
     /// Human-readable message for the current step.
     pub message: String,
     /// Current progress counter (files scanned, bundles built, snapshots synced, etc.).
@@ -113,29 +113,29 @@ pub struct GutchProgressEvent {
 }
 
 /// Trait for receiving progress events. Implemented by CLI (indicatif) and Tauri (event emitter).
-pub trait GutchProgressSink: Send + Sync + std::fmt::Debug {
-    fn emit(&self, event: GutchProgressEvent);
+pub trait ProgressSink: Send + Sync + std::fmt::Debug {
+    fn emit(&self, event: ProgressEvent);
 }
 
 /// Read-only cancellation boundary implemented by the calling application.
 ///
 /// Gutch deliberately does not own the mutable signal or depend on an async runtime. Long-running
 /// engine code observes this hook only at consistency-safe checkpoints.
-pub trait GutchCancellationHook: Send + Sync + std::fmt::Debug {
+pub trait CancellationHook: Send + Sync + std::fmt::Debug {
     fn is_cancelled(&self) -> bool;
 }
 
 /// Cross-cutting controls propagated through one complete Gutch operation, including nested work.
 #[derive(Clone, Debug, Default)]
-pub struct GutchOperationControl {
-    progress: Option<Arc<dyn GutchProgressSink>>,
-    cancellation: Option<Arc<dyn GutchCancellationHook>>,
-    profiler: Option<Arc<crate::profile::GutchProfiler>>,
+pub struct OperationControl {
+    progress: Option<Arc<dyn ProgressSink>>,
+    cancellation: Option<Arc<dyn CancellationHook>>,
+    profiler: Option<Arc<crate::profiling::Profiler>>,
     feedback: Option<Arc<feedback::LiveProgress>>,
 }
 
-impl GutchOperationControl {
-    pub fn with_progress(mut self, progress: Arc<dyn GutchProgressSink>) -> Self {
+impl OperationControl {
+    pub fn with_progress(mut self, progress: Arc<dyn ProgressSink>) -> Self {
         let feedback = feedback::LiveProgress::new(progress);
         if let Some(profiler) = &self.profiler {
             feedback.with_profiler(profiler.clone());
@@ -173,12 +173,12 @@ impl GutchOperationControl {
             f.record(false, bytes);
         }
     }
-    pub fn with_cancellation(mut self, cancellation: Arc<dyn GutchCancellationHook>) -> Self {
+    pub fn with_cancellation(mut self, cancellation: Arc<dyn CancellationHook>) -> Self {
         self.cancellation = Some(cancellation);
         self
     }
 
-    pub fn with_profiler(mut self, profiler: Arc<crate::profile::GutchProfiler>) -> Self {
+    pub fn with_profiler(mut self, profiler: Arc<crate::profiling::Profiler>) -> Self {
         if let Some(feedback) = &self.feedback {
             feedback.with_profiler(profiler.clone());
         }
@@ -187,7 +187,7 @@ impl GutchOperationControl {
     }
 
     /// Replaces only the progress adapter while retaining the operation's cancellation hook.
-    pub(crate) fn with_replaced_progress(&self, progress: Arc<dyn GutchProgressSink>) -> Self {
+    pub(crate) fn with_replaced_progress(&self, progress: Arc<dyn ProgressSink>) -> Self {
         Self {
             progress: Some(progress),
             cancellation: self.cancellation.clone(),
@@ -196,16 +196,13 @@ impl GutchOperationControl {
         }
     }
 
-    pub(crate) fn profile_span(
-        &self,
-        name: &'static str,
-    ) -> Option<crate::profile::GutchProfileSpan> {
+    pub(crate) fn profile_span(&self, name: &'static str) -> Option<crate::profiling::ProfileSpan> {
         self.profiler
             .as_ref()
             .and_then(|profiler| profiler.span(name))
     }
 
-    pub(crate) fn profiler(&self) -> Option<&crate::profile::GutchProfiler> {
+    pub(crate) fn profiler(&self) -> Option<&crate::profiling::Profiler> {
         self.profiler.as_deref()
     }
 
@@ -213,7 +210,7 @@ impl GutchOperationControl {
         &self,
         name: &'static str,
         args: impl FnOnce() -> std::collections::BTreeMap<String, serde_json::Value>,
-    ) -> Option<crate::profile::GutchProfileSpan> {
+    ) -> Option<crate::profiling::ProfileSpan> {
         self.profiler
             .as_ref()
             .and_then(|profiler| profiler.span_with_args(name, args))
@@ -229,7 +226,7 @@ impl GutchOperationControl {
         }
     }
 
-    pub(crate) fn progress(&self) -> &Option<Arc<dyn GutchProgressSink>> {
+    pub(crate) fn progress(&self) -> &Option<Arc<dyn ProgressSink>> {
         &self.progress
     }
 
@@ -248,10 +245,7 @@ impl GutchOperationControl {
 }
 
 /// Helper to emit if a sink is present.
-pub(crate) fn emit_progress(
-    sink: &Option<std::sync::Arc<dyn GutchProgressSink>>,
-    event: GutchProgressEvent,
-) {
+pub(crate) fn emit_progress(sink: &Option<std::sync::Arc<dyn ProgressSink>>, event: ProgressEvent) {
     if let Some(s) = sink {
         s.emit(event);
     }
@@ -263,13 +257,13 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::Ordering;
 
-    use super::GutchCancellationHook;
-    use super::GutchOperationControl;
+    use super::CancellationHook;
+    use super::OperationControl;
 
     #[derive(Debug)]
     struct TestCancellation(AtomicBool);
 
-    impl GutchCancellationHook for TestCancellation {
+    impl CancellationHook for TestCancellation {
         fn is_cancelled(&self) -> bool {
             self.0.load(Ordering::Acquire)
         }
@@ -278,7 +272,7 @@ mod tests {
     #[test]
     fn operation_control_returns_typed_cancellation() {
         let cancellation = Arc::new(TestCancellation(AtomicBool::new(false)));
-        let control = GutchOperationControl::default().with_cancellation(cancellation.clone());
+        let control = OperationControl::default().with_cancellation(cancellation.clone());
 
         assert!(control.checkpoint().is_ok());
         cancellation.0.store(true, Ordering::Release);

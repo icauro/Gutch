@@ -30,7 +30,7 @@ pub struct BuildConfig<'a> {
     pub(crate) storage_mode: ArtifactStorageMode,
     pub(crate) runtime_hints: RuntimeResourceHints,
     pub(crate) artifact_staging_root: Option<PathBuf>,
-    pub(crate) control: crate::progress::GutchOperationControl,
+    pub(crate) control: crate::progress::OperationControl,
 }
 
 impl<'a> BuildConfig<'a> {
@@ -46,7 +46,7 @@ impl<'a> BuildConfig<'a> {
             storage_mode: ArtifactStorageMode::default(),
             runtime_hints: RuntimeResourceHints::default(),
             artifact_staging_root: None,
-            control: crate::progress::GutchOperationControl::default(),
+            control: crate::progress::OperationControl::default(),
         }
     }
 

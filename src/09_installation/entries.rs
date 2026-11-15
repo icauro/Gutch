@@ -9,12 +9,12 @@ use rayon::prelude::*;
 use crate::Error;
 use crate::Result;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 
 pub(super) fn prepare_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
     output_dir: &Path,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<Arc<Vec<PathBuf>>> {
     {
@@ -47,7 +47,7 @@ pub(super) fn prepare_snapshot_entries(
 
 fn resolve_snapshot_file_paths(
     snapshot_manifest: &SnapshotManifest,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     path_resolver: &crate::filesystem::paths::ManifestPathResolver,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<Vec<PathBuf>> {
@@ -83,7 +83,7 @@ fn resolve_snapshot_file_paths(
 
 fn create_snapshot_directories(
     snapshot_manifest: &SnapshotManifest,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     path_resolver: &crate::filesystem::paths::ManifestPathResolver,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
@@ -192,7 +192,7 @@ fn relative_link_text(link_path: &str, target_path: &str) -> PathBuf {
 pub(super) fn finalize_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
     output_dir: &Path,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     metadata_worker_count: usize,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
@@ -456,7 +456,7 @@ fn finalize_symlink_trace_args(
 fn finalize_file_trace_args(
     file: &crate::manifest::FileManifest,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(&file.path, file.size);
+    let mut args = crate::profiling::file_trace_args(&file.path, file.size);
     args.insert("read_only".to_string(), serde_json::json!(file.read_only));
     args.insert("executable".to_string(), serde_json::json!(file.executable));
     args

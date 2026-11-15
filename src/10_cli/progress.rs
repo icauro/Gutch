@@ -2,9 +2,9 @@ use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::progress::GutchOperation;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressSink;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressSink;
 use indicatif::ProgressBar;
 use indicatif::ProgressDrawTarget;
 use indicatif::ProgressStyle;
@@ -13,7 +13,7 @@ use indicatif::ProgressStyle;
 #[derive(Debug)]
 pub(crate) struct CliProgressSink {
     bar: ProgressBar,
-    latest: std::sync::Mutex<Option<crate::progress::GutchLiveFeedback>>,
+    latest: std::sync::Mutex<Option<crate::progress::LiveFeedback>>,
 }
 
 impl CliProgressSink {
@@ -46,8 +46,8 @@ impl CliProgressSink {
     }
 }
 
-impl GutchProgressSink for CliProgressSink {
-    fn emit(&self, event: GutchProgressEvent) {
+impl ProgressSink for CliProgressSink {
+    fn emit(&self, event: ProgressEvent) {
         let rates = event
             .feedback
             .as_ref()
@@ -64,13 +64,13 @@ impl GutchProgressSink for CliProgressSink {
         }
 
         let label = match event.operation {
-            GutchOperation::SnapshotCapture => "capture",
-            GutchOperation::SnapshotDelete => "delete",
-            GutchOperation::Push => "push",
-            GutchOperation::Pull => "pull",
-            GutchOperation::SnapshotSourcesCapture => "capture-current",
-            GutchOperation::Fetch => "fetch",
-            GutchOperation::Verify => "verify",
+            OperationKind::SnapshotCapture => "capture",
+            OperationKind::SnapshotDelete => "delete",
+            OperationKind::Push => "push",
+            OperationKind::Pull => "pull",
+            OperationKind::SnapshotSourcesCapture => "capture-current",
+            OperationKind::Fetch => "fetch",
+            OperationKind::Verify => "verify",
         };
 
         if event.total > 0 {
@@ -104,7 +104,7 @@ impl Drop for CliProgressSink {
     }
 }
 
-fn render_feedback(feedback: &crate::progress::GutchLiveFeedback) -> String {
+fn render_feedback(feedback: &crate::progress::LiveFeedback) -> String {
     let rate = |value: Option<f64>| {
         value
             .map(|n| format!("{:.1}", n / 1048576.0))

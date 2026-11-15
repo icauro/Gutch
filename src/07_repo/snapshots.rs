@@ -5,9 +5,9 @@ use serde::Serialize;
 
 use crate::manifest::SnapshotTagSet;
 use crate::progress;
-use crate::progress::GutchOperation;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
 use crate::repo::Result;
 use crate::repo::cleanup::remove_snapshot_from_repo;
 
@@ -23,7 +23,7 @@ pub struct RetagSnapshotResult {
 pub fn delete_repo_snapshot_and_cleanup(
     repo_root: &Path,
     snapshot_id: &str,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<usize> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
@@ -33,10 +33,10 @@ pub fn delete_repo_snapshot_and_cleanup(
 
         progress::emit_progress(
             control.progress(),
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::SnapshotDelete,
-                phase: GutchProgressPhase::RemoveManifest,
+                operation: OperationKind::SnapshotDelete,
+                phase: ProgressPhase::RemoveManifest,
                 message: format!("Removing snapshot '{}'", snapshot_id),
                 current: 0,
                 total: TOTAL,
@@ -54,10 +54,10 @@ pub fn delete_repo_snapshot_and_cleanup(
 
         progress::emit_progress(
             control.progress(),
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::SnapshotDelete,
-                phase: GutchProgressPhase::Done,
+                operation: OperationKind::SnapshotDelete,
+                phase: ProgressPhase::Done,
                 message: format!(
                     "Deleted snapshot, removed {} orphan bundle(s)",
                     orphan_count

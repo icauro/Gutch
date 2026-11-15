@@ -5,7 +5,7 @@ use crate::repo::index::load_chunk_index;
 use crate::repo::index::rebuild_chunk_index_from_bundles_with_pool;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::index::write_chunk_index;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_path;
 use crate::repo::paths::chunk_path;
 use crate::repo::paths::ensure_gutch_repo_layout;
@@ -39,7 +39,7 @@ fn test_hash(label: &str) -> String {
 #[test]
 fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
     let temp = tempfile::tempdir().unwrap();
-    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    let paths = RepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
 
     for (snapshot_id, content_label) in [("snapshot-a", "content-a"), ("snapshot-b", "content-b")] {
@@ -64,12 +64,9 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
     }
 
     let pool = crate::runtime::build_thread_pool(1, "gutch-test").unwrap();
-    let state = load_capture_reuse_state(
-        &paths,
-        &pool,
-        &crate::progress::GutchOperationControl::default(),
-    )
-    .unwrap();
+    let state =
+        load_capture_reuse_state(&paths, &pool, &crate::progress::OperationControl::default())
+            .unwrap();
     let candidates = state.previous_file_manifests.get("game.bin").unwrap();
 
     assert_eq!(candidates.len(), 2);
@@ -79,7 +76,7 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
 #[test]
 fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
     let temp = tempfile::tempdir().unwrap();
-    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    let paths = RepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
     let mut snapshot_ids = Vec::new();
     for label in ["snapshot-a", "snapshot-b"] {
@@ -153,7 +150,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
 #[test]
 fn gutch_repo_paths_from_repo_root() {
     let root = PathBuf::from("/test/repo");
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
     assert_eq!(paths.repo_root(), root);
     assert_eq!(paths.repo_metadata_path, root.join("repo_metadata.json"));
     assert_eq!(
@@ -169,7 +166,7 @@ fn gutch_repo_paths_from_repo_root() {
 #[test]
 fn local_repo_config_contains_only_the_remote_link() {
     let temp = tempfile::tempdir().unwrap();
-    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    let paths = RepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "linked").unwrap();
 
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
@@ -206,7 +203,7 @@ fn payload_paths_are_extensionless_and_bundle_names_are_hashes() {
 #[test]
 fn snapshot_manifest_files_live_in_per_snapshot_folder() {
     let root = PathBuf::from("/test/repo");
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
     let snapshot_id = "0123456789abcdef";
     assert_eq!(
         crate::repo::snapshot_manifests::snapshot_metadata_path(&paths, snapshot_id).unwrap(),
@@ -224,7 +221,7 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
 #[test]
 fn gutch_repo_paths_from_store_root() {
     let root = PathBuf::from("/test/store");
-    let paths = GutchRepoPaths::from_store_root(&root, "my-repo").unwrap();
+    let paths = RepoPaths::from_store_root(&root, "my-repo").unwrap();
     assert!(paths.repo_root.to_string_lossy().contains("my-repo"));
     assert!(
         paths
@@ -300,7 +297,7 @@ fn check_gutch_repo_reports_snapshots() {
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
     let repo_root = root.join("repo");
-    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
     let _ = std::fs::remove_dir_all(&root);
 
     ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
@@ -347,7 +344,7 @@ fn check_gutch_repo_reports_snapshots() {
 #[test]
 fn check_gutch_repo_treats_missing_artifact_roots_as_empty() {
     let temp = tempfile::tempdir().unwrap();
-    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    let paths = RepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "empty-artifacts").unwrap();
     std::fs::remove_dir_all(&paths.bundles_root).unwrap();
     std::fs::remove_dir_all(&paths.chunks_root).unwrap();
@@ -363,7 +360,7 @@ fn check_gutch_repo_treats_missing_artifact_roots_as_empty() {
 #[test]
 fn check_and_verify_report_loose_chunk_artifacts() {
     let temp = tempfile::tempdir().unwrap();
-    let paths = GutchRepoPaths::from_repo_root(temp.path());
+    let paths = RepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "loose-repo").unwrap();
 
     let raw_bytes = b"loose artifact content";
@@ -441,7 +438,7 @@ fn chunk_index_write_and_load_roundtrip() {
     let root = std::env::temp_dir().join("gutch_chunk_index_test");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
 
     let mut entries = BTreeMap::new();
     entries.insert(
@@ -509,7 +506,7 @@ fn chunk_index_load_empty_when_file_missing() {
     let root = std::env::temp_dir().join("gutch_chunk_index_empty_test");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
 
     let loaded = load_chunk_index(&paths).unwrap();
     assert!(loaded.entries.is_empty());
@@ -522,7 +519,7 @@ fn chunk_index_load_empty_when_file_missing() {
 fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let root = std::env::temp_dir().join("gutch_incremental_chunk_index_test");
     let _ = std::fs::remove_dir_all(&root);
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
     let chunk_hash = crate::artifact::hash::ChunkHash::of(b"hello");
@@ -580,7 +577,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
 fn inspect_repo_shows_snapshot_tags() {
     let root = std::env::temp_dir().join("gutch_inspect_tags_test");
     let _ = std::fs::remove_dir_all(&root);
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
     let snapshot_id = test_hash("snapshot-two");
@@ -618,7 +615,7 @@ fn inspect_repo_shows_snapshot_tags() {
 fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
     let root = std::env::temp_dir().join("gutch_snapshot_blueprint_roundtrip");
     let _ = std::fs::remove_dir_all(&root);
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
     let chunk_one = test_hash("chunk-one");

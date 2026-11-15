@@ -144,12 +144,12 @@ mod tests {
         ));
         let repo_root = root.join("repo");
         let source_root = root.join("source-snapshots");
-        let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+        let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
         let _ = std::fs::remove_dir_all(&root);
 
         crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "mods").unwrap();
 
-        let repo_manifest = crate::manifest::gutch_repo::GutchRepoManifest::new("mods".to_string());
+        let repo_manifest = crate::manifest::repo_manifest::RepoManifest::new("mods".to_string());
         std::fs::write(
             &repo_paths.repo_metadata_path,
             serde_json::to_string_pretty(&repo_manifest).unwrap(),

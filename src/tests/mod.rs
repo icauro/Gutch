@@ -11,10 +11,10 @@ use crate::installation::reconstruct_snapshot;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::write_chunk_index;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_path;
 use crate::repo::paths::bundle_path_in_root;
 use crate::repo::paths::ensure_gutch_repo_layout;
@@ -40,7 +40,7 @@ fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String>
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap()
     .0
@@ -53,7 +53,7 @@ fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairCla
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap()
     .0
@@ -90,7 +90,7 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     std::fs::copy(v1_dir.join("old.txt"), destination_dir.join("old.txt")).unwrap();
     std::fs::write(destination_dir.join("player.log"), b"local runtime log").unwrap();
 
-    let repo_paths = GutchRepoPaths::from_repo_root(&repo_dir);
+    let repo_paths = RepoPaths::from_repo_root(&repo_dir);
     ensure_gutch_repo_layout(&repo_paths, "test").unwrap();
     write_snapshot_manifest_artifacts(&repo_paths, &v1.snapshot_manifest).unwrap();
     write_snapshot_manifest_artifacts(&repo_paths, &v2.snapshot_manifest).unwrap();
@@ -111,7 +111,7 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
         source_snapshot_id: Some(v1.snapshot_manifest.snapshot_id.clone()),
         source_dir: Some(destination_dir.clone()),
         runtime_hints: RuntimeResourceHints::default(),
-        control: GutchOperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap()
     .reconstruct_result;
@@ -137,7 +137,7 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
 
 #[test]
 fn test_gutch_repo_paths_from_store_root() {
-    let paths = GutchRepoPaths::from_store_root(Path::new("D:\\store"), "base").unwrap();
+    let paths = RepoPaths::from_store_root(Path::new("D:\\store"), "base").unwrap();
 
     assert_eq!(
         paths.repo_root,
@@ -158,7 +158,7 @@ fn test_gutch_repo_paths_from_store_root() {
 fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
     let repo_root = test_util::temp_path("gutch_test_gutch_repo_layout");
     let _ = std::fs::remove_dir_all(&repo_root);
-    let paths = GutchRepoPaths::from_repo_root(&repo_root);
+    let paths = RepoPaths::from_repo_root(&repo_root);
 
     let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
 
@@ -339,7 +339,7 @@ fn test_large_game_build_200mb() {
     let artifacts_total = test_util::dir_size(&artifacts_dir);
 
     let repo_root = test_util::temp_path("gutch_test_200mb_repo");
-    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_gutch_repo_layout(&repo_paths, "200mb-test").unwrap();
     write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest).unwrap();
     for bundle in &result.bundles {
@@ -362,7 +362,7 @@ fn test_large_game_build_200mb() {
         source_snapshot_id: None,
         source_dir: None,
         runtime_hints: RuntimeResourceHints::default(),
-        control: GutchOperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap();
     let recon_ms = t2.elapsed().as_millis();

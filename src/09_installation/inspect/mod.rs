@@ -3,7 +3,7 @@
 mod content;
 mod inventory;
 mod non_files;
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 use content::verify_manifest_file;
 use inventory::{
     augment_inventory_for_symlinked_parents, build_filesystem_inventory, inventory_path_key,
@@ -21,11 +21,11 @@ use rayon::prelude::*;
 use crate::Result;
 use crate::manifest;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::GutchOperation;
-use crate::progress::GutchOperationControl;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
-use crate::progress::GutchProgressSink;
+use crate::progress::OperationControl;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
+use crate::progress::ProgressSink;
 use crate::progress::emit_progress;
 use crate::runtime::RuntimeResourceHints;
 use crate::runtime::build_thread_pool;
@@ -45,7 +45,7 @@ pub use types::VerifyTimings;
 struct VerifyOptions<'a> {
     mode: VerifyMode,
     hints: &'a RuntimeResourceHints,
-    control: &'a GutchOperationControl,
+    control: &'a OperationControl,
 }
 
 impl<'a> Default for VerifyOptions<'a> {
@@ -69,7 +69,7 @@ impl<'a> VerifyOptions<'a> {
         self
     }
 
-    fn with_control(mut self, control: &'a GutchOperationControl) -> Self {
+    fn with_control(mut self, control: &'a OperationControl) -> Self {
         self.control = control;
         self
     }
@@ -80,7 +80,7 @@ pub(crate) struct VerifyRequest<'a> {
     pub dir: &'a Path,
     pub mode: VerifyMode,
     pub runtime_hints: &'a RuntimeResourceHints,
-    pub control: GutchOperationControl,
+    pub control: OperationControl,
 }
 
 struct PreparedVerifyFile<'a> {
@@ -455,17 +455,17 @@ fn marker_name(namespace: &'static str, suffix: &str) -> &'static str {
 }
 
 fn emit_verify_progress(
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    progress: &Option<Arc<dyn ProgressSink>>,
     current: usize,
     total: usize,
     done: bool,
 ) {
     emit_progress(
         progress,
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::Verify,
-            phase: GutchProgressPhase::Verify,
+            operation: OperationKind::Verify,
+            phase: ProgressPhase::Verify,
             message: "Verifying files".to_string(),
             current,
             total: total.max(1),
@@ -477,9 +477,9 @@ fn emit_verify_progress(
     );
 }
 
-fn default_control() -> &'static GutchOperationControl {
-    static CONTROL: std::sync::OnceLock<GutchOperationControl> = std::sync::OnceLock::new();
-    CONTROL.get_or_init(GutchOperationControl::default)
+fn default_control() -> &'static OperationControl {
+    static CONTROL: std::sync::OnceLock<OperationControl> = std::sync::OnceLock::new();
+    CONTROL.get_or_init(OperationControl::default)
 }
 
 fn default_runtime_hints() -> &'static RuntimeResourceHints {

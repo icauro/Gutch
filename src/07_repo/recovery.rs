@@ -2,7 +2,7 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::profiles::CompressionProfile;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
 use serde::Deserialize;
@@ -28,7 +28,7 @@ pub struct IndexRebuildResult {
 pub fn rebuild_index(
     root: &Path,
     publish: bool,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<IndexRebuildResult> {
     let work = || {
         let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(root)?;

@@ -6,7 +6,7 @@ use crate::manifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::repo::index::write_chunk_index;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch;
 use crate::sync::fetch_types::SnapshotFetchRequest;
@@ -39,7 +39,7 @@ fn test_hash(label: &str) -> String {
 }
 
 fn write_repair_test_repo(root: &std::path::Path, manifest: &SnapshotManifest) {
-    let paths = GutchRepoPaths::from_repo_root(root);
+    let paths = RepoPaths::from_repo_root(root);
     crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
     crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, manifest).unwrap();
 }
@@ -67,14 +67,14 @@ fn artifact_url_provider_rejects_unexpected_artifact_ids() {
         chunk_index_url: None,
         artifacts: Vec::new(),
         artifact_url_provider: Some(std::sync::Arc::new(
-            |_artifact_ids: &[String], _control: &crate::progress::GutchOperationControl| {
+            |_artifact_ids: &[String], _control: &crate::progress::OperationControl| {
                 Ok(vec![ArtifactDownload {
                     artifact_id: "bundle-b".to_string(),
                     url: "https://example.com/bundle-b".to_string(),
                 }])
             },
         )),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
         transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
@@ -105,7 +105,7 @@ fn direct_bundle_urls_reject_duplicate_artifact_ids() {
             },
         ],
         artifact_url_provider: None,
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
         transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
     };
 
@@ -118,7 +118,7 @@ fn direct_bundle_urls_reject_duplicate_artifact_ids() {
 fn resolved_snapshot_state_uses_product_runtime() {
     let root = crate::test_util::temp_path("gutch_resolved_snapshot_launch_state");
     let _ = std::fs::remove_dir_all(&root);
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
     crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
     let mut tags = SnapshotTagSet::default();
     tags.insert("os", "windows").unwrap();
@@ -181,7 +181,7 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
         staging_dir: Some(staging_dir),
         remove_added_files: false,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap()
     .repair_result;
@@ -211,7 +211,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
         staging_dir: Some(staging_dir),
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap()
     .repair_result;
@@ -227,7 +227,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
 fn repair_plan_only_requires_bundles_for_affected_files() {
     let root = crate::test_util::temp_path("gutch_repair_plan_bundle_subset");
     let _ = std::fs::remove_dir_all(&root);
-    let paths = GutchRepoPaths::from_repo_root(&root);
+    let paths = RepoPaths::from_repo_root(&root);
     crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
 
     let chunk_a = test_hash("chunk-a");
@@ -301,7 +301,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             destination_dir: destination_dir.clone(),
             remove_added_files: false,
             runtime_hints: RuntimeResourceHints::default(),
-            control: crate::progress::GutchOperationControl::default(),
+            control: crate::progress::OperationControl::default(),
         },
     )
     .unwrap();
@@ -334,7 +334,7 @@ fn repair_restores_manifest_file_attributes() {
         staging_dir: None,
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap();
     let permissions = std::fs::metadata(destination.join("game.dat"))
@@ -362,7 +362,7 @@ fn symlink_in_implicit_directory_gets_its_parent_created() {
     crate::installation::entries::prepare_snapshot_entries(
         &manifest,
         output.path(),
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
         None,
     )
     .unwrap();
@@ -405,7 +405,7 @@ fn repair_restores_files_inside_read_only_directories() {
         staging_dir: None,
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap();
 

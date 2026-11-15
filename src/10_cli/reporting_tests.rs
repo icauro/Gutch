@@ -3,7 +3,7 @@ use std::time::Duration;
 
 #[test]
 fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
-    use crate::profile::GutchProfileMode;
+    use crate::profiling::ProfileMode;
     let build = crate::capture::types::BuildTimings {
         logical_bytes: 42,
         compression_input_bytes: 100,
@@ -12,11 +12,11 @@ fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
         ..Default::default()
     };
     for mode in [
-        GutchProfileMode::Off,
-        GutchProfileMode::Summary,
-        GutchProfileMode::Detailed,
+        ProfileMode::Off,
+        ProfileMode::Summary,
+        ProfileMode::Detailed,
     ] {
-        let detailed = mode == GutchProfileMode::Detailed;
+        let detailed = mode == ProfileMode::Detailed;
         let build = build_timings_summary(&build, mode);
         assert_eq!(build.total_seconds.is_some(), detailed);
         assert_eq!(
@@ -129,7 +129,7 @@ fn build_summary_separates_wall_phases_from_worker_details() {
         ..crate::capture::types::BuildTimings::default()
     };
 
-    let summary = build_timings_summary(&timings, crate::profile::GutchProfileMode::Detailed);
+    let summary = build_timings_summary(&timings, crate::profiling::ProfileMode::Detailed);
 
     assert_eq!(summary.schema_version, 1);
     assert_eq!(summary.scan_strategy, "single_pass");
@@ -179,7 +179,7 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
         ..crate::installation::ReconstructTimings::default()
     };
 
-    let summary = reconstruct_timings_summary(&timings, crate::profile::GutchProfileMode::Detailed);
+    let summary = reconstruct_timings_summary(&timings, crate::profiling::ProfileMode::Detailed);
     let json = serde_json::to_value(&summary).expect("serialize reconstruct timing summary");
 
     assert_eq!(summary.unaccounted_seconds, Some(1.0));
@@ -214,7 +214,7 @@ fn verify_summary_reports_wall_phases_and_strict_worker_details() {
         ..crate::installation::inspect::VerifyTimings::default()
     };
 
-    let summary = verify_timings_summary(&timings, crate::profile::GutchProfileMode::Detailed);
+    let summary = verify_timings_summary(&timings, crate::profiling::ProfileMode::Detailed);
 
     assert_eq!(summary.verify_mode, "strict");
     assert_eq!(summary.unaccounted_seconds, Some(0.5));

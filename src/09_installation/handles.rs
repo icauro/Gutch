@@ -1,5 +1,5 @@
 //! Bounded file handles, buffered output ranges, and platform-specific positioned writes.
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use crate::{Error, Result};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
@@ -16,7 +16,7 @@ pub(super) const RECONSTRUCT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
 pub(super) struct ReconstructionOutputWriter<'a> {
     outputs: &'a OutputHandleCache,
     handles: HashMap<usize, Arc<File>>,
-    control: &'a GutchOperationControl,
+    control: &'a OperationControl,
     // The range fields are meaningful only while bytes is nonempty.
     file_index: usize,
     offset: u64,
@@ -24,7 +24,7 @@ pub(super) struct ReconstructionOutputWriter<'a> {
 }
 
 impl<'a> ReconstructionOutputWriter<'a> {
-    pub(super) fn new(outputs: &'a OutputHandleCache, control: &'a GutchOperationControl) -> Self {
+    pub(super) fn new(outputs: &'a OutputHandleCache, control: &'a OperationControl) -> Self {
         Self {
             outputs,
             handles: HashMap::new(),
@@ -101,7 +101,7 @@ impl<'a> ReconstructionOutputWriter<'a> {
     fn write_range(
         outputs: &OutputHandleCache,
         handles: &mut HashMap<usize, Arc<File>>,
-        control: &GutchOperationControl,
+        control: &OperationControl,
         file_index: usize,
         offset: u64,
         bytes: &[u8],
@@ -353,7 +353,7 @@ pub(super) fn write_file_at(
     file: &File,
     offset: u64,
     bytes: &[u8],
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     use std::os::windows::fs::FileExt;
 
@@ -374,7 +374,7 @@ pub(super) fn write_file_at(
     file: &File,
     offset: u64,
     bytes: &[u8],
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     use std::os::unix::fs::FileExt;
 
@@ -395,7 +395,7 @@ pub(super) fn write_file_at(
     file: &File,
     offset: u64,
     bytes: &[u8],
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     let mut file = file.try_clone()?;
     file.seek(SeekFrom::Start(offset))?;
@@ -424,7 +424,7 @@ mod output_handle_tests {
             directory.path().join("second"),
         ]);
         let cache = OutputHandleCache::new(paths.clone(), Arc::new(vec![16, 8]), &[1, 1], 1);
-        let control = GutchOperationControl::default();
+        let control = OperationControl::default();
         let mut writer = ReconstructionOutputWriter::new(&cache, &control);
         writer.write(0, 0, b"ab").unwrap();
         writer.write(0, 2, b"cd").unwrap();
@@ -454,7 +454,7 @@ mod output_handle_tests {
             &[1],
             1,
         );
-        let control = GutchOperationControl::default();
+        let control = OperationControl::default();
         let mut writer = ReconstructionOutputWriter::new(&cache, &control);
         let large = vec![7; RECONSTRUCT_OUTPUT_BUFFER_BYTES + 1];
         writer.write(0, 0, &large).unwrap();
@@ -475,7 +475,7 @@ mod output_handle_tests {
     fn buffered_output_propagates_flush_errors_and_discards_pending_bytes_on_drop() {
         #[derive(Debug)]
         struct Cancellation(std::sync::atomic::AtomicBool);
-        impl crate::progress::GutchCancellationHook for Cancellation {
+        impl crate::progress::CancellationHook for Cancellation {
             fn is_cancelled(&self) -> bool {
                 self.0.load(std::sync::atomic::Ordering::Relaxed)
             }
@@ -486,7 +486,7 @@ mod output_handle_tests {
             let cache =
                 OutputHandleCache::new(Arc::new(vec![path.clone()]), Arc::new(vec![8]), &[1], 1);
             let cancellation = Arc::new(Cancellation(std::sync::atomic::AtomicBool::new(false)));
-            let control = GutchOperationControl::default().with_cancellation(cancellation.clone());
+            let control = OperationControl::default().with_cancellation(cancellation.clone());
             let mut writer = ReconstructionOutputWriter::new(&cache, &control);
             writer.write(0, 0, b"data").unwrap();
             cancellation
@@ -561,7 +561,7 @@ mod output_handle_tests {
         let paths = Arc::new(vec![root.path().join("first"), root.path().join("second")]);
         let cache = OutputHandleCache::new(Arc::clone(&paths), Arc::new(vec![8, 8]), &[2, 1], 2);
         cache.state.lock().unwrap().max_open = 1;
-        let control = GutchOperationControl::default();
+        let control = OperationControl::default();
         write_file_at(&cache.get_or_open(0).unwrap(), 4, b"tail", &control).unwrap();
         drop(cache.get_or_open(1).unwrap());
         write_file_at(&cache.get_or_open(0).unwrap(), 0, b"head", &control).unwrap();

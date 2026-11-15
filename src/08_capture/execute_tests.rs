@@ -3,7 +3,7 @@ use crate::capture::plan::plan_snapshot_capture;
 use crate::capture::source_operations::build_source_snapshot_ops_candidate;
 use crate::manifest;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::snapshots::retag_snapshot_by_id;
@@ -14,7 +14,7 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
     let temp = tempfile::tempdir().unwrap();
     let repo_root = temp.path().join("repo");
     let source_root = temp.path().join("sources");
-    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
     let new_source = source_root.join("game-v1.0.0-windows-x86_64-base-2026_07_14");
@@ -70,7 +70,7 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
 #[derive(Debug)]
 struct CancelledHook;
 
-impl crate::progress::GutchCancellationHook for CancelledHook {
+impl crate::progress::CancellationHook for CancelledHook {
     fn is_cancelled(&self) -> bool {
         true
     }
@@ -88,7 +88,7 @@ fn test_capture(
     repo_root: &std::path::Path,
     source_dir: &std::path::Path,
     tags: &manifest::SnapshotTagSet,
-    control: crate::progress::GutchOperationControl,
+    control: crate::progress::OperationControl,
 ) -> SnapshotCaptureResult {
     capture_snapshot(SnapshotCaptureRequest {
         repo_root: repo_root.to_path_buf(),
@@ -112,7 +112,7 @@ fn test_repo_with_source(
     content: &[u8],
 ) -> (std::path::PathBuf, std::path::PathBuf) {
     let repo_root = temp.path().join("repo");
-    let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
     let source_dir = temp.path().join(source_name);
     std::fs::create_dir_all(&source_dir).unwrap();
@@ -130,7 +130,7 @@ fn test_reconstruct_and_strict_verify(repo_root: &std::path::Path, snapshot_id: 
         source_snapshot_id: None,
         source_dir: None,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     })
     .unwrap();
     assert!(destination.join("game.exe").is_file());
@@ -174,7 +174,7 @@ fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
         control: Default::default(),
     })
     .unwrap();
-    let paths = GutchRepoPaths::from_repo_root(&repo_root);
+    let paths = RepoPaths::from_repo_root(&repo_root);
     let old = crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &first.snapshot_id)
         .unwrap();
     let new = crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &second.snapshot_id)
@@ -211,7 +211,7 @@ fn same_tags_create_distinct_snapshots() {
         &repo_root,
         &source_a,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     assert!(matches!(
         first.outcome,
@@ -221,7 +221,7 @@ fn same_tags_create_distinct_snapshots() {
         &repo_root,
         &source_b,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     assert!(matches!(
         second.outcome,
@@ -248,9 +248,9 @@ fn cancelled_capture_retains_first_snapshot() {
         &repo_root,
         &source_a,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
-    let cancelled = crate::progress::GutchOperationControl::default()
+    let cancelled = crate::progress::OperationControl::default()
         .with_cancellation(std::sync::Arc::new(CancelledHook));
     let failed = capture_snapshot(SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
@@ -286,13 +286,13 @@ fn identical_recapture_returns_unchanged() {
         &repo_root,
         &source,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     let second = test_capture(
         &repo_root,
         &source,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     assert_eq!(first.snapshot_id, second.snapshot_id);
     assert!(matches!(
@@ -315,7 +315,7 @@ fn same_id_different_tags_returns_metadata_conflict() {
         &repo_root,
         &source,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     let other_tags = manifest::SnapshotTagSet::from_compact_strings(&[
         "version=2.0.0".to_string(),
@@ -333,7 +333,7 @@ fn same_id_different_tags_returns_metadata_conflict() {
         compression_level: None,
         storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     });
     let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
         panic!("expected a metadata conflict, got {conflict:?}");
@@ -368,7 +368,7 @@ fn explicit_retag_reports_previous_and_new_tags() {
         &repo_root,
         &source,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     let new_tags = manifest::SnapshotTagSet::from_compact_strings(&[
         "version=2.0.0".to_string(),
@@ -396,7 +396,7 @@ fn tampered_blueprint_returns_integrity_conflict() {
         &repo_root,
         &source,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     let (repo_paths, _) = crate::repo::paths::load_gutch_repo_manifest(&repo_root).unwrap();
     let mut stored =
@@ -424,7 +424,7 @@ fn tampered_blueprint_returns_integrity_conflict() {
         compression_level: None,
         storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     });
     let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
         panic!("expected an integrity conflict, got {conflict:?}");
@@ -461,13 +461,13 @@ fn content_change_with_frozen_mtime_creates_new_snapshot() {
         &repo_root,
         &source_a,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     let second = test_capture(
         &repo_root,
         &source_b,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
     assert_ne!(first.snapshot_id, second.snapshot_id);
 
@@ -490,10 +490,10 @@ fn failed_artifact_write_publishes_no_snapshot() {
         &repo_root,
         &source_a,
         &test_tags(),
-        crate::progress::GutchOperationControl::default(),
+        crate::progress::OperationControl::default(),
     );
 
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
     let read_only = std::fs::Permissions::from_mode(0o555);
     std::fs::set_permissions(&repo_paths.bundles_root, read_only.clone()).unwrap();
     std::fs::set_permissions(&repo_paths.chunks_root, read_only).unwrap();
@@ -508,7 +508,7 @@ fn failed_artifact_write_publishes_no_snapshot() {
         compression_level: None,
         storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
         runtime_hints: crate::runtime::RuntimeResourceHints::default(),
-        control: crate::progress::GutchOperationControl::default(),
+        control: crate::progress::OperationControl::default(),
     });
     let read_write = std::fs::Permissions::from_mode(0o755);
     std::fs::set_permissions(&repo_paths.bundles_root, read_write.clone()).unwrap();

@@ -2,7 +2,7 @@
 use super::download::PendingArtifactDownload;
 use super::progress::{FetchTransferProgress, TransferPhaseCounters, TransferProgressReporter};
 use crate::Result;
-use crate::progress::{GutchOperationControl, GutchProgressPhase};
+use crate::progress::{OperationControl, ProgressPhase};
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -13,9 +13,9 @@ const MAX_ARTIFACT_DOWNLOAD_ATTEMPTS: usize = 3;
 pub(crate) struct TransferDownloadRequest<'a> {
     pub(crate) client: &'a crate::transfer::http::DownloadClient,
     pub(crate) url: &'a str,
-    pub(crate) control: &'a GutchOperationControl,
+    pub(crate) control: &'a OperationControl,
     pub(crate) transfer_progress: &'a Arc<FetchTransferProgress>,
-    pub(crate) phase: GutchProgressPhase,
+    pub(crate) phase: ProgressPhase,
     pub(crate) message: &'a str,
     pub(crate) counters: TransferPhaseCounters,
     pub(crate) detail: Option<&'a str>,
@@ -94,7 +94,7 @@ impl<'a> TransferDownloadRequest<'a> {
 pub(crate) fn download_pending_artifact(
     download_client: &crate::transfer::http::DownloadClient,
     artifact_download: &PendingArtifactDownload,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<usize> {
     control.checkpoint()?;
@@ -117,7 +117,7 @@ pub(crate) fn download_pending_artifact(
                 url: &artifact_download.url,
                 control,
                 transfer_progress,
-                phase: GutchProgressPhase::Artifact,
+                phase: ProgressPhase::Artifact,
                 message: &message,
                 counters: TransferPhaseCounters {
                     current: transfer_progress.completed_artifact_count(),
@@ -152,7 +152,7 @@ fn retry_delay(attempt: usize) -> Duration {
     Duration::from_millis(250_u64.saturating_mul(1_u64 << attempt.saturating_sub(1)))
 }
 
-fn sleep_with_checkpoint(control: &GutchOperationControl, delay: Duration) -> Result<()> {
+fn sleep_with_checkpoint(control: &OperationControl, delay: Duration) -> Result<()> {
     let deadline = Instant::now() + delay;
     loop {
         control.checkpoint()?;

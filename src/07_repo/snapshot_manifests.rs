@@ -7,7 +7,7 @@ use crate::manifest::{
     snapshot::{SnapshotManifest, SnapshotMetadata, SnapshotProductMetadata},
 };
 
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::validate_path_component;
 
 pub(crate) const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
@@ -19,7 +19,7 @@ pub fn diff_repo_snapshots(
     repo_root: &std::path::Path,
     from: &str,
     to: &str,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<crate::snapshot::diff::SnapshotDiff> {
     crate::repo::coordination::read_with_control(repo_root, control, || {
         let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
@@ -44,7 +44,7 @@ pub(crate) fn validate_snapshot_id(snapshot_id: &str) -> Result<()> {
     }
 }
 
-pub fn snapshot_metadata_path(paths: &GutchRepoPaths, snapshot_id: &str) -> Result<PathBuf> {
+pub fn snapshot_metadata_path(paths: &RepoPaths, snapshot_id: &str) -> Result<PathBuf> {
     validate_path_component(snapshot_id, "snapshot ID")?;
     Ok(paths
         .snapshots_root
@@ -52,10 +52,7 @@ pub fn snapshot_metadata_path(paths: &GutchRepoPaths, snapshot_id: &str) -> Resu
         .join(SNAPSHOT_METADATA_FILE))
 }
 
-pub(crate) fn snapshot_blueprint_path(
-    paths: &GutchRepoPaths,
-    snapshot_id: &str,
-) -> Result<PathBuf> {
+pub(crate) fn snapshot_blueprint_path(paths: &RepoPaths, snapshot_id: &str) -> Result<PathBuf> {
     validate_path_component(snapshot_id, "snapshot ID")?;
     Ok(paths
         .snapshots_root
@@ -64,7 +61,7 @@ pub(crate) fn snapshot_blueprint_path(
 }
 
 pub(crate) fn snapshot_product_metadata_path(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     snapshot_id: &str,
 ) -> Result<PathBuf> {
     validate_path_component(snapshot_id, "snapshot ID")?;
@@ -74,10 +71,7 @@ pub(crate) fn snapshot_product_metadata_path(
         .join(SNAPSHOT_PRODUCT_METADATA_FILE))
 }
 
-pub fn load_snapshot_manifest(
-    paths: &GutchRepoPaths,
-    snapshot_id: &str,
-) -> Result<SnapshotManifest> {
+pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<SnapshotManifest> {
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
     let metadata_json = filesystem::read_to_string(&metadata_path)?;
     let mut manifest = load_snapshot_metadata_from_json_text(snapshot_id, &metadata_json)?;
@@ -147,7 +141,7 @@ pub(crate) fn serialize_snapshot_product_metadata_for_remote(
 }
 
 pub(crate) fn load_snapshot_product_metadata(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     snapshot_id: &str,
 ) -> Result<Option<SnapshotProductMetadata>> {
     let metadata_path = snapshot_product_metadata_path(paths, snapshot_id)?;
@@ -160,7 +154,7 @@ pub(crate) fn load_snapshot_product_metadata(
 }
 
 pub(crate) fn write_snapshot_product_metadata(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     snapshot_id: &str,
     metadata: Option<&SnapshotProductMetadata>,
 ) -> Result<Option<(PathBuf, u64)>> {
@@ -196,7 +190,7 @@ pub fn save_snapshot_product_metadata_for_snapshots(
                 "at least one snapshot id is required to save product metadata",
             ));
         }
-        let paths = GutchRepoPaths::from_repo_root(repo_root);
+        let paths = RepoPaths::from_repo_root(repo_root);
         let mut manifests = Vec::with_capacity(snapshot_ids.len());
         for snapshot_id in snapshot_ids {
             let mut snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
@@ -227,7 +221,7 @@ pub fn validate_snapshot_product_metadata_for_snapshots(
     if let Some(metadata) = product_metadata {
         metadata.validate_structure()?;
     }
-    let paths = GutchRepoPaths::from_repo_root(repo_root);
+    let paths = RepoPaths::from_repo_root(repo_root);
     for snapshot_id in snapshot_ids {
         let snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
         if let Some(metadata) = product_metadata {
@@ -238,7 +232,7 @@ pub fn validate_snapshot_product_metadata_for_snapshots(
 }
 
 pub(crate) fn write_snapshot_manifest_artifacts(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<(PathBuf, u64)> {
     snapshot_manifest.snapshot_tags.normalized()?;
@@ -345,7 +339,7 @@ mod tests {
 
     #[test]
     fn rejects_unsafe_snapshot_path_components() {
-        let paths = GutchRepoPaths::from_repo_root(Path::new("repo"));
+        let paths = RepoPaths::from_repo_root(Path::new("repo"));
         assert!(snapshot_metadata_path(&paths, "../escape").is_err());
         assert!(snapshot_blueprint_path(&paths, "nested/snapshot").is_err());
         assert!(snapshot_product_metadata_path(&paths, "").is_err());

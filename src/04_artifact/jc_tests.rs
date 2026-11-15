@@ -1,6 +1,6 @@
 use super::chunk_stream::{ChunkBoundary, ChunkStream};
 use super::jc::{JumpChunker, Parameters};
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use std::io::{self, Cursor, Read};
 
 pub(super) fn random_bytes(length: usize, mut seed: u64) -> Vec<u8> {
@@ -58,7 +58,7 @@ fn both_variants_preserve_data_bounds_and_reader_independence() {
                     0,
                 );
                 let mut offset = 0;
-                while let Some(chunk) = stream.next(&GutchOperationControl::default()).unwrap() {
+                while let Some(chunk) = stream.next(&OperationControl::default()).unwrap() {
                     let length = boundary.cut(&data[offset..]);
                     assert_eq!(chunk.offset as usize, offset);
                     assert_eq!(chunk.data, &data[offset..offset + length]);

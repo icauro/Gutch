@@ -61,7 +61,7 @@ internal implementation owners.
 | Module | Responsibility and features |
 |---|---|
 | `api` | Supported public types, operations, provider contracts, and CLI entry points |
-| `cli` | Generic command parsing, family handlers, terminal progress, and reporting |
+| `cli` | Generic command parsing, family handlers, terminal progress, reporting, and the CLI's tracked-repository config file |
 | `capture` | Source configuration and discovery, scanning, estimation, planning, packing, and capture execution |
 | `installation` | Inspection, change previews, shared execution, selective publication, installation state, and combined fetch/reconstruction |
 | `repo` | Layout, guarded readers, persistence, indexes, transactions, recovery, and cleanup |
@@ -72,8 +72,9 @@ internal implementation owners.
 | `snapshot` | Canonical content identity and snapshot comparison |
 | `filesystem` | Atomic I/O, path safety, filesystem naming targets, locks, and recoverable directory replacement shared by repository and installation publication |
 | `path_compare` | Physical tree comparison |
-| `runtime`, `progress`, `profile` | Resources, workers, cancellation, progress, timings, and traces |
-| `config`, `error` | CLI-local configuration, typed failures and their payloads |
+| `runtime`, `progress` | Resources, workers, cancellation, and progress |
+| `profiling` | Diagnostic timings and traces selected by `--profile`; distinct from the packaging profiles in `artifact` |
+| `error` | Typed failures and their payloads |
 
 Internal callers import the owning module directly. Top-level modules form
 numbered dependency layers: each module's layer is one more than the highest
@@ -85,10 +86,10 @@ module names cannot start with a digit.
 | Layer | Modules |
 |---|---|
 | 0 | `error` |
-| 1 | `profile` |
+| 1 | `profiling` |
 | 2 | `progress` |
 | 3 | `filesystem`, `runtime` |
-| 4 | `artifact`, `config` |
+| 4 | `artifact` |
 | 5 | `manifest`, `path_compare`, `transfer` |
 | 6 | `snapshot` |
 | 7 | `repo` |

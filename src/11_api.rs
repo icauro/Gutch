@@ -16,16 +16,14 @@ pub use crate::error::promotion_diagnostics::{
 };
 pub use crate::filesystem::paths::ExistingDestinationPathKind;
 pub use crate::filesystem::paths::resolve_existing_destination_path;
-pub use crate::profile::{
-    GutchProfileMode, GutchProfileSpanSummary, GutchProfileSummary, GutchProfiler,
-};
-pub use crate::progress::GutchCancellationHook;
-pub use crate::progress::GutchOperation;
-pub use crate::progress::GutchOperationControl;
-pub use crate::progress::GutchProgressEvent;
-pub use crate::progress::GutchProgressPhase;
-pub use crate::progress::GutchProgressSink;
-pub use crate::progress::{GutchLiveFeedback, GutchThroughput};
+pub use crate::profiling::{ProfileMode, ProfileSpanSummary, ProfileSummary, Profiler};
+pub use crate::progress::CancellationHook;
+pub use crate::progress::OperationControl;
+pub use crate::progress::OperationKind;
+pub use crate::progress::ProgressEvent;
+pub use crate::progress::ProgressPhase;
+pub use crate::progress::ProgressSink;
+pub use crate::progress::{LiveFeedback, Throughput};
 pub use crate::runtime::RuntimeResourceHints;
 
 // Repository and snapshot metadata
@@ -55,10 +53,10 @@ pub use crate::manifest::constraints::{FilesystemTarget, RepositoryConstraints};
 pub use crate::manifest::constraints::{
     SnapshotTagConstraints, SnapshotTagRule, SnapshotTagValueFormat,
 };
-pub use crate::manifest::gutch_repo::ArtifactProfile;
-pub use crate::manifest::gutch_repo::GutchRepoManifest;
 pub use crate::manifest::launch::ResolvedLaunchAction;
 pub use crate::manifest::launch::ResolvedLaunchConfiguration;
+pub use crate::manifest::repo_manifest::ArtifactProfile;
+pub use crate::manifest::repo_manifest::RepoManifest;
 pub use crate::path_compare::PathComparisonResult;
 pub use crate::path_compare::compare_paths;
 pub use crate::snapshot::diff::{SnapshotChangeKind, SnapshotDiff, SnapshotEntryChange};
@@ -135,7 +133,7 @@ pub use crate::repo::init_policy::RepoInitPathKind;
 pub use crate::repo::init_policy::RepoInitRisk;
 pub use crate::repo::init_policy::assess_repo_init_path;
 pub use crate::repo::init_policy::initialize_repo;
-pub use crate::repo::paths::GutchRepoPaths;
+pub use crate::repo::paths::RepoPaths;
 pub use crate::repo::read::{load_gutch_repo_manifest, load_snapshot_manifest};
 pub use crate::repo::recovery::IndexRebuildResult;
 pub use crate::repo::recovery::rebuild_index;
@@ -200,11 +198,11 @@ pub use crate::transfer::types::TransferConcurrencyPolicy;
 pub use crate::transfer::types::TransferStats;
 
 // CLI hosting and local configuration
+pub use crate::cli::config::CliConfig;
+pub use crate::cli::config::TrackedRepo;
+pub use crate::cli::config::load_config;
+pub use crate::cli::config::save_config;
 pub use crate::cli::requires_remote_provider;
 pub use crate::cli::run_from_args;
 pub use crate::cli::run_from_args_with_remote_provider;
 pub use crate::cli::run_from_args_with_remote_provider_named;
-pub use crate::config::GutchConfig;
-pub use crate::config::TrackedRepo;
-pub use crate::config::load_config;
-pub use crate::config::save_config;

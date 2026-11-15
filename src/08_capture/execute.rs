@@ -9,10 +9,10 @@ use crate::capture::reuse::load_capture_reuse_state;
 use crate::capture::scan::SourceInventory;
 use crate::capture::scan::scan_source_inventory;
 use crate::progress;
-use crate::progress::GutchOperation;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
-use crate::progress::GutchProgressSink;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
+use crate::progress::ProgressSink;
 use crate::repo::Result;
 
 use super::plan::plan_snapshot_capture_with_control;
@@ -37,7 +37,7 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
         request.control.checkpoint()?;
         let build_pool = build_capture_pool(&request.control, &request.runtime_hints)?;
 
-        let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&request.repo_root);
+        let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&request.repo_root);
         let _existing_state_span = request
             .control
             .profile_span("capture.prepare_source.load_existing_store_state");
@@ -339,13 +339,13 @@ fn capture_metadata_differences(
 
 impl SnapshotCaptureResult {
     /// Emit a done event if a progress sink was provided.
-    pub(crate) fn emit_done(&self, progress: &Option<Arc<dyn GutchProgressSink>>) {
+    pub(crate) fn emit_done(&self, progress: &Option<Arc<dyn ProgressSink>>) {
         progress::emit_progress(
             progress,
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::SnapshotCapture,
-                phase: GutchProgressPhase::Done,
+                operation: OperationKind::SnapshotCapture,
+                phase: ProgressPhase::Done,
                 message: "Snapshot capture complete".to_string(),
                 current: 1,
                 total: 1,
@@ -360,7 +360,7 @@ impl SnapshotCaptureResult {
 
 /// Builds the capture worker pool sized from `hints`, timed as one profile span.
 pub(super) fn build_capture_pool(
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     hints: &crate::runtime::RuntimeResourceHints,
 ) -> Result<rayon::ThreadPool> {
     let runtime_plan = crate::runtime::plan_runtime(hints);

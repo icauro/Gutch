@@ -2,8 +2,8 @@ use super::handles::{OutputHandleCache, SourceHandleCache};
 use super::io::{ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file};
 use super::jobs::{ReconstructJob, ReconstructPipelineFile};
 use super::types::ReconstructTimings;
-use crate::profile::ProfileInstant;
-use crate::progress::GutchOperationControl;
+use crate::profiling::ProfileInstant;
+use crate::progress::OperationControl;
 use crate::{Error, Result};
 use rayon::ThreadPool;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -159,7 +159,7 @@ pub(super) struct ReconstructWorkContext {
     pub(super) output_paths: Arc<Vec<PathBuf>>,
     pub(super) output_handles: Arc<OutputHandleCache>,
     pub(super) compression_profile: Arc<crate::artifact::profiles::CompressionProfile>,
-    pub(super) control: GutchOperationControl,
+    pub(super) control: OperationControl,
     pub(super) reconstruct_worker_count: usize,
 }
 
@@ -424,7 +424,7 @@ mod tests {
     fn failed_or_cancelled_verification_batch_releases_resources_before_terminal_event() {
         #[derive(Debug)]
         struct CancelAfterFirstFile(std::sync::atomic::AtomicUsize);
-        impl crate::progress::GutchCancellationHook for CancelAfterFirstFile {
+        impl crate::progress::CancellationHook for CancelAfterFirstFile {
             fn is_cancelled(&self) -> bool {
                 // Each file checks once; cancellation begins at the second file.
                 self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 1
@@ -451,7 +451,7 @@ mod tests {
                 1,
             ));
             let weak_handles = Arc::downgrade(&handles);
-            let mut control = GutchOperationControl::default();
+            let mut control = OperationControl::default();
             if cancel {
                 control = control.with_cancellation(Arc::new(CancelAfterFirstFile(
                     std::sync::atomic::AtomicUsize::new(0),
@@ -667,7 +667,7 @@ mod tests {
     fn source_batch_reports_success_or_stops_on_failure_and_releases_resources() {
         #[derive(Debug)]
         struct CancelAfterFirstChunk(std::sync::atomic::AtomicUsize);
-        impl crate::progress::GutchCancellationHook for CancelAfterFirstChunk {
+        impl crate::progress::CancellationHook for CancelAfterFirstChunk {
             fn is_cancelled(&self) -> bool {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
             }
@@ -729,11 +729,11 @@ mod tests {
             ));
             let weak_handles = Arc::downgrade(&handles);
             let control = if cancel {
-                GutchOperationControl::default().with_cancellation(Arc::new(CancelAfterFirstChunk(
+                OperationControl::default().with_cancellation(Arc::new(CancelAfterFirstChunk(
                     std::sync::atomic::AtomicUsize::new(0),
                 )))
             } else {
-                GutchOperationControl::default()
+                OperationControl::default()
             };
             let context = Arc::new(ReconstructWorkContext {
                 memory: Arc::clone(&memory),

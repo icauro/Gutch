@@ -1,4 +1,4 @@
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 
 pub(crate) const PARALLEL_FULL_HASH_MIN_BYTES: u64 = 16 * 1024 * 1024;
 const STREAM_BUFFER_BYTES: usize = 1024 * 1024;
@@ -47,13 +47,13 @@ pub(crate) fn select_full_file_hash_mode(
 
 /// Hashes arbitrary files without allocating in proportion to their size.
 pub(crate) fn hash_file(path: &Path) -> Result<blake3::Hash> {
-    let (hash, _, _) = hash_file_streaming(path, &GutchOperationControl::default())?;
+    let (hash, _, _) = hash_file_streaming(path, &OperationControl::default())?;
     Ok(hash)
 }
 
 fn hash_file_streaming(
     path: &Path,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<(blake3::Hash, Duration, Duration)> {
     control.checkpoint()?;
     let mut input = File::open(path)?;
@@ -87,7 +87,7 @@ pub(crate) fn verify_full_file_integrity(
     file_size: u64,
     expected_hash: ChunkHash,
     concurrent_file_count: usize,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<FullFileIntegrityResult> {
     control.checkpoint()?;
     let mode = select_full_file_hash_mode(file_size, concurrent_file_count);
@@ -157,7 +157,7 @@ mod tests {
     fn streaming_hash_observes_cancellation_between_reads() {
         #[derive(Debug)]
         struct CancelAfterRead(std::sync::atomic::AtomicUsize);
-        impl crate::progress::GutchCancellationHook for CancelAfterRead {
+        impl crate::progress::CancellationHook for CancelAfterRead {
             fn is_cancelled(&self) -> bool {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
             }
@@ -165,7 +165,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("content");
         std::fs::write(&path, vec![17; STREAM_BUFFER_BYTES * 2]).unwrap();
-        let control = GutchOperationControl::default().with_cancellation(std::sync::Arc::new(
+        let control = OperationControl::default().with_cancellation(std::sync::Arc::new(
             CancelAfterRead(std::sync::atomic::AtomicUsize::new(0)),
         ));
         assert!(matches!(
@@ -193,7 +193,7 @@ mod tests {
                         size as u64,
                         expected,
                         concurrent_files,
-                        &GutchOperationControl::default(),
+                        &OperationControl::default(),
                     )
                 })
                 .unwrap();
@@ -207,7 +207,7 @@ mod tests {
                         size as u64,
                         expected,
                         concurrent_files,
-                        &GutchOperationControl::default(),
+                        &OperationControl::default(),
                     )
                 });
                 assert!(matches!(result, Err(Error::HashMismatch { .. })));

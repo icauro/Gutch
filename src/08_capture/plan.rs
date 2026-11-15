@@ -40,7 +40,7 @@ pub fn plan_snapshot_capture_with_control(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<SnapshotCapturePlan> {
     let _plan_span = control.profile_span("capture.prepare_source.plan_snapshot");
     plan_snapshot_capture(repo_root, source_dir, explicit_tags)

@@ -188,7 +188,7 @@ pub(crate) fn loose_bytes(
 
 /// Populate declared locations for metadata-only fixtures; these tests never decode artifacts.
 pub fn index_manifest(
-    paths: &crate::repo::paths::GutchRepoPaths,
+    paths: &crate::repo::paths::RepoPaths,
     manifest: &crate::manifest::SnapshotManifest,
 ) {
     let entries = manifest

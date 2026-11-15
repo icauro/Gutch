@@ -36,7 +36,7 @@ pub(crate) fn read<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T
     with_repository_transaction(
         root,
         false,
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
         work,
     )
 }
@@ -44,21 +44,21 @@ pub(crate) fn write<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<
     with_repository_transaction(
         root,
         true,
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
         work,
     )
 }
 
 pub(crate) fn read_with_control<T>(
     root: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     with_repository_transaction(root, false, control, work)
 }
 pub(crate) fn write_with_control<T>(
     root: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     with_repository_transaction(root, true, control, work)
@@ -67,7 +67,7 @@ pub(crate) fn write_with_control<T>(
 fn with_repository_transaction<T>(
     root: &Path,
     write: bool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     let root = std::fs::canonicalize(root)?;
@@ -450,7 +450,7 @@ mod tests {
         };
         #[derive(Debug)]
         struct Cancel(AtomicBool);
-        impl crate::progress::GutchCancellationHook for Cancel {
+        impl crate::progress::CancellationHook for Cancel {
             fn is_cancelled(&self) -> bool {
                 self.0.load(Ordering::Acquire)
             }
@@ -458,7 +458,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let cancelled = Arc::new(Cancel(AtomicBool::new(false)));
         let control =
-            crate::progress::GutchOperationControl::default().with_cancellation(cancelled.clone());
+            crate::progress::OperationControl::default().with_cancellation(cancelled.clone());
         read(root.path(), || {
             let path = root.path().to_path_buf();
             let worker = std::thread::spawn(move || write_with_control(&path, &control, || Ok(())));

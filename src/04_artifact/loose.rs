@@ -1,5 +1,5 @@
 use crate::artifact::format;
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 use std::io::Read;
 use std::io::Write;
 use std::time::Duration;
@@ -22,7 +22,7 @@ pub(crate) fn read_loose_chunk_with_profiler(
     chunk_hash: &str,
     raw_size: u64,
     compression_profile: &CompressionProfile,
-    profiler: Option<&crate::profile::GutchProfiler>,
+    profiler: Option<&crate::profiling::Profiler>,
 ) -> Result<Vec<u8>> {
     Ok(read_loose_chunk_with_metrics(path, chunk_hash, raw_size, compression_profile, profiler)?.0)
 }
@@ -42,7 +42,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     chunk_hash: &str,
     raw_size: u64,
     _compression_profile: &CompressionProfile,
-    profiler: Option<&crate::profile::GutchProfiler>,
+    profiler: Option<&crate::profiling::Profiler>,
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
     let mut metrics = LooseChunkReadMetrics::default();
     let (mut file, codec) = {

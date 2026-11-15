@@ -1,5 +1,5 @@
 //! Requests and results for acquiring snapshot data into a repository.
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use crate::transfer::types::{
     ArtifactDownload, ArtifactUrlProvider, TransferConcurrencyPolicy, TransferStats,
 };
@@ -17,7 +17,7 @@ pub struct SnapshotFetchRequest {
     pub artifacts: Vec<ArtifactDownload>,
     pub artifact_url_provider: Option<std::sync::Arc<dyn ArtifactUrlProvider>>,
     pub transfer_policy: TransferConcurrencyPolicy,
-    pub control: GutchOperationControl,
+    pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]

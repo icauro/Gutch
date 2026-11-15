@@ -9,10 +9,10 @@ use crate::capture::reuse::load_capture_reuse_state;
 use crate::capture::source_operations::SourceSnapshotOperationCandidate;
 use crate::capture::source_operations::discover_source_snapshot_operations;
 use crate::progress;
-use crate::progress::GutchOperation;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
-use crate::progress::GutchProgressSink;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
+use crate::progress::ProgressSink;
 use crate::repo::status::RepoStatus;
 use crate::repo::status::read_repo_status;
 
@@ -134,7 +134,7 @@ pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan)
 pub fn capture_snapshot_sources(
     repo_root: &Path,
     sources_path: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<SnapshotSourcesCaptureResult> {
     let operation_root = (repo_root).to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
@@ -157,7 +157,7 @@ pub fn capture_snapshot_sources(
             &crate::runtime::RuntimeResourceHints::default(),
         )?;
 
-        let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(repo_root);
+        let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(repo_root);
         let _existing_state_span = control.profile_span_with_args(
             "capture.prepare_source.load_existing_store_state",
             || {
@@ -175,10 +175,10 @@ pub fn capture_snapshot_sources(
             control.checkpoint()?;
             progress::emit_progress(
                 control.progress(),
-                GutchProgressEvent {
+                ProgressEvent {
                     feedback: None,
-                    operation: GutchOperation::SnapshotSourcesCapture,
-                    phase: GutchProgressPhase::Capture,
+                    operation: OperationKind::SnapshotSourcesCapture,
+                    phase: ProgressPhase::Capture,
                     message: format!("Capturing snapshot '{}'", candidate.folder_name),
                     current: step_index + 1,
                     total: total_steps,
@@ -196,10 +196,10 @@ pub fn capture_snapshot_sources(
 
         progress::emit_progress(
             control.progress(),
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::SnapshotSourcesCapture,
-                phase: GutchProgressPhase::Done,
+                operation: OperationKind::SnapshotSourcesCapture,
+                phase: ProgressPhase::Done,
                 message: "Snapshot sources capture complete".to_string(),
                 current: total_steps,
                 total: total_steps,
@@ -218,7 +218,7 @@ pub fn capture_snapshot_sources(
 fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotOperationCandidate,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     reuse_state: &mut crate::capture::reuse::CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<()> {
@@ -252,13 +252,13 @@ fn capture_source_snapshot(
 
 #[derive(Debug)]
 struct SnapshotSourcesCandidateProgress {
-    sink: Arc<dyn GutchProgressSink>,
+    sink: Arc<dyn ProgressSink>,
     folder_name: String,
 }
 
-impl GutchProgressSink for SnapshotSourcesCandidateProgress {
-    fn emit(&self, mut event: GutchProgressEvent) {
-        event.operation = GutchOperation::SnapshotSourcesCapture;
+impl ProgressSink for SnapshotSourcesCandidateProgress {
+    fn emit(&self, mut event: ProgressEvent) {
+        event.operation = OperationKind::SnapshotSourcesCapture;
         event.message = format!("{}: {}", self.folder_name, event.message);
         event.detail = Some(self.folder_name.clone());
         event.done = false;
@@ -272,7 +272,7 @@ mod tests {
     use crate::capture::source_operations::discover_source_snapshot_operations;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
-    use crate::repo::paths::GutchRepoPaths;
+    use crate::repo::paths::RepoPaths;
     use crate::repo::paths::ensure_gutch_repo_layout;
     use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
     use crate::snapshot::identity::format_system_time_utc;
@@ -287,7 +287,7 @@ mod tests {
     fn plan_snapshot_sources_capture_returns_empty_plan_without_sources_path() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
-        let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
         let plan = plan_snapshot_sources_capture(&repo_root, None).unwrap();
@@ -301,7 +301,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
-        let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
         let source_dir = source_root.join("game-v2.0.0-windows-x86_64-base-2026_07_14");
@@ -349,7 +349,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
         let source_root = temp.path().join("sources");
-        let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
         let tags = manifest::SnapshotTagSet::from_compact_strings(&[

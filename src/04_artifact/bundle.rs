@@ -1,5 +1,5 @@
 use super::binary_io::{read_exact_array, read_u32};
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 #[cfg(test)]
 use std::collections::HashMap;
 use std::fs::File;
@@ -121,7 +121,7 @@ impl BundleBuilder {
     pub(crate) fn write_to_staging(
         &self,
         staging_root: &Path,
-        profiler: Option<&crate::profile::GutchProfiler>,
+        profiler: Option<&crate::profiling::Profiler>,
     ) -> Result<BundleBuildArtifact> {
         let chunks = self
             .chunks
@@ -140,7 +140,7 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
     chunks: &[(ChunkHash, u64)],
     profile: &CompressionProfile,
     staging_root: &Path,
-    profiler: Option<&crate::profile::GutchProfiler>,
+    profiler: Option<&crate::profiling::Profiler>,
     mut load_chunk: impl FnMut(usize) -> Result<B>,
 ) -> Result<BundleBuildArtifact> {
     if profile.compression_unit != CompressionUnit::Bundle {
@@ -191,7 +191,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     chunks: &[(ChunkHash, u64)],
     profile: &CompressionProfile,
     file: &mut File,
-    profiler: Option<&crate::profile::GutchProfiler>,
+    profiler: Option<&crate::profiling::Profiler>,
     load_chunk: &mut impl FnMut(usize) -> Result<B>,
 ) -> Result<BundleBuildArtifact> {
     let chunk_count = u32::try_from(chunks.len()).map_err(|_| {
@@ -460,7 +460,7 @@ impl<R: Read + Seek> BundleReader<R> {
     #[cfg(test)]
     pub(crate) fn read_bundle_payload_with_profiler(
         &mut self,
-        profiler: Option<&crate::profile::GutchProfiler>,
+        profiler: Option<&crate::profiling::Profiler>,
     ) -> Result<(Vec<u8>, BundleReadMetrics)> {
         let required = vec![true; self.entries.len()];
         let expected_raw_size = self.entries.iter().try_fold(0u64, |total, entry| {
@@ -498,7 +498,7 @@ impl<R: Read + Seek> BundleReader<R> {
     /// next one without changing the one-frame-per-bundle format.
     pub(crate) fn stream_bundle_chunks_with_profiler<F>(
         &mut self,
-        profiler: Option<&crate::profile::GutchProfiler>,
+        profiler: Option<&crate::profiling::Profiler>,
         required: &[bool],
         mut on_chunk: F,
     ) -> Result<BundleReadMetrics>
@@ -797,7 +797,7 @@ fn stream_decoded_chunks<R, F>(
     entries: &[BundleTableEntry],
     required: &[bool],
     decompress: &mut Duration,
-    profiler: Option<&crate::profile::GutchProfiler>,
+    profiler: Option<&crate::profiling::Profiler>,
     on_chunk: &mut F,
 ) -> Result<()>
 where

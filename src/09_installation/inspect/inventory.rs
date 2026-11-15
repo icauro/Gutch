@@ -1,6 +1,6 @@
 //! Physical inventory and symlink-parent classification for inspection.
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use crate::{Result, manifest};
 use std::collections::{HashMap, HashSet};
 use std::fs::Metadata;
@@ -31,7 +31,7 @@ pub(super) struct FilesystemInventory {
 pub(super) fn build_filesystem_inventory(
     snapshot_manifest: &SnapshotManifest,
     dir: &Path,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<FilesystemInventory> {
     let expected_paths: Vec<&str> = snapshot_manifest
         .entries
@@ -129,7 +129,7 @@ pub(super) fn augment_inventory_for_symlinked_parents(
     snapshot_manifest: &SnapshotManifest,
     dir: &Path,
     inventory: &mut FilesystemInventory,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     let needs_fallback = snapshot_manifest.entries.iter().any(|entry| {
         !inventory

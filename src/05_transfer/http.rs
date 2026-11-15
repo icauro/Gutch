@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::Error;
 use crate::Result;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 
 /// One operation-owned network runtime, shared by its synchronous download workers.
 /// Dropping a cancelled request drops its I/O future; no detached blocking reader remains.
@@ -35,7 +35,7 @@ pub(crate) fn build_download_client() -> Result<DownloadClient> {
 pub(crate) fn download_url_streaming<F, C>(
     client: &DownloadClient,
     url: &str,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     maximum_bytes: Option<u64>,
     mut on_content_length: C,
     mut on_chunk: F,
@@ -181,7 +181,7 @@ mod tests {
 
     #[derive(Debug, Default)]
     struct Cancellation(AtomicBool);
-    impl crate::progress::GutchCancellationHook for Cancellation {
+    impl crate::progress::CancellationHook for Cancellation {
         fn is_cancelled(&self) -> bool {
             self.0.load(Ordering::Acquire)
         }
@@ -212,7 +212,7 @@ mod tests {
             let _ = release_rx.recv_timeout(Duration::from_secs(10));
         });
         let cancel = Arc::new(Cancellation::default());
-        let control = GutchOperationControl::default().with_cancellation(cancel.clone());
+        let control = OperationControl::default().with_cancellation(cancel.clone());
         let (result_tx, result_rx) = mpsc::channel();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("artifact");

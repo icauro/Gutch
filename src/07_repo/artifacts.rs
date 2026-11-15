@@ -4,7 +4,7 @@ use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::reference::ArtifactRef;
 use crate::repo::index::ChunkIndexEntry;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::{Error, Result};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ impl ArtifactRef {
         }
     }
 
-    pub(crate) fn local_path(&self, repo_paths: &GutchRepoPaths) -> Result<PathBuf> {
+    pub(crate) fn local_path(&self, repo_paths: &RepoPaths) -> Result<PathBuf> {
         match self {
             Self::Bundle { id } => crate::repo::paths::bundle_path(repo_paths, id),
             Self::LooseChunk { hash } => crate::repo::paths::chunk_path(repo_paths, hash),

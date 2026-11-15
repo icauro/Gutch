@@ -5,21 +5,21 @@ use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::manifest;
 use crate::manifest::typed::typed_file_manifest;
-use crate::profile::ProfileInstant;
-use crate::progress::GutchOperationControl;
+use crate::profiling::ProfileInstant;
+use crate::progress::OperationControl;
 use std::io::Read;
 use std::path::Path;
 
 pub(super) fn verify_manifest_file(
     prepared_file: &PreparedVerifyFile<'_>,
     verify_mode: VerifyMode,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     concurrent_file_count: usize,
     marker_namespace: &'static str,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
     let file_manifest = prepared_file.manifest;
     let _file_span = control.profile_span_with_args(marker_name(marker_namespace, "file"), || {
-        crate::profile::file_trace_args(&file_manifest.path, file_manifest.size)
+        crate::profiling::file_trace_args(&file_manifest.path, file_manifest.size)
     });
     control.checkpoint()?;
     let mut timings = VerifyTimings {
@@ -153,7 +153,7 @@ fn verify_file_fast(
     prepared_file: &PreparedVerifyFile<'_>,
     concurrent_file_count: usize,
     timings: &mut VerifyTimings,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<Vec<RepairIssue>> {
     let expected_full_hash = ChunkHash::parse_hex(&prepared_file.manifest.full_file_hash)?;
     let integrity = crate::artifact::integrity::verify_full_file_integrity(
@@ -175,7 +175,7 @@ fn verify_file_streaming(
     file_path: &Path,
     verify_mode: VerifyMode,
     timings: &mut VerifyTimings,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<Vec<RepairIssue>> {
     let typed_file =
         typed_file_manifest(file_manifest).map_err(|err| std::io::Error::other(err.to_string()))?;

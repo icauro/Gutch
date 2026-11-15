@@ -8,12 +8,12 @@ use std::path::Path;
 
 use crate::Error;
 use crate::Result;
-use crate::progress::GutchOperation;
-use crate::progress::GutchOperationControl;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
-use crate::progress::GutchProgressSink;
-use crate::repo::paths::GutchRepoPaths;
+use crate::progress::OperationControl;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
+use crate::progress::ProgressSink;
+use crate::repo::paths::RepoPaths;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
 pub(crate) const MAX_REMOTE_JSON_BYTES: u64 = 16 * 1024 * 1024;
@@ -138,7 +138,7 @@ fn decide_artifact(
     }
 }
 
-fn local_repo_metadata_hash_b3(repo_paths: &GutchRepoPaths) -> Result<String> {
+fn local_repo_metadata_hash_b3(repo_paths: &RepoPaths) -> Result<String> {
     if !repo_paths.repo_metadata_path.exists() {
         return Ok(String::new());
     }
@@ -147,7 +147,7 @@ fn local_repo_metadata_hash_b3(repo_paths: &GutchRepoPaths) -> Result<String> {
     )?))
 }
 
-fn local_chunk_map_hash_b3(repo_paths: &GutchRepoPaths) -> Result<String> {
+fn local_chunk_map_hash_b3(repo_paths: &RepoPaths) -> Result<String> {
     if !repo_paths.chunk_map_path.exists() {
         return Ok(String::new());
     }
@@ -156,10 +156,7 @@ fn local_chunk_map_hash_b3(repo_paths: &GutchRepoPaths) -> Result<String> {
     )?))
 }
 
-fn local_snapshot_metadata_hash_b3(
-    repo_paths: &GutchRepoPaths,
-    snapshot_id: &str,
-) -> Result<String> {
+fn local_snapshot_metadata_hash_b3(repo_paths: &RepoPaths, snapshot_id: &str) -> Result<String> {
     let metadata_path =
         crate::repo::snapshot_manifests::snapshot_metadata_path(repo_paths, snapshot_id)?;
     let blueprint_path =
@@ -174,7 +171,7 @@ fn local_snapshot_metadata_hash_b3(
 }
 
 fn local_snapshot_product_metadata_hash_b3(
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
     let metadata_path =
@@ -193,10 +190,7 @@ fn local_snapshot_product_metadata_hash_b3(
     Ok(repo_file_hash(&bytes))
 }
 
-fn local_snapshot_blueprint_hash_b3(
-    repo_paths: &GutchRepoPaths,
-    snapshot_id: &str,
-) -> Result<String> {
+fn local_snapshot_blueprint_hash_b3(repo_paths: &RepoPaths, snapshot_id: &str) -> Result<String> {
     let path = crate::repo::snapshot_manifests::snapshot_blueprint_path(repo_paths, snapshot_id)?;
     if !path.exists() {
         return Ok(String::new());
@@ -207,12 +201,12 @@ fn local_snapshot_blueprint_hash_b3(
 }
 
 struct RemoteProgress {
-    sink: Option<std::sync::Arc<dyn GutchProgressSink>>,
-    operation: GutchOperation,
+    sink: Option<std::sync::Arc<dyn ProgressSink>>,
+    operation: OperationKind,
 }
 
 impl RemoteProgress {
-    fn new(control: &GutchOperationControl, operation: GutchOperation) -> Self {
+    fn new(control: &OperationControl, operation: OperationKind) -> Self {
         Self {
             sink: control.progress().clone(),
             operation,
@@ -221,7 +215,7 @@ impl RemoteProgress {
 
     fn emit(
         &self,
-        phase: GutchProgressPhase,
+        phase: ProgressPhase,
         message: impl Into<String>,
         current: usize,
         total: usize,
@@ -230,7 +224,7 @@ impl RemoteProgress {
     ) {
         crate::progress::emit_progress(
             &self.sink,
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
                 operation: self.operation,
                 phase,
@@ -458,7 +452,7 @@ mod tests {
         std::fs::write(source.join("file"), vec![37; 512 * 1024]).unwrap();
         let capture = |name: &str, chunk_profile| {
             let repo = root.path().join(name);
-            let paths = GutchRepoPaths::from_repo_root(&repo);
+            let paths = RepoPaths::from_repo_root(&repo);
             crate::repo::paths::ensure_gutch_repo_layout(&paths, name).unwrap();
             let captured = crate::capture::execute::capture_snapshot(
                 crate::capture::contracts::SnapshotCaptureRequest {
@@ -541,7 +535,7 @@ mod tests {
     #[test]
     fn pull_plan_preserves_local_repository_metadata_and_index() {
         let root = tempfile::tempdir().unwrap();
-        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let paths = RepoPaths::from_repo_root(root.path());
         crate::repo::paths::ensure_gutch_repo_layout(&paths, "local").unwrap();
         crate::repo::index::write_chunk_index(
             &paths,
@@ -637,7 +631,7 @@ mod tests {
     fn binding_a_remote_repo_keeps_the_id_opaque() {
         let directory = tempfile::tempdir().expect("temporary directory");
         crate::repo::paths::ensure_gutch_repo_layout(
-            &GutchRepoPaths::from_repo_root(directory.path()),
+            &RepoPaths::from_repo_root(directory.path()),
             "fixture",
         )
         .expect("repo layout");

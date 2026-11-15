@@ -5,15 +5,15 @@ use crate::Result;
 pub fn load_gutch_repo_manifest(
     root: &std::path::Path,
 ) -> Result<(
-    crate::repo::paths::GutchRepoPaths,
-    crate::manifest::gutch_repo::GutchRepoManifest,
+    crate::repo::paths::RepoPaths,
+    crate::manifest::repo_manifest::RepoManifest,
 )> {
     crate::repo::coordination::read(root, || crate::repo::paths::load_gutch_repo_manifest(root))
 }
 
 /// Load a coherent snapshot metadata/blueprint pair under reader protection.
 pub fn load_snapshot_manifest(
-    paths: &crate::repo::paths::GutchRepoPaths,
+    paths: &crate::repo::paths::RepoPaths,
     snapshot_id: &str,
 ) -> Result<crate::manifest::SnapshotManifest> {
     crate::repo::coordination::read(&paths.repo_root, || {

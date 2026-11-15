@@ -7,7 +7,7 @@ use crate::repo::index::{
     collect_file_paths, empty_chunk_index, load_chunk_index,
     rebuild_chunk_index_from_bundles_with_pool,
 };
-use crate::repo::paths::{GutchRepoPaths, bundle_id_from_bundle_path, chunk_path};
+use crate::repo::paths::{RepoPaths, bundle_id_from_bundle_path, chunk_path};
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -40,9 +40,9 @@ impl Default for CaptureReuseState {
 /// same sorted order as the sequential implementation so duplicate index
 /// entries and previous-manifest candidates remain deterministic.
 pub fn load_capture_reuse_state(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     pool: &rayon::ThreadPool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<CaptureReuseState> {
     let mut state = CaptureReuseState::default();
     let chunk_index = load_chunk_index(paths)?;
@@ -102,7 +102,7 @@ pub fn load_capture_reuse_state(
     Ok(state)
 }
 
-fn collect_snapshot_manifest_paths(paths: &GutchRepoPaths) -> Result<Vec<PathBuf>> {
+fn collect_snapshot_manifest_paths(paths: &RepoPaths) -> Result<Vec<PathBuf>> {
     crate::repo::inventory::list_repo_snapshot_ids(paths)?
         .into_iter()
         .map(|snapshot_id| {
@@ -138,7 +138,7 @@ fn add_previous_file_manifests(
 
 pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
     chunk_index: &crate::repo::index::ChunkIndex,
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     pool: &rayon::ThreadPool,
     available_bundle_ids: &HashSet<String>,
 ) -> Result<std::collections::HashMap<ChunkHash, u64>> {
@@ -236,7 +236,7 @@ mod tests {
     fn available_estimates_share_bundle_bytes_and_keep_loose_sizes() {
         let hash_for = |byte| ChunkHash::from_bytes([byte; 32]);
         let root = tempfile::tempdir().unwrap();
-        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let paths = RepoPaths::from_repo_root(root.path());
         let bytes = b"data";
         let loose_hash = ChunkHash::of(bytes);
         let encoded = crate::test_util::loose_bytes(bytes, &Default::default());

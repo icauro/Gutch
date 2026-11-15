@@ -76,7 +76,7 @@ fn deserialize_artifact_profile<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GutchRepoManifest {
+pub struct RepoManifest {
     #[serde(rename = "document_type")]
     pub format: String,
     #[serde(rename = "document_version")]
@@ -96,7 +96,7 @@ pub struct GutchRepoManifest {
     pub remote_repo_id: String,
 }
 
-impl GutchRepoManifest {
+impl RepoManifest {
     pub fn new(name: String) -> Self {
         Self {
             format: CONTENT_REPO_FORMAT.to_string(),
@@ -135,5 +135,5 @@ impl GutchRepoManifest {
 }
 
 #[cfg(test)]
-#[path = "gutch_repo_tests.rs"]
+#[path = "repo_manifest_tests.rs"]
 mod tests;

@@ -8,7 +8,7 @@ use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::SnapshotTagSet;
-use crate::progress::{GutchOperationControl, GutchProgressEvent, GutchProgressPhase};
+use crate::progress::{OperationControl, ProgressEvent, ProgressPhase};
 use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::progress::FetchTransferProgress;
@@ -25,7 +25,7 @@ fn output_verification_checks_size_without_rereading_chunk_verified_bytes() {
         size: 4,
         full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
     };
-    let control = GutchOperationControl::default();
+    let control = OperationControl::default();
     // Writers already hash-checked every chunk, so equal-size bytes pass here;
     // explicit `verify` remains the check for damage after the write.
     std::fs::write(&path, b"DATA").unwrap();
@@ -129,7 +129,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
     let snapshot_manifest = snapshot_manifest_with_file("snapshot", &test_hash(b"game"));
     let repo_root = crate::test_util::temp_path("gutch_pipeline_copy_repo");
     let _ = std::fs::remove_dir_all(&repo_root);
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
 
     let plan = build_reconstruct_pipeline_plan(
         &snapshot_manifest,
@@ -165,7 +165,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
             existing_artifacts: &HashSet::new(),
             pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::GutchOperationControl::default(),
+            control: &crate::progress::OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
@@ -194,7 +194,7 @@ fn pipeline_plan_reconstructs_changed_source_file_from_bundles() {
         snapshot_manifest_with_chunk("snapshot", &test_hash(b"game"), test_hash(b"game"));
     let repo_root = crate::test_util::temp_path("gutch_pipeline_rebuild_repo");
     let _ = std::fs::remove_dir_all(&repo_root);
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
 
     let plan = build_reconstruct_pipeline_plan(
         &snapshot_manifest,
@@ -240,7 +240,7 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
     );
     let repo_root = crate::test_util::temp_path("gutch_pipeline_mixed_repo");
     let _ = std::fs::remove_dir_all(&repo_root);
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
     let chunk_index = crate::repo::index::ChunkIndex {
         format_version: "1".to_string(),
 
@@ -295,7 +295,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     let _ = std::fs::remove_dir_all(&destination);
     std::fs::create_dir_all(&source_root).unwrap();
     std::fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "mixed-loose-test").unwrap();
 
     let shared_chunk_hash = test_hash(b"game");
@@ -387,7 +387,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::GutchOperationControl::default(),
+            control: &crate::progress::OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
@@ -410,7 +410,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     let destination = crate::test_util::temp_path("gutch_pipeline_loose_destination");
     let _ = std::fs::remove_dir_all(&repo_root);
     let _ = std::fs::remove_dir_all(&destination);
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
 
     let chunk_hash = test_hash(b"game");
@@ -473,7 +473,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::GutchOperationControl::default(),
+            control: &crate::progress::OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
@@ -496,7 +496,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let destination = crate::test_util::temp_path("gutch_pipeline_bundled_destination");
     let _ = std::fs::remove_dir_all(&repo_root);
     let _ = std::fs::remove_dir_all(&destination);
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "bundled-test").unwrap();
 
     let first = b"1111";
@@ -627,7 +627,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::GutchOperationControl::default(),
+            control: &crate::progress::OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
@@ -652,9 +652,9 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     #[derive(Debug, Default)]
     struct RecordedProgress(Mutex<Vec<String>>);
 
-    impl crate::progress::GutchProgressSink for RecordedProgress {
-        fn emit(&self, event: GutchProgressEvent) {
-            if event.phase == GutchProgressPhase::Reconstruct
+    impl crate::progress::ProgressSink for RecordedProgress {
+        fn emit(&self, event: ProgressEvent) {
+            if event.phase == ProgressPhase::Reconstruct
                 && event.message.starts_with("Reconstructing ")
             {
                 self.0.lock().unwrap().push(event.message);
@@ -665,7 +665,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     let workspace = tempfile::tempdir().unwrap();
     let repo_root = workspace.path().join("repo");
     let destination = workspace.path().join("output");
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "readiness-test").unwrap();
     let compression = crate::artifact::profiles::CompressionProfile::default();
     let mut chunk_entries = BTreeMap::new();
@@ -733,7 +733,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     assert_eq!(plan.jobs.len(), 2);
     let progress = Arc::new(RecordedProgress::default());
     // Record coordinator events directly: live UI feedback intentionally coalesces them.
-    let control = GutchOperationControl::default().with_replaced_progress(progress.clone());
+    let control = OperationControl::default().with_replaced_progress(progress.clone());
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
             publication: super::super::publish::Publication::ReplaceDirectory,
@@ -784,7 +784,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let workspace = tempfile::tempdir().unwrap();
     let repo_root = workspace.path().join("repo");
     let destination = workspace.path().join("output");
-    let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&repo_root);
+    let paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
     let compression = crate::artifact::profiles::CompressionProfile::default();
     let chunk_hash = test_hash(b"game");
     let artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
@@ -855,7 +855,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
             existing_artifacts: &HashSet::new(),
             pending_artifact_downloads: &pending,
             transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::GutchOperationControl::default(),
+            control: &crate::progress::OperationControl::default(),
             download_client: Some(&crate::transfer::http::build_download_client().unwrap()),
             transfer_progress: Some(&Arc::new(FetchTransferProgress::default())),
         },
@@ -960,7 +960,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
                     })
                     .collect(),
             });
-            let control = GutchOperationControl::default();
+            let control = OperationControl::default();
             let result = reconstruct_job(ReconstructJobRequest {
                 job: &job,
                 file_plans: &files,
@@ -989,7 +989,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
 #[test]
 fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     let directory = tempfile::tempdir().unwrap();
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(directory.path());
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(directory.path());
     let chunk_hash = |bytes: &[u8]| crate::artifact::hash::ChunkHash::of(bytes);
     let make_file = |path: &str, pieces: &[&[u8]]| FileManifest {
         path: path.into(),
@@ -1212,7 +1212,7 @@ fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
     use crate::artifact::profiles::ArtifactStorageMode;
     use crate::artifact::reference::ArtifactRef;
     let workspace = tempfile::tempdir().unwrap();
-    let paths = crate::repo::paths::GutchRepoPaths::from_repo_root(workspace.path());
+    let paths = crate::repo::paths::RepoPaths::from_repo_root(workspace.path());
     let hash = ChunkHash::of(b"game");
     for mode in [
         ArtifactStorageMode::Bundled,

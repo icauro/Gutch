@@ -9,12 +9,12 @@ use std::sync::Arc;
 
 use crate::Error;
 use crate::Result;
-use crate::manifest::gutch_repo::GutchRepoManifest;
+use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::GutchOperation;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
-use crate::progress::GutchProgressSink;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
+use crate::progress::ProgressSink;
 use crate::progress::emit_progress;
 use crate::repo::paths::write_gutch_repo_manifest as write_repo_manifest;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
@@ -30,8 +30,8 @@ use crate::transfer::progress::FetchTransferProgress;
 use crate::transfer::progress::TransferPhaseCounters;
 
 pub(crate) struct PreparedSnapshotFetch {
-    pub(crate) repo_paths: crate::repo::paths::GutchRepoPaths,
-    pub(crate) repo_manifest: GutchRepoManifest,
+    pub(crate) repo_paths: crate::repo::paths::RepoPaths,
+    pub(crate) repo_manifest: RepoManifest,
     pub(crate) compression_profile: crate::artifact::profiles::CompressionProfile,
     pub(crate) snapshot_manifest: SnapshotManifest,
     pub(crate) chunk_index: crate::repo::index::ChunkIndex,
@@ -102,10 +102,10 @@ pub fn fetch_snapshot_for_artifact_ids(
 
         emit_progress(
             &progress,
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::Fetch,
-                phase: GutchProgressPhase::Done,
+                operation: OperationKind::Fetch,
+                phase: ProgressPhase::Done,
                 message: "Snapshot fetched".to_string(),
                 current: required_artifacts.len(),
                 total: required_artifacts.len().max(1),
@@ -141,17 +141,17 @@ pub(crate) fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Resu
 pub(crate) fn prepare_snapshot_fetch(
     request: &SnapshotFetchRequest,
     download_client: &crate::transfer::http::DownloadClient,
-    progress: &Option<Arc<dyn GutchProgressSink>>,
+    progress: &Option<Arc<dyn ProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<PreparedSnapshotFetch> {
     request.control.checkpoint()?;
     let _prepare_span = request.control.profile_span("transfer.prepare");
     emit_progress(
         progress,
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::Prepare,
+            operation: OperationKind::Fetch,
+            phase: ProgressPhase::Prepare,
             message: "Preparing local repo layout".to_string(),
             current: 0,
             total: 1,
@@ -162,17 +162,17 @@ pub(crate) fn prepare_snapshot_fetch(
         },
     );
 
-    let repo_paths = crate::repo::paths::GutchRepoPaths::from_repo_root(&request.repo_path);
+    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&request.repo_path);
     let repository_existed = repo_paths.repo_metadata_path.exists();
     crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "download")?;
 
     let repo_manifest = if let Some(repo_metadata_url) = request.repo_metadata_url.as_deref() {
         emit_progress(
             progress,
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::Fetch,
-                phase: GutchProgressPhase::RepoMetadata,
+                operation: OperationKind::Fetch,
+                phase: ProgressPhase::RepoMetadata,
                 message: "Downloading repo metadata".to_string(),
                 current: 0,
                 total: 1,
@@ -187,7 +187,7 @@ pub(crate) fn prepare_snapshot_fetch(
             url: repo_metadata_url,
             control: &request.control,
             transfer_progress,
-            phase: GutchProgressPhase::RepoMetadata,
+            phase: ProgressPhase::RepoMetadata,
             message: "Downloading repo metadata",
             counters: TransferPhaseCounters {
                 current: 0,
@@ -196,8 +196,7 @@ pub(crate) fn prepare_snapshot_fetch(
             detail: None,
         }
         .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-        let repo_manifest: GutchRepoManifest =
-            crate::filesystem::from_json_bytes(&repo_manifest_bytes)?;
+        let repo_manifest: RepoManifest = crate::filesystem::from_json_bytes(&repo_manifest_bytes)?;
         repo_manifest
     } else {
         crate::repo::paths::load_gutch_repo_manifest(&repo_paths.repo_root)?.1
@@ -205,10 +204,10 @@ pub(crate) fn prepare_snapshot_fetch(
 
     emit_progress(
         progress,
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::SnapshotMetadata,
+            operation: OperationKind::Fetch,
+            phase: ProgressPhase::SnapshotMetadata,
             message: "Downloading snapshot metadata".to_string(),
             current: 0,
             total: 1,
@@ -223,7 +222,7 @@ pub(crate) fn prepare_snapshot_fetch(
         url: &request.metadata_url,
         control: &request.control,
         transfer_progress,
-        phase: GutchProgressPhase::SnapshotMetadata,
+        phase: ProgressPhase::SnapshotMetadata,
         message: "Downloading snapshot metadata",
         counters: TransferPhaseCounters {
             current: 0,
@@ -242,7 +241,7 @@ pub(crate) fn prepare_snapshot_fetch(
                 url: product_metadata_url,
                 control: &request.control,
                 transfer_progress,
-                phase: GutchProgressPhase::SnapshotMetadata,
+                phase: ProgressPhase::SnapshotMetadata,
                 message: "Downloading snapshot product metadata",
                 counters: TransferPhaseCounters {
                     current: 0,
@@ -263,7 +262,7 @@ pub(crate) fn prepare_snapshot_fetch(
         url: &request.blueprint_url,
         control: &request.control,
         transfer_progress,
-        phase: GutchProgressPhase::SnapshotMetadata,
+        phase: ProgressPhase::SnapshotMetadata,
         message: "Downloading snapshot blueprint",
         counters: TransferPhaseCounters {
             current: 0,
@@ -330,10 +329,10 @@ pub(crate) fn prepare_snapshot_fetch(
     let mut chunk_index = if let Some(chunk_index_url) = request.chunk_index_url.as_deref() {
         emit_progress(
             progress,
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::Fetch,
-                phase: GutchProgressPhase::ChunkIndex,
+                operation: OperationKind::Fetch,
+                phase: ProgressPhase::ChunkIndex,
                 message: "Downloading chunk index".to_string(),
                 current: 0,
                 total: 1,
@@ -348,7 +347,7 @@ pub(crate) fn prepare_snapshot_fetch(
             url: chunk_index_url,
             control: &request.control,
             transfer_progress,
-            phase: GutchProgressPhase::ChunkIndex,
+            phase: ProgressPhase::ChunkIndex,
             message: "Downloading chunk index",
             counters: TransferPhaseCounters {
                 current: 0,
@@ -417,7 +416,7 @@ fn build_pending_artifact_downloads(
     required_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
     existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
     artifact_urls: &HashMap<String, String>,
-    repo_paths: &crate::repo::paths::GutchRepoPaths,
+    repo_paths: &crate::repo::paths::RepoPaths,
 ) -> Result<Vec<PendingArtifactDownload>> {
     let missing_artifact_count = required_artifacts
         .len()

@@ -10,7 +10,7 @@ use crate::manifest::SnapshotManifest;
 
 use super::inventory::list_repo_snapshot_ids;
 use crate::repo::index::load_chunk_index;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
@@ -113,7 +113,7 @@ pub fn verify_gutch_repo_artifacts(
 }
 
 pub(crate) fn verify_snapshot_artifacts(
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     chunk_index: &crate::repo::index::ChunkIndex,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
     snapshot_id: &str,
@@ -131,7 +131,7 @@ pub(crate) fn verify_snapshot_artifacts(
 }
 
 fn verify_snapshot_artifacts_cached(
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     chunk_index: &crate::repo::index::ChunkIndex,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
     snapshot_manifest: &SnapshotManifest,
@@ -232,7 +232,7 @@ fn verify_bundle_file(
 mod tests {
     use super::*;
 
-    fn save_test_snapshot(paths: &GutchRepoPaths, path: &str, bytes: &[u8]) -> SnapshotManifest {
+    fn save_test_snapshot(paths: &RepoPaths, path: &str, bytes: &[u8]) -> SnapshotManifest {
         let hash = crate::artifact::hash::ChunkHash::of(bytes);
         let mut manifest = SnapshotManifest::new(String::new(), Default::default());
         manifest.push_file(crate::manifest::FileManifest {
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         let root = tempfile::tempdir().unwrap();
-        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let paths = RepoPaths::from_repo_root(root.path());
         crate::repo::paths::ensure_gutch_repo_layout(&paths, "selection").unwrap();
         let selected = save_test_snapshot(&paths, "empty", b"");
         let unselected = save_test_snapshot(&paths, "missing", b"unavailable payload");
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn empty_repository_succeeds_but_unknown_snapshot_is_an_error() {
         let root = tempfile::tempdir().unwrap();
-        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let paths = RepoPaths::from_repo_root(root.path());
         crate::repo::paths::ensure_gutch_repo_layout(&paths, "empty").unwrap();
         let result =
             verify_gutch_repo_artifacts(root.path(), None, RepoArtifactVerification::Structure)

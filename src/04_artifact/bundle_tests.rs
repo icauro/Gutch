@@ -118,7 +118,7 @@ fn test_build_and_read_bundle_compressed_payload() {
     std::fs::write(staged.path(), &bundle_data).unwrap();
     let mut file_reader =
         BundleReader::open(std::fs::File::open(staged.path()).unwrap(), &profile).unwrap();
-    let profiler = crate::profile::GutchProfiler::new(crate::profile::GutchProfileMode::Detailed);
+    let profiler = crate::profiling::Profiler::new(crate::profiling::ProfileMode::Detailed);
     let (read, metrics) = file_reader
         .read_bundle_payload_with_profiler(Some(&profiler))
         .unwrap();
@@ -127,8 +127,7 @@ fn test_build_and_read_bundle_compressed_payload() {
     assert_eq!(second, chunk2.as_slice());
     assert_eq!(metrics.raw_bytes, (chunk1.len() + chunk2.len()) as u64);
     let staging = tempfile::tempdir().unwrap();
-    let capture_profiler =
-        crate::profile::GutchProfiler::new(crate::profile::GutchProfileMode::Detailed);
+    let capture_profiler = crate::profiling::Profiler::new(crate::profiling::ProfileMode::Detailed);
     builder
         .write_to_staging(staging.path(), Some(&capture_profiler))
         .unwrap();

@@ -1,8 +1,8 @@
 use super::*;
 
 #[test]
-fn test_gutch_repo_manifest_new() {
-    let repo = GutchRepoManifest::new("base".into());
+fn test_repo_manifest_new() {
+    let repo = RepoManifest::new("base".into());
     assert_eq!(repo.format, CONTENT_REPO_FORMAT);
     assert_eq!(repo.format_version, PUBLIC_METADATA_FORMAT_VERSION);
     assert_eq!(repo.name, "base");
@@ -37,7 +37,7 @@ fn artifact_profile_expands_presets_for_the_engine() {
 
 #[test]
 fn repo_manifest_serializes_the_compact_artifact_profile() {
-    let json = serde_json::to_value(GutchRepoManifest::new("base".into())).unwrap();
+    let json = serde_json::to_value(RepoManifest::new("base".into())).unwrap();
     let artifact_profile = json
         .get("content_packaging_profile")
         .and_then(serde_json::Value::as_object)
@@ -59,7 +59,7 @@ fn repo_manifest_serializes_the_compact_artifact_profile() {
 
 #[test]
 fn repo_manifest_does_not_serialize_remote_binding_ids() {
-    let json = serde_json::to_value(GutchRepoManifest::new("base".into())).unwrap();
+    let json = serde_json::to_value(RepoManifest::new("base".into())).unwrap();
 
     assert!(json.get("product_id").is_none());
     assert!(json.get("product_metadata").is_none());
@@ -68,15 +68,15 @@ fn repo_manifest_does_not_serialize_remote_binding_ids() {
 
 #[test]
 fn persisted_packaging_rejects_invalid_pairs_and_unknown_presets() {
-    let original = serde_json::to_value(GutchRepoManifest::new("base".into())).unwrap();
+    let original = serde_json::to_value(RepoManifest::new("base".into())).unwrap();
     let mut invalid = original.clone();
     invalid["content_packaging_profile"]["chunk_size_profile"] = "chunk_4MiB".into();
-    assert!(serde_json::from_value::<GutchRepoManifest>(invalid.clone()).is_err());
+    assert!(serde_json::from_value::<RepoManifest>(invalid.clone()).is_err());
     invalid["content_packaging_profile"]["bundle_size_profile"] = "bundle_16MiB".into();
-    assert!(serde_json::from_value::<GutchRepoManifest>(invalid.clone()).is_ok());
+    assert!(serde_json::from_value::<RepoManifest>(invalid.clone()).is_ok());
     invalid["content_packaging_profile"]["chunk_size_profile"] = "chunk_3MiB".into();
-    assert!(serde_json::from_value::<GutchRepoManifest>(invalid).is_err());
+    assert!(serde_json::from_value::<RepoManifest>(invalid).is_err());
     let mut invalid_compression = original;
     invalid_compression["content_packaging_profile"]["compression_level"] = 100.into();
-    assert!(serde_json::from_value::<GutchRepoManifest>(invalid_compression).is_err());
+    assert!(serde_json::from_value::<RepoManifest>(invalid_compression).is_err());
 }

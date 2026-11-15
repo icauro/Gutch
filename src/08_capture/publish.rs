@@ -7,7 +7,7 @@ fn write_bundles(
     bundles_root: &Path,
     bundles: &[crate::capture::types::BuiltBundle],
     pool: &rayon::ThreadPool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<()> {
     let _phase_span =
         control.profile_span_with_args("capture.publish_snapshot.write_bundle_artifacts", || {
@@ -47,7 +47,7 @@ fn write_loose_chunks(
     chunks_root: &Path,
     chunks: &[crate::capture::types::BuiltLooseChunk],
     pool: &rayon::ThreadPool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<()> {
     let total_bytes = chunks
         .iter()
@@ -91,7 +91,7 @@ fn capture_artifact_write_trace_args(
     path: &Path,
     bytes: u64,
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profile::file_trace_args(path.display().to_string(), bytes);
+    let mut args = crate::profiling::file_trace_args(path.display().to_string(), bytes);
     args.insert("artifact_kind".to_string(), serde_json::json!(kind));
     args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));
     args
@@ -101,8 +101,8 @@ fn capture_artifact_write_trace_args(
 /// the additive index, then snapshot metadata as the commit marker.
 /// Returns the manifest path and the distinct bundle count from the validated artifact set.
 pub(super) fn publish_snapshot_artifacts(
-    control: &crate::progress::GutchOperationControl,
-    repo_paths: &crate::repo::paths::GutchRepoPaths,
+    control: &crate::progress::OperationControl,
+    repo_paths: &crate::repo::paths::RepoPaths,
     result: &super::types::BuildResult,
     reuse_state: &mut super::reuse::CaptureReuseState,
     build_pool: &rayon::ThreadPool,

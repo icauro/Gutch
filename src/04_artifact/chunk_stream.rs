@@ -1,7 +1,7 @@
 //! Gutch's level-1 FastCDC boundary finder and borrowed streaming adapter.
 
 use crate::artifact::profiles::ChunkSizingProfile;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use std::io::Read;
 
 /// Stateless boundary kernels must return 1..=min(input.len(), max_size())
@@ -99,7 +99,7 @@ impl<R: Read, C: ChunkBoundary> ChunkStream<R, C> {
 
     pub(crate) fn next(
         &mut self,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> crate::Result<Option<BorrowedChunk<'_>>> {
         control.checkpoint()?;
         if !self.eof && self.end - self.start < self.boundary.max_size() {

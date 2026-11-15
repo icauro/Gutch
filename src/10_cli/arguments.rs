@@ -114,8 +114,8 @@ pub(crate) struct Cli {
     pub(crate) verbose: bool,
 
     /// Diagnostic profiling: off, coarse summary, or sampled detailed timelines.
-    #[arg(long, global = true, value_enum, default_value_t = crate::profile::GutchProfileMode::Off)]
-    pub(crate) profile: crate::profile::GutchProfileMode,
+    #[arg(long, global = true, value_enum, default_value_t = crate::profiling::ProfileMode::Off)]
+    pub(crate) profile: crate::profiling::ProfileMode,
     /// Absolute report directory; required for detailed, optional for summary.
     #[arg(long = "profile-dir", global = true, value_parser = parse_cli_path)]
     pub(crate) profile_out: Option<PathBuf>,

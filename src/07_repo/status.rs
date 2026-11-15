@@ -12,7 +12,7 @@ use crate::Result;
 use crate::manifest;
 use crate::manifest::REPO_METADATA_FILE;
 use crate::repo::index::load_chunk_index;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 
@@ -147,7 +147,7 @@ fn empty_repo_check_status(repo_path: String, exists: bool, error: Option<String
 }
 
 fn check_snapshot_manifests(
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     snapshots_root: &Path,
     available_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
 ) -> Result<Vec<RepoSnapshotStatus>> {

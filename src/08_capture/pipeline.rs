@@ -1,4 +1,4 @@
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -165,7 +165,7 @@ fn plan_bundle_compressed_groups(
     bundle_profile: &crate::artifact::profiles::BundleSizingProfile,
     bundle_policy: BundleSizingPolicy,
     pool: &ThreadPool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<PlannedBundleGroups> {
     if chunks.is_empty() {
         return Ok(PlannedBundleGroups {
@@ -361,7 +361,7 @@ struct BuiltLooseChunkResult {
 fn run_parallel_chunk_work<T, U, F>(
     work_items: Vec<T>,
     pool: &ThreadPool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     memory_budget: u64,
     working_bytes: impl Fn(&T) -> u64,
     work: F,
@@ -369,7 +369,7 @@ fn run_parallel_chunk_work<T, U, F>(
 where
     T: Send,
     U: Send,
-    F: Fn(T, &crate::progress::GutchOperationControl) -> Result<U> + Send + Sync,
+    F: Fn(T, &crate::progress::OperationControl) -> Result<U> + Send + Sync,
 {
     control.checkpoint()?;
     control.profile_event_with_args("runtime.memory.budget", || {
@@ -402,13 +402,13 @@ fn build_bundled_chunks(
     compression_profile: &crate::artifact::profiles::CompressionProfile,
     artifact_staging_root: &Path,
     pool: &ThreadPool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     memory_budget: u64,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(
         control,
-        crate::progress::GutchProgressPhase::Capture,
+        crate::progress::ProgressPhase::Capture,
         "Building bundles",
     );
     progress.start(planned_bundle_groups.groups.len());
@@ -457,13 +457,13 @@ fn build_loose_chunks(
     artifact_staging_root: &Path,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
     pool: &ThreadPool,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     memory_budget: u64,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(
         control,
-        crate::progress::GutchProgressPhase::Capture,
+        crate::progress::ProgressPhase::Capture,
         "Building bundles",
     );
     progress.start(chunks_to_compress.len());
@@ -509,7 +509,7 @@ fn build_loose_chunk(
     payload: ChunkPayload,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
     artifact_staging_root: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<BuiltLooseChunkResult> {
     control.checkpoint()?;
     let load_start = ProfileInstant::detailed(control.profiler());
@@ -554,7 +554,7 @@ fn build_bounded_bundle_groups(
     encoded_limit: u64,
     profile: &crate::artifact::profiles::CompressionProfile,
     staging: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
     let built = build_bundle_compressed_group(planned.clone(), profile, staging, control)?;
     if built.bundle_size <= encoded_limit {
@@ -583,7 +583,7 @@ fn build_bundle_compressed_group(
     planned_bundle: Vec<(ChunkHash, ChunkPayload)>,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
     artifact_staging_root: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
     control.checkpoint()?;
     let _job_span = control.profile_span_with_args("capture.bundle.build", || {

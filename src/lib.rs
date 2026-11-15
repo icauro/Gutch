@@ -16,8 +16,6 @@ mod artifact;
 mod capture;
 #[path = "10_cli/mod.rs"]
 mod cli;
-#[path = "04_config/mod.rs"]
-mod config;
 #[path = "00_error/mod.rs"]
 mod error;
 #[path = "03_filesystem/mod.rs"]
@@ -28,8 +26,8 @@ mod installation;
 mod manifest;
 #[path = "05_path_compare.rs"]
 mod path_compare;
-#[path = "01_profile.rs"]
-mod profile;
+#[path = "01_profiling.rs"]
+mod profiling;
 #[path = "02_progress/mod.rs"]
 mod progress;
 #[path = "07_repo/mod.rs"]

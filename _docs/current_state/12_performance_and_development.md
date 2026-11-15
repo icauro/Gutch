@@ -94,8 +94,8 @@ One engine session has three modes, selected with `--profile`:
 summary, and rejected for off. It contains `summary.json` and, in detailed mode,
 Perfetto-compatible `trace.json`. `--output` remains the operation result;
 uncollected diagnostic timing/rate fields are null. Transfer wall rates remain
-available independently. The public API exposes `GutchProfileMode` and
-`GutchProfiler`, attached through `GutchOperationControl::with_profiler`.
+available independently. The public API exposes `ProfileMode` and
+`Profiler`, attached through `OperationControl::with_profiler`.
 Typed CLI summary builders decide whether diagnostic timing and rate values are
 present; renaming a serialized field does not change its profiling visibility.
 Finish the session after operation controls and worker spans have been dropped.

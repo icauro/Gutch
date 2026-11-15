@@ -19,8 +19,8 @@ use std::time::Instant;
 
 use crate::Error;
 use crate::Result;
-use crate::progress::GutchCancellationHook;
-use crate::progress::GutchOperationControl;
+use crate::progress::CancellationHook;
+use crate::progress::OperationControl;
 use crate::transfer::types::TransferConcurrencyPolicy;
 
 const MAX_TRANSFER_CONCURRENCY: usize = 16;
@@ -103,11 +103,11 @@ struct ArtifactDownloadQueueShared {
 
 #[derive(Debug)]
 struct SchedulerCancellationHook {
-    parent: GutchOperationControl,
+    parent: OperationControl,
     cancelled: Arc<AtomicBool>,
 }
 
-impl GutchCancellationHook for SchedulerCancellationHook {
+impl CancellationHook for SchedulerCancellationHook {
     fn is_cancelled(&self) -> bool {
         self.cancelled.load(AtomicOrdering::Acquire) || self.parent.is_cancelled()
     }
@@ -127,7 +127,7 @@ impl ArtifactDownloadScheduler {
         priorities: HashMap<crate::artifact::reference::ArtifactRef, ArtifactPriority>,
         policy: TransferConcurrencyPolicy,
         download_client: &crate::transfer::http::DownloadClient,
-        control: &GutchOperationControl,
+        control: &OperationControl,
         transfer_progress: Arc<FetchTransferProgress>,
     ) -> Result<Self> {
         let (initial_workers, maximum_workers) =
@@ -289,7 +289,7 @@ fn artifact_download_worker(
     shared: Arc<ArtifactDownloadQueueShared>,
     event_tx: mpsc::Sender<ArtifactDownloadEvent>,
     download_client: crate::transfer::http::DownloadClient,
-    control: GutchOperationControl,
+    control: OperationControl,
     transfer_progress: Arc<FetchTransferProgress>,
 ) {
     loop {
@@ -336,7 +336,7 @@ fn run_adaptive_transfer_controller(
     shared: Arc<ArtifactDownloadQueueShared>,
     transfer_progress: Arc<FetchTransferProgress>,
     controller_stop: Arc<AtomicBool>,
-    control: GutchOperationControl,
+    control: OperationControl,
 ) {
     let TransferConcurrencyPolicy::Adaptive { initial, maximum } = policy else {
         return;

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::progress::FetchTransferProgress;
@@ -35,7 +35,7 @@ pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
     pub pending_artifact_downloads: &'a [PendingArtifactDownload],
     pub transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
-    pub control: &'a GutchOperationControl,
+    pub control: &'a OperationControl,
     pub download_client: Option<&'a crate::transfer::http::DownloadClient>,
     pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
 }

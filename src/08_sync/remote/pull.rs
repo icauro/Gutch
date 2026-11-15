@@ -22,12 +22,12 @@ use super::provider::RepoPullStats;
 use super::verify_remote_artifact;
 use crate::Error;
 use crate::Result;
-use crate::progress::GutchOperation;
-use crate::progress::GutchOperationControl;
-use crate::progress::GutchProgressPhase;
+use crate::progress::OperationControl;
+use crate::progress::OperationKind;
+use crate::progress::ProgressPhase;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use std::collections::HashMap;
@@ -37,7 +37,7 @@ use std::path::Path;
 use std::path::PathBuf;
 pub(super) fn compute_pull_plan(
     repo_root: &Path,
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     repository: &RemoteRepository,
     snapshots: &[RemoteSnapshot],
     policy: PullConflictPolicy,
@@ -177,7 +177,7 @@ pub(crate) fn plan_pull(
     snapshots: &[RemoteSnapshot],
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
-    let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
+    let repo_paths = RepoPaths::from_repo_root(repo_root);
     compute_pull_plan(repo_root, &repo_paths, repository, snapshots, policy)
 }
 
@@ -185,7 +185,7 @@ fn source_bytes(
     source: &RemoteArtifactSource,
     client: &crate::transfer::http::DownloadClient,
     maximum_bytes: u64,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     write_source(source, client, maximum_bytes, control, &mut bytes)?;
@@ -196,7 +196,7 @@ fn write_source(
     source: &RemoteArtifactSource,
     client: &crate::transfer::http::DownloadClient,
     maximum_bytes: u64,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     output: &mut impl Write,
 ) -> Result<()> {
     control.checkpoint()?;
@@ -227,7 +227,7 @@ fn download_and_publish_bundle(
     client: &crate::transfer::http::DownloadClient,
     bundle_id: &str,
     path: &Path,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     control.checkpoint()?;
     crate::filesystem::write_atomic_with(path, |file| {
@@ -252,7 +252,7 @@ fn download_and_publish_bundle(
 }
 
 fn write_remote_snapshot_artifacts(
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     snapshot_id: &str,
     metadata: &crate::manifest::snapshot::SnapshotManifest,
     product_metadata: Option<&crate::manifest::SnapshotProductMetadata>,
@@ -288,7 +288,7 @@ pub(super) struct SnapshotBundleIds {
 }
 
 pub(super) fn required_bundle_ids_by_snapshot(
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
 ) -> Result<Vec<SnapshotBundleIds>> {
     let chunk_index = load_chunk_index(repo_paths)?;
     let mut by_snapshot = Vec::new();
@@ -382,12 +382,12 @@ pub(super) fn bundle_source_requests(
 }
 
 fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     repository: &RemoteRepository,
     snapshot: &RemoteSnapshot,
     provider: &P,
     download_client: &crate::transfer::http::DownloadClient,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     let snapshot_id = snapshot.snapshot_id.as_str();
     let sources = provider.snapshot_sources(repository, snapshot)?;
@@ -447,21 +447,21 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
     remote_spec: Option<String>,
     policy: PullConflictPolicy,
     prune: bool,
-    control: GutchOperationControl,
+    control: OperationControl,
 ) -> Result<RepoPullStats> {
     let operation_root = repo.to_path_buf();
     std::fs::create_dir_all(&operation_root)?;
     crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
-        let progress = RemoteProgress::new(&control, GutchOperation::Pull);
+        let progress = RemoteProgress::new(&control, OperationKind::Pull);
         let bound_remote_repo_id = bound_remote_repo_id(&repo)?;
         let repository =
             provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
-        let repo_paths = GutchRepoPaths::from_repo_root(&repo);
+        let repo_paths = RepoPaths::from_repo_root(&repo);
         let repository_existed = repo_paths.repo_metadata_path.exists();
         crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
         progress.emit(
-            GutchProgressPhase::Planning,
+            ProgressPhase::Planning,
             "Planning pull changes",
             0,
             1,
@@ -506,7 +506,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             control.checkpoint()?;
             step += 1;
             progress.emit(
-                GutchProgressPhase::RepoMetadata,
+                ProgressPhase::RepoMetadata,
                 "Downloading repo metadata",
                 step,
                 total_steps,
@@ -520,7 +520,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 &control,
             )?;
             verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
-            let mut manifest: crate::manifest::gutch_repo::GutchRepoManifest =
+            let mut manifest: crate::manifest::repo_manifest::RepoManifest =
                 crate::filesystem::from_json_bytes(&bytes)?;
             let local_constraints = load_gutch_repo_manifest(&repo)?
                 .1
@@ -546,7 +546,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             control.checkpoint()?;
             step += 1;
             progress.emit(
-                GutchProgressPhase::ChunkIndex,
+                ProgressPhase::ChunkIndex,
                 "Downloading chunk map",
                 step,
                 total_steps,
@@ -572,7 +572,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             control.checkpoint()?;
             step += 1;
             progress.emit(
-                GutchProgressPhase::SnapshotMetadata,
+                ProgressPhase::SnapshotMetadata,
                 format!(
                     "Downloading snapshot metadata ({}/{})",
                     step - snapshot_start,
@@ -601,7 +601,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
 
         step += 1;
         progress.emit(
-            GutchProgressPhase::Artifact,
+            ProgressPhase::Artifact,
             "Resolving bundles",
             step,
             total_steps,
@@ -651,7 +651,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 ))
             })?;
             progress.emit(
-                GutchProgressPhase::Artifact,
+                ProgressPhase::Artifact,
                 format!(
                     "Downloading bundles ({}/{})",
                     bundle_downloaded + 1,
@@ -679,7 +679,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             control.checkpoint()?;
             step += 1;
             progress.emit(
-                GutchProgressPhase::Prune,
+                ProgressPhase::Prune,
                 "Removing local-only content",
                 step,
                 total_steps,
@@ -705,7 +705,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         }
 
         progress.emit(
-            GutchProgressPhase::Done,
+            ProgressPhase::Done,
             "Pull complete",
             total_steps,
             total_steps,
@@ -722,7 +722,7 @@ mod constraint_tests {
     #[test]
     fn incoming_snapshot_is_rejected_before_metadata_is_written() {
         let root = tempfile::tempdir().unwrap();
-        let paths = GutchRepoPaths::from_repo_root(root.path());
+        let paths = RepoPaths::from_repo_root(root.path());
         crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
         crate::repo::updates::update_repository_constraints(
             root.path(),
@@ -773,7 +773,7 @@ mod streaming_tests {
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("bundle");
         let client = crate::transfer::http::build_download_client().unwrap();
-        let control = GutchOperationControl::default();
+        let control = OperationControl::default();
         let (id, source) = bundle_source();
         download_and_publish_bundle(&source, &client, &id, &destination, &control).unwrap();
         let healthy = std::fs::read(&destination).unwrap();
@@ -805,7 +805,7 @@ mod streaming_tests {
                 &source,
                 &client,
                 2,
-                &GutchOperationControl::default(),
+                &OperationControl::default(),
                 &mut output
             )
             .is_err()
@@ -815,7 +815,7 @@ mod streaming_tests {
             &source,
             &client,
             3,
-            &GutchOperationControl::default(),
+            &OperationControl::default(),
             &mut output,
         )
         .unwrap();
@@ -826,7 +826,7 @@ mod streaming_tests {
     fn cancelled_bundle_publication_keeps_the_existing_cache() {
         #[derive(Debug)]
         struct Cancelled;
-        impl crate::progress::GutchCancellationHook for Cancelled {
+        impl crate::progress::CancellationHook for Cancelled {
             fn is_cancelled(&self) -> bool {
                 true
             }
@@ -835,8 +835,7 @@ mod streaming_tests {
         let destination = directory.path().join("bundle");
         std::fs::write(&destination, b"previous").unwrap();
         let client = crate::transfer::http::build_download_client().unwrap();
-        let control =
-            GutchOperationControl::default().with_cancellation(std::sync::Arc::new(Cancelled));
+        let control = OperationControl::default().with_cancellation(std::sync::Arc::new(Cancelled));
         let (id, source) = bundle_source();
         assert!(
             download_and_publish_bundle(&source, &client, &id, &destination, &control).is_err()

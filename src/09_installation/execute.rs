@@ -3,7 +3,7 @@ use super::entries::{finalize_snapshot_entries, prepare_snapshot_entries};
 use super::jobs::{ReconstructPipelineApplyRequest, ReconstructPipelinePlan};
 use super::pipeline::{ExecuteReconstructPipelineRequest, run_reconstruction_jobs};
 use super::types::InstallationReconstructResult;
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 use crate::runtime::plan_runtime;
 use crate::{Error, Result};
 use std::path::Path;

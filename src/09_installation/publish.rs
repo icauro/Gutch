@@ -42,7 +42,7 @@ pub(super) struct FinalizeRepairRequest<'a> {
     pub(super) remove_added_files: bool,
     pub(super) runtime_hints: &'a RuntimeResourceHints,
     pub(super) repair_plan: &'a InstallationChanges,
-    pub(super) control: &'a crate::progress::GutchOperationControl,
+    pub(super) control: &'a crate::progress::OperationControl,
     pub(super) operation_pool: Option<&'a ThreadPool>,
 }
 
@@ -241,7 +241,7 @@ fn promote_repaired_files(
     repaired_manifest: &SnapshotManifest,
     destination_dir: &Path,
     staging_dir: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     operation_pool: Option<&ThreadPool>,
 ) -> Result<()> {
     let mut directories = repaired_manifest

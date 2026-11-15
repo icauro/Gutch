@@ -114,7 +114,7 @@ pub(crate) fn validate_proposed_snapshot_tags(
     {
         return Ok(());
     }
-    let paths = super::paths::GutchRepoPaths::from_repo_root(repo_root);
+    let paths = super::paths::RepoPaths::from_repo_root(repo_root);
     if !paths.snapshots_root.exists() {
         return Ok(());
     }

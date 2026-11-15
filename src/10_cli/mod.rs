@@ -3,6 +3,7 @@
 pub(crate) mod arguments;
 pub(crate) mod bundle;
 pub(crate) mod command_support;
+pub(crate) mod config;
 pub(crate) mod dispatch;
 pub(crate) mod installation;
 pub(crate) mod output;
@@ -31,7 +32,7 @@ pub(crate) use arguments::TreeCommands;
 
 pub(crate) use command_support::prompt_yes_no;
 
-pub(crate) type Profile = Option<Arc<crate::profile::GutchProfiler>>;
+pub(crate) type Profile = Option<Arc<crate::profiling::Profiler>>;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -127,16 +128,16 @@ where
     set_verbose_output_enabled(cli.verbose);
     let profile_out = cli.profile_out.clone();
     let error_json_out = cli.error_json_out.clone();
-    if (cli.profile == crate::profile::GutchProfileMode::Off && profile_out.is_some())
-        || (cli.profile == crate::profile::GutchProfileMode::Detailed && profile_out.is_none())
+    if (cli.profile == crate::profiling::ProfileMode::Off && profile_out.is_some())
+        || (cli.profile == crate::profiling::ProfileMode::Detailed && profile_out.is_none())
     {
         return Err(crate::Error::manifest(
             "--profile detailed requires --profile-dir; off forbids profile output",
         ));
     }
     let mode = cli.profile;
-    let profiler = (mode != crate::profile::GutchProfileMode::Off)
-        .then(|| Arc::new(crate::profile::GutchProfiler::new(mode)));
+    let profiler = (mode != crate::profiling::ProfileMode::Off)
+        .then(|| Arc::new(crate::profiling::Profiler::new(mode)));
     output::begin(&cli)?;
     let command_result = {
         let _command_span = profiler
@@ -172,13 +173,12 @@ where
     }
 }
 
-pub(crate) fn control_with_profile(profile: &Profile) -> crate::progress::GutchOperationControl {
-    profile.as_ref().map_or_else(
-        crate::progress::GutchOperationControl::default,
-        |profiler| {
-            crate::progress::GutchOperationControl::default().with_profiler(Arc::clone(profiler))
-        },
-    )
+pub(crate) fn control_with_profile(profile: &Profile) -> crate::progress::OperationControl {
+    profile
+        .as_ref()
+        .map_or_else(crate::progress::OperationControl::default, |profiler| {
+            crate::progress::OperationControl::default().with_profiler(Arc::clone(profiler))
+        })
 }
 
 #[cfg(test)]

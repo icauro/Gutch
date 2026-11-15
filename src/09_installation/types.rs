@@ -10,7 +10,7 @@ use crate::installation::inspect::VerifyTimings;
 use crate::manifest::ExternalProductDependencyRequirement;
 use crate::manifest::launch::ResolvedLaunchConfiguration;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use crate::runtime::RuntimePlan;
 use crate::runtime::RuntimeResourceHints;
 
@@ -78,7 +78,7 @@ pub struct InstallationRequest {
     pub source_snapshot_id: Option<String>,
     pub source_dir: Option<PathBuf>,
     pub runtime_hints: RuntimeResourceHints,
-    pub control: GutchOperationControl,
+    pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +98,7 @@ pub struct InstallationVerifyRequest {
     pub destination_dir: PathBuf,
     pub verify_mode: VerifyMode,
     pub runtime_hints: RuntimeResourceHints,
-    pub control: GutchOperationControl,
+    pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -149,7 +149,7 @@ fn default_corruption_mask() -> u8 {
 pub struct InstallationCorruptionRequest {
     pub destination_dir: PathBuf,
     pub plan: InstallationCorruptionPlan,
-    pub control: GutchOperationControl,
+    pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -178,7 +178,7 @@ pub struct InstallationRepairRequest {
     pub staging_dir: Option<PathBuf>,
     pub remove_added_files: bool,
     pub runtime_hints: RuntimeResourceHints,
-    pub control: GutchOperationControl,
+    pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -188,7 +188,7 @@ pub struct InstallationRepairPlanRequest {
     pub destination_dir: PathBuf,
     pub remove_added_files: bool,
     pub runtime_hints: RuntimeResourceHints,
-    pub control: GutchOperationControl,
+    pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]

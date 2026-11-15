@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::Result;
 use crate::manifest::SnapshotEntry;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -31,7 +31,7 @@ pub struct SnapshotDiff {
 pub(crate) fn compare_snapshot_entries(
     before: &[SnapshotEntry],
     after: &[SnapshotEntry],
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<SnapshotDiff> {
     let mut entries = BTreeMap::new();
     for entry in before {

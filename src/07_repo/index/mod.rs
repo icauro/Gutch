@@ -12,7 +12,7 @@ use crate::artifact::profiles::ArtifactStorageMode;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::paths::bundle_id_from_bundle_path;
 
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 
 pub(crate) fn empty_chunk_index() -> ChunkIndex {
     ChunkIndex {
@@ -22,7 +22,7 @@ pub(crate) fn empty_chunk_index() -> ChunkIndex {
     }
 }
 
-pub(crate) fn load_chunk_index(paths: &GutchRepoPaths) -> Result<ChunkIndex> {
+pub(crate) fn load_chunk_index(paths: &RepoPaths) -> Result<ChunkIndex> {
     if paths.chunk_map_path.exists() {
         return binary_codec::load_chunk_index_binary(&paths.chunk_map_path);
     }
@@ -32,7 +32,7 @@ pub(crate) fn load_chunk_index(paths: &GutchRepoPaths) -> Result<ChunkIndex> {
 /// Merge an incoming index without losing usable cached locations or local-only chunks.
 /// Remote locations replace shared chunks only when the local artifact is absent.
 pub(crate) fn preserve_local_chunk_locations(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     incoming: &mut ChunkIndex,
 ) -> Result<()> {
     for (hash, entry) in load_chunk_index(paths)?.entries {
@@ -81,7 +81,7 @@ pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 pub fn rebuild_chunk_index_from_bundles_with_pool(
-    paths: &GutchRepoPaths,
+    paths: &RepoPaths,
     compression_profile: &crate::artifact::profiles::CompressionProfile,
     pool: &rayon::ThreadPool,
 ) -> Result<ChunkIndex> {
@@ -142,7 +142,7 @@ fn build_chunk_index_from_bundle_entries(
     })
 }
 
-pub(crate) fn write_chunk_index(paths: &GutchRepoPaths, index: &ChunkIndex) -> Result<()> {
+pub(crate) fn write_chunk_index(paths: &RepoPaths, index: &ChunkIndex) -> Result<()> {
     binary_codec::write_chunk_index_binary(&paths.chunk_map_path, index)
 }
 
@@ -164,7 +164,7 @@ mod cache_merge_tests {
         ] {
             for (cached, shared) in [(true, true), (false, true), (false, false)] {
                 let directory = tempfile::tempdir().unwrap();
-                let paths = GutchRepoPaths::from_repo_root(directory.path());
+                let paths = RepoPaths::from_repo_root(directory.path());
                 crate::repo::paths::ensure_gutch_repo_layout(&paths, "merge").unwrap();
                 let chunk_hash = ChunkHash::of(b"shared chunk");
                 let (local_bundle_id, remote_bundle_id) = match storage_mode {

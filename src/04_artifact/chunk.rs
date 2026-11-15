@@ -1,6 +1,6 @@
 use super::chunk_stream::ChunkBoundary;
 use super::chunk_stream::{BoundaryFinder, ChunkStream};
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 #[cfg(test)]
 use fastcdc::v2020::Chunk;
 #[cfg(test)]
@@ -100,7 +100,7 @@ pub(crate) fn scan_file_chunks(
     path: &std::path::Path,
     inventory_size: u64,
     profile: &ChunkSizingProfile,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     match profile.chunker {
         crate::artifact::profiles::Chunker::FastCdc => {
@@ -134,7 +134,7 @@ pub(crate) fn scan_file_chunks(
 fn scan_with_boundary<C: ChunkBoundary>(
     path: &std::path::Path,
     inventory_size: u64,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     boundary: C,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     control.checkpoint()?;
@@ -209,7 +209,7 @@ fn scan_with_boundary<C: ChunkBoundary>(
 fn scan_small_file<C: ChunkBoundary>(
     file: std::fs::File,
     inventory_size: u64,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     boundary: C,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     let started = ProfileInstant::detailed(control.profiler());

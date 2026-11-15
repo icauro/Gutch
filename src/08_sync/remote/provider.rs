@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::Error;
 use crate::Result;
 use crate::manifest::SnapshotTagSet;
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 
 #[derive(Debug, Clone)]
 pub struct RemoteRepository {
@@ -105,14 +105,14 @@ pub trait RemoteRepositoryWriter {
         &self,
         repository: &RemoteRepository,
         bytes: Vec<u8>,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> Result<()>;
 
     fn upload_chunk_index(
         &self,
         repository: &RemoteRepository,
         bytes: Vec<u8>,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> Result<()>;
 
     fn upload_snapshot_metadata(
@@ -120,7 +120,7 @@ pub trait RemoteRepositoryWriter {
         repository: &RemoteRepository,
         snapshot: &RemoteSnapshot,
         bytes: Vec<u8>,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> Result<()>;
 
     fn upload_snapshot_blueprint(
@@ -128,7 +128,7 @@ pub trait RemoteRepositoryWriter {
         repository: &RemoteRepository,
         snapshot: &RemoteSnapshot,
         bytes: Vec<u8>,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> Result<()>;
 
     fn upload_snapshot_product_metadata(
@@ -136,7 +136,7 @@ pub trait RemoteRepositoryWriter {
         repository: &RemoteRepository,
         snapshot: &RemoteSnapshot,
         bytes: Vec<u8>,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> Result<()>;
 
     fn delete_snapshot_product_metadata(
@@ -152,7 +152,7 @@ pub trait RemoteRepositoryWriter {
         repository: &RemoteRepository,
         bundle_id: &str,
         bytes: Vec<u8>,
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> Result<()>;
 
     fn reconcile_bundles(

@@ -2,15 +2,15 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use crate::progress::GutchOperation;
-use crate::progress::GutchOperationControl;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
+use crate::progress::OperationControl;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
 use crate::progress::emit_progress;
 
 pub(crate) struct BuildProgressTracker {
-    control: GutchOperationControl,
-    phase: GutchProgressPhase,
+    control: OperationControl,
+    phase: ProgressPhase,
     message: &'static str,
     current: AtomicUsize,
     total: AtomicUsize,
@@ -18,8 +18,8 @@ pub(crate) struct BuildProgressTracker {
 
 impl BuildProgressTracker {
     pub(crate) fn new(
-        control: &GutchOperationControl,
-        phase: GutchProgressPhase,
+        control: &OperationControl,
+        phase: ProgressPhase,
         message: &'static str,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -45,9 +45,9 @@ impl BuildProgressTracker {
     fn emit(&self, current: usize) {
         emit_progress(
             self.control.progress(),
-            GutchProgressEvent {
+            ProgressEvent {
                 feedback: None,
-                operation: GutchOperation::SnapshotCapture,
+                operation: OperationKind::SnapshotCapture,
                 phase: self.phase,
                 message: self.message.to_string(),
                 current,

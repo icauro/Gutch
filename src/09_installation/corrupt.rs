@@ -148,7 +148,7 @@ mod tests {
                     },
                 ],
             },
-            control: crate::progress::GutchOperationControl::default(),
+            control: crate::progress::OperationControl::default(),
         })
         .unwrap();
 
@@ -169,7 +169,7 @@ mod tests {
                     path: "../outside.txt".into(),
                 }],
             },
-            control: crate::progress::GutchOperationControl::default(),
+            control: crate::progress::OperationControl::default(),
         });
         assert!(result.is_err());
         assert!(outside.exists());

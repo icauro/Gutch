@@ -1,4 +1,4 @@
-use crate::profile::ProfileInstant;
+use crate::profiling::ProfileInstant;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
@@ -13,10 +13,10 @@ use rayon::ThreadPool;
 use super::types::ReconstructTimings;
 use crate::Error;
 use crate::Result;
-use crate::progress::GutchOperation;
-use crate::progress::GutchOperationControl;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressPhase;
+use crate::progress::OperationControl;
+use crate::progress::OperationKind;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressPhase;
 use crate::progress::emit_progress;
 use crate::runtime::RuntimeResourceHints;
 use crate::runtime::plan_runtime;
@@ -42,7 +42,7 @@ pub(super) struct ExecuteReconstructPipelineRequest<'a> {
     pub(super) existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
     pub(super) pending_artifact_downloads: &'a [PendingArtifactDownload],
     pub(super) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
-    pub(super) control: &'a GutchOperationControl,
+    pub(super) control: &'a OperationControl,
     pub(super) download_client: Option<&'a crate::transfer::http::DownloadClient>,
     pub(super) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
     pub(super) reconstruct_pool: Option<&'a ThreadPool>,
@@ -118,10 +118,10 @@ pub(super) fn run_reconstruction_jobs(
 
     emit_progress(
         control.progress(),
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::Reconstruct,
+            operation: OperationKind::Fetch,
+            phase: ProgressPhase::Reconstruct,
             message: format!("Preparing files (0/{})", file_plans.len().max(1)),
             current: 0,
             total: file_plans.len().max(1),
@@ -357,10 +357,10 @@ pub(super) fn run_reconstruction_jobs(
                 }
                 emit_progress(
                     control.progress(),
-                    GutchProgressEvent {
+                    ProgressEvent {
                         feedback: None,
-                        operation: GutchOperation::Fetch,
-                        phase: GutchProgressPhase::Reconstruct,
+                        operation: OperationKind::Fetch,
+                        phase: ProgressPhase::Reconstruct,
                         message: format!(
                             "Reconstructing jobs ({}/{})",
                             completed_job_count,
@@ -414,10 +414,10 @@ pub(super) fn run_reconstruction_jobs(
                 verified_file_bytes = verified_file_bytes.saturating_add(file_verification.bytes);
                 emit_progress(
                     control.progress(),
-                    GutchProgressEvent {
+                    ProgressEvent {
                         feedback: None,
-                        operation: GutchOperation::Fetch,
-                        phase: GutchProgressPhase::Reconstruct,
+                        operation: OperationKind::Fetch,
+                        phase: ProgressPhase::Reconstruct,
                         message: format!(
                             "Reconstructing files ({}/{})",
                             completed_file_count,
@@ -480,10 +480,10 @@ pub(super) fn run_reconstruction_jobs(
         .saturating_add(verified_file_bytes);
     emit_progress(
         control.progress(),
-        GutchProgressEvent {
+        ProgressEvent {
             feedback: None,
-            operation: GutchOperation::Fetch,
-            phase: GutchProgressPhase::Reconstruct,
+            operation: OperationKind::Fetch,
+            phase: ProgressPhase::Reconstruct,
             message: format!(
                 "Reconstructing files ({}/{})",
                 file_plans.len(),
@@ -548,7 +548,7 @@ fn start_artifact_downloads(
     >,
     transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
     download_client: Option<&crate::transfer::http::DownloadClient>,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     transfer_progress: Option<&Arc<FetchTransferProgress>>,
 ) -> Result<Option<ArtifactDownloadScheduler>> {
     let scheduler = if pending_artifact_downloads.is_empty() {
@@ -580,7 +580,7 @@ fn finish_pipeline_workers(
     artifact_scheduler: Option<ArtifactDownloadScheduler>,
     work_queue: &mut ReconstructionWorkQueue,
     event_rx: &mpsc::Receiver<ReconstructJobEvent>,
-    control: &GutchOperationControl,
+    control: &OperationControl,
     failed: bool,
 ) -> Result<()> {
     // Publication can follow return immediately. Keep download shutdown before
@@ -645,16 +645,16 @@ fn update_reconstruct_backpressure(
 fn ensure_empty_reconstruct_output_file(
     file_plan: &ReconstructPipelineFile,
     output_path: &Path,
-    control: &GutchOperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     let _file_span = control
         .profile_span_with_args("installation.reconstruct.prepare.file", || {
-            crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size)
+            crate::profiling::file_trace_args(file_plan.path.clone(), file_plan.size)
         });
     let output = {
         let _create_span = control
             .profile_span_with_args("installation.reconstruct.prepare.file.create", || {
-                crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size)
+                crate::profiling::file_trace_args(file_plan.path.clone(), file_plan.size)
             });
         OpenOptions::new()
             .write(true)
@@ -666,7 +666,7 @@ fn ensure_empty_reconstruct_output_file(
     {
         let _size_span = control
             .profile_span_with_args("installation.reconstruct.prepare.file.set_len", || {
-                crate::profile::file_trace_args(file_plan.path.clone(), file_plan.size)
+                crate::profiling::file_trace_args(file_plan.path.clone(), file_plan.size)
             });
         output
             .set_len(file_plan.size)

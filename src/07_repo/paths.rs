@@ -7,10 +7,10 @@ use serde::Serialize;
 use crate::Error;
 use crate::Result;
 use crate::manifest::REPO_METADATA_FILE;
-use crate::manifest::gutch_repo::GutchRepoManifest;
+use crate::manifest::repo_manifest::RepoManifest;
 
 #[derive(Debug, Clone)]
-pub struct GutchRepoPaths {
+pub struct RepoPaths {
     pub(crate) repo_root: PathBuf,
     pub(crate) repo_metadata_path: PathBuf,
     pub(crate) local_repo_config_path: PathBuf,
@@ -20,7 +20,7 @@ pub struct GutchRepoPaths {
     pub(crate) chunks_root: PathBuf,
 }
 
-impl GutchRepoPaths {
+impl RepoPaths {
     pub fn from_store_root(store_root: &Path, gutch_repo_id: &str) -> Result<Self> {
         validate_path_component(gutch_repo_id, "Gutch repo ID")?;
         let repo_root = store_root.join("v1").join("repos").join(gutch_repo_id);
@@ -61,22 +61,18 @@ pub(crate) fn validate_path_component(value: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn ensure_gutch_repo_layout(
-    paths: &GutchRepoPaths,
-    name: &str,
-) -> Result<GutchRepoManifest> {
+pub(crate) fn ensure_gutch_repo_layout(paths: &RepoPaths, name: &str) -> Result<RepoManifest> {
     crate::filesystem::create_dir_all(&paths.snapshots_root)?;
     crate::filesystem::create_dir_all(&paths.bundles_root)?;
     crate::filesystem::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_metadata_path.exists() {
         let repo_manifest_json = crate::filesystem::read_to_string(&paths.repo_metadata_path)?;
-        let mut manifest: GutchRepoManifest =
-            crate::filesystem::from_json_str(&repo_manifest_json)?;
+        let mut manifest: RepoManifest = crate::filesystem::from_json_str(&repo_manifest_json)?;
         apply_local_repo_config(paths, &mut manifest)?;
         manifest
     } else {
-        let repo_manifest = GutchRepoManifest::new(name.to_string());
+        let repo_manifest = RepoManifest::new(name.to_string());
         crate::filesystem::write_json(&paths.repo_metadata_path, &repo_manifest)?;
         repo_manifest
     };
@@ -84,8 +80,8 @@ pub(crate) fn ensure_gutch_repo_layout(
     Ok(repo_manifest)
 }
 
-pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, GutchRepoManifest)> {
-    let paths = GutchRepoPaths::from_repo_root(repo_root);
+pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoManifest)> {
+    let paths = RepoPaths::from_repo_root(repo_root);
     if !paths.repo_metadata_path.exists() {
         return Err(Error::manifest(format!(
             "gutch repo manifest not found at {}",
@@ -93,8 +89,7 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
         )));
     }
     let repo_manifest_json = crate::filesystem::read_to_string(&paths.repo_metadata_path)?;
-    let mut repo_manifest: GutchRepoManifest =
-        crate::filesystem::from_json_str(&repo_manifest_json)?;
+    let mut repo_manifest: RepoManifest = crate::filesystem::from_json_str(&repo_manifest_json)?;
     if let Some(constraints) = &repo_manifest.constraints {
         constraints.validate_definition()?;
     }
@@ -103,8 +98,8 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(GutchRepoPaths, Gut
 }
 
 pub(crate) fn write_gutch_repo_manifest(
-    paths: &GutchRepoPaths,
-    repo_manifest: &GutchRepoManifest,
+    paths: &RepoPaths,
+    repo_manifest: &RepoManifest,
 ) -> Result<()> {
     crate::filesystem::write_json(&paths.repo_metadata_path, repo_manifest)?;
     if repo_manifest.remote_repo_id.is_empty() {
@@ -128,7 +123,7 @@ struct LocalRepoConfig {
     remote_repo_id: String,
 }
 
-fn apply_local_repo_config(paths: &GutchRepoPaths, manifest: &mut GutchRepoManifest) -> Result<()> {
+fn apply_local_repo_config(paths: &RepoPaths, manifest: &mut RepoManifest) -> Result<()> {
     if !paths.local_repo_config_path.exists() {
         return Ok(());
     }
@@ -145,7 +140,7 @@ pub(crate) fn bundle_path_in_root(bundles_root: &Path, bundle_id: &str) -> Resul
     Ok(bundles_root.join(prefix).join(bundle_id))
 }
 
-pub(crate) fn bundle_path(paths: &GutchRepoPaths, bundle_id: &str) -> Result<PathBuf> {
+pub(crate) fn bundle_path(paths: &RepoPaths, bundle_id: &str) -> Result<PathBuf> {
     bundle_path_in_root(&paths.bundles_root, bundle_id)
 }
 
@@ -155,7 +150,7 @@ pub(crate) fn chunk_path_in_root(chunks_root: &Path, chunk_hash: &str) -> Result
     Ok(chunks_root.join(prefix).join(chunk_hash))
 }
 
-pub(crate) fn chunk_path(paths: &GutchRepoPaths, chunk_hash: &str) -> Result<PathBuf> {
+pub(crate) fn chunk_path(paths: &RepoPaths, chunk_hash: &str) -> Result<PathBuf> {
     chunk_path_in_root(&paths.chunks_root, chunk_hash)
 }
 
@@ -172,7 +167,7 @@ mod tests {
     #[test]
     fn rejects_path_traversal_components() {
         let store_root = Path::new("store");
-        assert!(GutchRepoPaths::from_store_root(store_root, "../escape").is_err());
+        assert!(RepoPaths::from_store_root(store_root, "../escape").is_err());
         assert!(bundle_path_in_root(store_root, "..\\escape").is_err());
         assert!(chunk_path_in_root(store_root, "nested/hash").is_err());
         assert!(validate_path_component("C:\\escape", "component").is_err());
@@ -180,7 +175,7 @@ mod tests {
 
     #[test]
     fn accepts_single_component_identifiers() {
-        let paths = GutchRepoPaths::from_store_root(Path::new("store"), "repo-1").unwrap();
+        let paths = RepoPaths::from_store_root(Path::new("store"), "repo-1").unwrap();
         assert!(paths.repo_root().ends_with(Path::new("v1/repos/repo-1")));
         assert!(bundle_path(&paths, "bundle-1").is_ok());
         assert!(chunk_path(&paths, "ab123").is_ok());

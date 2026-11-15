@@ -1,6 +1,6 @@
 //! Host-facing API contracts; broader CLI workflows live in Python.
 use gutch::api::{
-    Error, GutchCancellationHook, GutchOperationControl, InstallationRequest, RuntimeResourceHints,
+    CancellationHook, Error, InstallationRequest, OperationControl, RuntimeResourceHints,
     reconstruct_snapshot,
 };
 use std::sync::Arc;
@@ -149,7 +149,7 @@ fn assert_api_and_cli_capture_equivalent(
 #[derive(Debug)]
 struct Cancelled;
 
-impl GutchCancellationHook for Cancelled {
+impl CancellationHook for Cancelled {
     fn is_cancelled(&self) -> bool {
         true
     }
@@ -170,7 +170,7 @@ fn cancelled_reconstruction_preserves_destination_and_does_not_create_staging() 
         source_snapshot_id: None,
         source_dir: None,
         runtime_hints: RuntimeResourceHints::default(),
-        control: GutchOperationControl::default().with_cancellation(Arc::new(Cancelled)),
+        control: OperationControl::default().with_cancellation(Arc::new(Cancelled)),
     });
     assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
     assert_eq!(

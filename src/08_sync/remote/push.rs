@@ -18,13 +18,13 @@ use super::pull::local_bundle_paths;
 use crate::Error;
 use crate::Result;
 use crate::manifest::SnapshotTagSet;
-use crate::progress::GutchOperation;
-use crate::progress::GutchOperationControl;
-use crate::progress::GutchProgressPhase;
+use crate::progress::OperationControl;
+use crate::progress::OperationKind;
+use crate::progress::ProgressPhase;
 use crate::repo::RepoStatus;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::summarize_snapshot_tags;
@@ -58,7 +58,7 @@ pub fn plan_push_with_provider<P: RemoteRepositoryReader + ?Sized>(
 
 fn collect_local_sync_snapshots(
     repo_root: &Path,
-) -> Result<(RepoStatus, GutchRepoPaths, Vec<LocalSyncSnapshot>)> {
+) -> Result<(RepoStatus, RepoPaths, Vec<LocalSyncSnapshot>)> {
     let status = crate::repo::status::read_repo_status(repo_root)?;
     if !status.is_repo {
         return Err(Error::manifest(format!(
@@ -150,7 +150,7 @@ pub(crate) fn plan_push(
 
 fn plan_push_from_local(
     status: &RepoStatus,
-    repo_paths: &GutchRepoPaths,
+    repo_paths: &RepoPaths,
     local_snapshots: &[LocalSyncSnapshot],
     repository: &RemoteRepository,
     remote_snapshots: &[RemoteSnapshot],
@@ -266,8 +266,8 @@ fn plan_push_from_local(
 struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter + ?Sized> {
     provider: &'a P,
     repository: &'a RemoteRepository,
-    repo_paths: &'a GutchRepoPaths,
-    control: &'a GutchOperationControl,
+    repo_paths: &'a RepoPaths,
+    control: &'a OperationControl,
     stats: &'a mut RepoPushStats,
     progress: &'a RemoteProgress,
     step: &'a mut usize,
@@ -282,7 +282,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context.control.checkpoint()?;
     *context.step += 1;
     context.progress.emit(
-        GutchProgressPhase::UploadSnapshotMetadata,
+        ProgressPhase::UploadSnapshotMetadata,
         "Uploading snapshot metadata",
         *context.step,
         context.total_steps,
@@ -301,7 +301,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context.control.checkpoint()?;
     *context.step += 1;
     context.progress.emit(
-        GutchProgressPhase::UploadSnapshotBlueprint,
+        ProgressPhase::UploadSnapshotBlueprint,
         "Uploading snapshot blueprints",
         *context.step,
         context.total_steps,
@@ -323,7 +323,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context.control.checkpoint()?;
     *context.step += 1;
     context.progress.emit(
-        GutchProgressPhase::UploadSnapshotMetadata,
+        ProgressPhase::UploadSnapshotMetadata,
         "Uploading snapshot product metadata",
         *context.step,
         context.total_steps,
@@ -351,16 +351,16 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
 pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
     repo: PathBuf,
     provider: &P,
-    control: GutchOperationControl,
+    control: OperationControl,
 ) -> Result<RepoPushStats> {
     let operation_root = repo.to_path_buf();
     crate::repo::coordination::write(&operation_root, || {
         control.checkpoint()?;
-        let progress = RemoteProgress::new(&control, GutchOperation::Push);
+        let progress = RemoteProgress::new(&control, OperationKind::Push);
         let bound_remote_repo_id = linked_remote_repo_id(&repo)?;
         let repository = provider.resolve_repository(None, Some(&bound_remote_repo_id))?;
         progress.emit(
-            GutchProgressPhase::Planning,
+            ProgressPhase::Planning,
             "Planning sync changes",
             0,
             1,
@@ -423,7 +423,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             control.checkpoint()?;
             step += 1;
             progress.emit(
-                GutchProgressPhase::RemoveSnapshots,
+                ProgressPhase::RemoveSnapshots,
                 "Removing remote snapshots",
                 step,
                 total_steps,
@@ -438,7 +438,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
         control.checkpoint()?;
         step += 1;
         progress.emit(
-            GutchProgressPhase::UploadRepoMetadata,
+            ProgressPhase::UploadRepoMetadata,
             "Uploading repo metadata",
             step,
             total_steps,
@@ -457,7 +457,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             control.checkpoint()?;
             step += 1;
             progress.emit(
-                GutchProgressPhase::UploadChunkIndex,
+                ProgressPhase::UploadChunkIndex,
                 "Uploading chunk index",
                 step,
                 total_steps,
@@ -521,7 +521,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             if provider.bundle_exists(&repository, &bundle_id)? {
                 stats.bundle_skipped_count += 1;
                 progress.emit(
-                    GutchProgressPhase::UploadBundle,
+                    ProgressPhase::UploadBundle,
                     "Skipping bundles already present remotely",
                     step,
                     total_steps,
@@ -533,7 +533,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             let bundle_bytes = crate::filesystem::read(&bundle_path)?;
             let bundle_size = bundle_bytes.len() as u64;
             progress.emit(
-                GutchProgressPhase::UploadBundle,
+                ProgressPhase::UploadBundle,
                 "Uploading bundles",
                 step,
                 total_steps,
@@ -543,7 +543,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             provider.upload_bundle(&repository, &bundle_id, bundle_bytes, &control)?;
             stats.bundle_uploaded_count += 1;
             progress.emit(
-                GutchProgressPhase::UploadBundle,
+                ProgressPhase::UploadBundle,
                 "Uploaded bundle",
                 step,
                 total_steps,
@@ -555,7 +555,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
         control.checkpoint()?;
         step += 1;
         progress.emit(
-            GutchProgressPhase::Prune,
+            ProgressPhase::Prune,
             "Removing unreferenced remote bundles",
             step,
             total_steps,
@@ -565,7 +565,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
         stats.remote_bundle_deleted_count =
             provider.reconcile_bundles(&repository, &required_bundle_ids)?;
         progress.emit(
-            GutchProgressPhase::Done,
+            ProgressPhase::Done,
             "Sync complete",
             total_steps,
             total_steps,

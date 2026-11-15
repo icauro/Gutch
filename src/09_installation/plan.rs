@@ -94,7 +94,7 @@ fn build_source_locations_for_target(
 pub(crate) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &crate::repo::index::ChunkIndex,
-    repo_paths: &crate::repo::paths::GutchRepoPaths,
+    repo_paths: &crate::repo::paths::RepoPaths,
     existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
     verified_source: Option<SnapshotReconstructSource<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
@@ -372,7 +372,7 @@ pub(crate) fn inspect_installation_changes(
     destination_dir: &Path,
     inspection: super::inspect::VerifyMode,
     runtime_hints: &RuntimeResourceHints,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
     operation_pool: Option<&ThreadPool>,
 ) -> Result<InstallationChanges> {
     let (mut classification, _) = classify_directory_with_marker_namespace_and_pool(
@@ -438,7 +438,7 @@ pub(crate) fn resolve_metadata_updates(
     target: &SnapshotManifest,
     classification: &mut RepairClassification,
     destination: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<Vec<SnapshotEntry>> {
     let mut updates = Vec::new();
     let entries: HashMap<_, _> = target

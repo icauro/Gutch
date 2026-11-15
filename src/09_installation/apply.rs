@@ -32,7 +32,7 @@ impl VerifiedSource<'_> {
 pub(crate) fn resolve_verified_source<'a>(
     source: Option<SnapshotReconstructSource<'a>>,
     runtime_hints: &RuntimeResourceHints,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<Option<VerifiedSource<'a>>> {
     control.checkpoint()?;
     let Some(source) = source else {
@@ -210,7 +210,7 @@ pub(crate) fn prepare_installation_destination(
     destination: &Path,
     staging: Option<&Path>,
     repository_path: &Path,
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> Result<std::fs::File> {
     crate::filesystem::paths::validate_destination_paths(
         destination,

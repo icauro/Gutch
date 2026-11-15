@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use crate::Error;
 use crate::cli::reporting::ensure_parent_directory;
-use crate::progress::GutchProgressEvent;
-use crate::progress::GutchProgressSink;
+use crate::progress::ProgressEvent;
+use crate::progress::ProgressSink;
 use crate::sync::remote::PullConflictPolicy;
 use crate::sync::remote::RemoteRepositoryCommandProvider;
 use crate::sync::remote::RemoteRepositorySummary;
@@ -13,8 +13,8 @@ use crate::sync::remote::RemoteTagReferencesResult;
 #[derive(Debug)]
 struct CliProgressSink;
 
-impl GutchProgressSink for CliProgressSink {
-    fn emit(&self, event: GutchProgressEvent) {
+impl ProgressSink for CliProgressSink {
+    fn emit(&self, event: ProgressEvent) {
         if !event.done && event.total > 0 {
             eprintln!(
                 "[{}] {}/{} {}",

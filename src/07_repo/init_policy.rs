@@ -6,7 +6,7 @@ use serde::Serialize;
 use super::read_repo_status;
 use crate::Error;
 use crate::Result;
-use crate::repo::paths::GutchRepoPaths;
+use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::paths::write_gutch_repo_manifest;
 
@@ -91,7 +91,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     let entry_count = std::fs::read_dir(repo_root)?
         .filter_map(|entry| entry.ok())
         .count();
-    let paths = GutchRepoPaths::from_repo_root(repo_root);
+    let paths = RepoPaths::from_repo_root(repo_root);
 
     if paths.repo_metadata_path.exists() {
         let status = read_repo_status(repo_root)?;
@@ -183,7 +183,7 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()>
             .and_then(|name| name.to_str())
             .filter(|name| !name.is_empty())
             .unwrap_or("base");
-        let repo_paths = GutchRepoPaths::from_repo_root(repo_root);
+        let repo_paths = RepoPaths::from_repo_root(repo_root);
         let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
         repo_manifest.constraints =
             (!options.constraints.is_empty()).then_some(options.constraints);
@@ -229,7 +229,7 @@ pub(crate) fn repo_init_needs_confirmation_error(assessment: &RepoInitAssessment
 }
 
 pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
-    let paths = GutchRepoPaths::from_repo_root(repo_root);
+    let paths = RepoPaths::from_repo_root(repo_root);
     for (_, artifact) in super::inventory::list_repo_artifact_paths(&paths)? {
         if !super::coordination::defer_artifact_deletion(&artifact)? {
             std::fs::remove_file(artifact)?;
@@ -275,7 +275,7 @@ mod tests {
     fn assess_repo_init_path_reports_existing_repo() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
-        let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
         let assessment = assess_repo_init_path(&repo_root).unwrap();
@@ -287,7 +287,7 @@ mod tests {
     fn initialize_repo_init_without_force_rejects_existing_repo() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
-        let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
         let err = initialize_repo(
@@ -305,7 +305,7 @@ mod tests {
     fn initialize_repo_init_with_force_replaces_existing_repo_artifacts() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
-        let repo_paths = GutchRepoPaths::from_repo_root(&repo_root);
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
         let snapshot_id = test_hash("snapshot-one");
         let mut snapshot_manifest = SnapshotManifest::new(

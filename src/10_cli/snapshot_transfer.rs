@@ -28,7 +28,7 @@ pub(crate) struct FetchCommand {
 impl FetchCommand {
     fn into_request(
         self,
-        control: crate::progress::GutchOperationControl,
+        control: crate::progress::OperationControl,
     ) -> crate::Result<crate::sync::fetch_types::SnapshotFetchRequest> {
         let FetchCommand {
             repo,
@@ -56,8 +56,7 @@ impl FetchCommand {
                     })?;
                 let session_id = session_id.clone();
                 Ok::<Arc<dyn crate::transfer::types::ArtifactUrlProvider>, crate::Error>(Arc::new(
-                    move |bundle_ids: &[String],
-                          control: &crate::progress::GutchOperationControl| {
+                    move |bundle_ids: &[String], control: &crate::progress::OperationControl| {
                         resolve_artifact_urls(
                             &client,
                             &endpoint,
@@ -242,7 +241,7 @@ fn resolve_artifact_urls(
     endpoint: &str,
     session_id: Option<&str>,
     bundle_ids: &[String],
-    control: &crate::progress::GutchOperationControl,
+    control: &crate::progress::OperationControl,
 ) -> crate::Result<Vec<crate::transfer::types::ArtifactDownload>> {
     control.checkpoint()?;
     let separator = if endpoint.contains('?') { "&" } else { "?" };

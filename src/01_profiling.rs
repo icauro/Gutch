@@ -21,7 +21,7 @@ thread_local! {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
-pub enum GutchProfileMode {
+pub enum ProfileMode {
     #[default]
     Off,
     Summary,
@@ -32,17 +32,17 @@ pub enum GutchProfileMode {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ProfileInstant(Option<Instant>);
 impl ProfileInstant {
-    pub(crate) fn start(profiler: Option<&GutchProfiler>) -> Self {
+    pub(crate) fn start(profiler: Option<&Profiler>) -> Self {
         Self(
             profiler
-                .filter(|p| p.mode() != GutchProfileMode::Off)
+                .filter(|p| p.mode() != ProfileMode::Off)
                 .map(|_| Instant::now()),
         )
     }
-    pub(crate) fn detailed(profiler: Option<&GutchProfiler>) -> Self {
+    pub(crate) fn detailed(profiler: Option<&Profiler>) -> Self {
         Self(
             profiler
-                .filter(|p| p.mode() == GutchProfileMode::Detailed)
+                .filter(|p| p.mode() == ProfileMode::Detailed)
                 .map(|_| Instant::now()),
         )
     }
@@ -78,13 +78,13 @@ pub(crate) fn file_trace_args(path: impl AsRef<str>, bytes: u64) -> Arguments {
 }
 
 #[derive(Debug, Clone)]
-pub struct GutchProfiler {
+pub struct Profiler {
     state: Arc<State>,
 }
 #[derive(Debug)]
 struct State {
     id: u64,
-    mode: GutchProfileMode,
+    mode: ProfileMode,
     started: Instant,
     recorders: Mutex<Vec<Arc<Mutex<Recorder>>>>,
     allocated: AtomicUsize,
@@ -168,7 +168,7 @@ struct Aggregate {
     maximum: Duration,
 }
 #[derive(Debug, Clone, Serialize)]
-pub struct GutchProfileSpanSummary {
+pub struct ProfileSpanSummary {
     pub name: &'static str,
     pub sampled: bool,
     pub count: usize,
@@ -176,11 +176,11 @@ pub struct GutchProfileSpanSummary {
     pub maximum_seconds: f64,
 }
 #[derive(Debug, Clone, Serialize)]
-pub struct GutchProfileSummary {
-    pub mode: GutchProfileMode,
+pub struct ProfileSummary {
+    pub mode: ProfileMode,
     pub span_count: usize,
     pub total_span_seconds: f64,
-    pub spans: Vec<GutchProfileSpanSummary>,
+    pub spans: Vec<ProfileSpanSummary>,
     pub recording_limit_bytes: usize,
     pub recording_capacity_bytes: usize,
     pub dropped_events: usize,
@@ -188,7 +188,7 @@ pub struct GutchProfileSummary {
     pub suppressed_events: usize,
     pub detail_event_limit: usize,
 }
-pub struct GutchProfileSpan {
+pub struct ProfileSpan {
     recorder: Arc<Mutex<Recorder>>,
     state: Arc<State>,
     name: &'static str,
@@ -197,8 +197,8 @@ pub struct GutchProfileSpan {
     _thread_bound: PhantomData<Rc<()>>,
 }
 
-impl GutchProfiler {
-    pub fn new(mode: GutchProfileMode) -> Self {
+impl Profiler {
+    pub fn new(mode: ProfileMode) -> Self {
         Self {
             state: Arc::new(State {
                 id: NEXT_SESSION.fetch_add(1, Ordering::Relaxed),
@@ -215,7 +215,7 @@ impl GutchProfiler {
             }),
         }
     }
-    pub fn mode(&self) -> GutchProfileMode {
+    pub fn mode(&self) -> ProfileMode {
         self.state.mode
     }
     fn recorder(&self) -> Option<Arc<Mutex<Recorder>>> {
@@ -254,19 +254,19 @@ impl GutchProfiler {
             Some(recorder)
         })
     }
-    pub(crate) fn span(&self, name: &'static str) -> Option<GutchProfileSpan> {
+    pub(crate) fn span(&self, name: &'static str) -> Option<ProfileSpan> {
         self.span_with_args(name, BTreeMap::new)
     }
     pub(crate) fn span_with_args(
         &self,
         name: &'static str,
         args: impl FnOnce() -> Arguments,
-    ) -> Option<GutchProfileSpan> {
-        if self.mode() == GutchProfileMode::Off || self.state.finished.load(Ordering::Acquire) {
+    ) -> Option<ProfileSpan> {
+        if self.mode() == ProfileMode::Off || self.state.finished.load(Ordering::Acquire) {
             return None;
         }
         let overview = overview_marker(name);
-        if self.mode() == GutchProfileMode::Summary && !overview {
+        if self.mode() == ProfileMode::Summary && !overview {
             return None;
         }
         let recorder = self.recorder()?;
@@ -274,13 +274,13 @@ impl GutchProfiler {
             return None;
         }
         let started = Instant::now();
-        let event = if self.mode() == GutchProfileMode::Detailed {
+        let event = if self.mode() == ProfileMode::Detailed {
             self.reserve_event(&recorder, name, started, false, args)
         } else {
             None
         };
         self.state.active_spans.fetch_add(1, Ordering::AcqRel);
-        Some(GutchProfileSpan {
+        Some(ProfileSpan {
             state: self.state.clone(),
             recorder,
             name,
@@ -290,8 +290,7 @@ impl GutchProfiler {
         })
     }
     pub(crate) fn event_with_args(&self, name: &'static str, args: impl FnOnce() -> Arguments) {
-        if self.mode() != GutchProfileMode::Detailed || self.state.finished.load(Ordering::Acquire)
-        {
+        if self.mode() != ProfileMode::Detailed || self.state.finished.load(Ordering::Acquire) {
             return;
         }
         if let Some(recorder) = self.recorder() {
@@ -398,7 +397,7 @@ impl GutchProfiler {
         recorder.events.push(event);
         Some(index)
     }
-    pub fn summary(&self) -> GutchProfileSummary {
+    pub fn summary(&self) -> ProfileSummary {
         let mut merged: BTreeMap<&'static str, Aggregate> = BTreeMap::new();
         if let Ok(recorders) = self.state.recorders.lock() {
             for recorder in recorders.iter() {
@@ -414,7 +413,7 @@ impl GutchProfiler {
         }
         let mut spans: Vec<_> = merged
             .into_iter()
-            .map(|(name, a)| GutchProfileSpanSummary {
+            .map(|(name, a)| ProfileSpanSummary {
                 name,
                 sampled: !overview_marker(name)
                     && (self.state.suppressed.load(Ordering::Relaxed) > 0
@@ -425,7 +424,7 @@ impl GutchProfiler {
             })
             .collect();
         spans.sort_by(|a, b| b.total_seconds.total_cmp(&a.total_seconds));
-        GutchProfileSummary {
+        ProfileSummary {
             mode: self.mode(),
             span_count: spans.iter().map(|s| s.count).sum(),
             total_span_seconds: spans.iter().map(|s| s.total_seconds).sum(),
@@ -448,7 +447,7 @@ impl GutchProfiler {
         self.state.finished.store(true, Ordering::Release);
         std::fs::create_dir_all(directory)?;
         let started = Instant::now();
-        let trace_result = if self.mode() == GutchProfileMode::Detailed {
+        let trace_result = if self.mode() == ProfileMode::Detailed {
             self.write_trace(&directory.join("trace.json"))
         } else {
             Ok(())
@@ -549,7 +548,7 @@ impl GutchProfiler {
         Ok(())
     }
 }
-impl Drop for GutchProfileSpan {
+impl Drop for ProfileSpan {
     fn drop(&mut self) {
         let finished = Instant::now();
         let duration = finished.duration_since(self.started);
@@ -622,7 +621,7 @@ mod tests {
     use super::*;
     #[test]
     fn nested_trace_endpoints_remain_inside_the_parent() {
-        let profiler = GutchProfiler::new(GutchProfileMode::Detailed);
+        let profiler = Profiler::new(ProfileMode::Detailed);
         for _ in 0..1024 {
             let _parent = profiler.span("test.parent");
             let _child = profiler.span("test.child");
@@ -638,15 +637,15 @@ mod tests {
 
     #[test]
     fn disabled_and_summary_do_not_evaluate_arguments() {
-        for mode in [GutchProfileMode::Off, GutchProfileMode::Summary] {
-            let p = GutchProfiler::new(mode);
+        for mode in [ProfileMode::Off, ProfileMode::Summary] {
+            let p = Profiler::new(mode);
             drop(p.span_with_args("test", || panic!("arguments evaluated")));
             p.event_with_args("event", || panic!("arguments evaluated"));
         }
     }
     #[test]
     fn millions_of_job_markers_do_not_build_millions_of_arguments() {
-        let p = GutchProfiler::new(GutchProfileMode::Detailed);
+        let p = Profiler::new(ProfileMode::Detailed);
         let evaluated = std::cell::Cell::new(0usize);
         for _ in 0..1_000_000 {
             drop(p.span_with_args("capture.scan.file", || {
@@ -668,7 +667,7 @@ mod tests {
     }
     #[test]
     fn exhausted_detail_budget_preserves_overview_and_skips_arguments() {
-        let p = GutchProfiler::new(GutchProfileMode::Detailed);
+        let p = Profiler::new(ProfileMode::Detailed);
         let recorder = p.recorder().unwrap();
         p.state
             .allocated
@@ -703,7 +702,7 @@ mod tests {
     }
     #[test]
     fn consecutive_jobs_are_recorded_without_time_sampling() {
-        let profiler = GutchProfiler::new(GutchProfileMode::Detailed);
+        let profiler = Profiler::new(ProfileMode::Detailed);
         for _ in 0..512 {
             drop(profiler.span("capture.scan.file"));
             drop(profiler.span("capture.bundle.encode_and_write"));
@@ -723,12 +722,12 @@ mod tests {
         assert_eq!(recorder.events.len(), 1024);
         assert!(recorder.events.iter().all(|event| event.duration.is_some()));
         assert!(ProfileInstant::start(None).0.is_none());
-        let summary = GutchProfiler::new(GutchProfileMode::Summary);
+        let summary = Profiler::new(ProfileMode::Summary);
         assert!(ProfileInstant::detailed(Some(&summary)).0.is_none());
     }
     #[test]
     fn finalization_rejects_live_spans_and_reports_export_failure() {
-        let profiler = GutchProfiler::new(GutchProfileMode::Detailed);
+        let profiler = Profiler::new(ProfileMode::Detailed);
         let directory = tempfile::tempdir().unwrap();
         let span = profiler.span("cli.command");
         assert!(profiler.finish(directory.path(), true).is_err());
@@ -744,7 +743,7 @@ mod tests {
     }
     #[test]
     fn retained_arguments_are_bounded() {
-        let profiler = GutchProfiler::new(GutchProfileMode::Detailed);
+        let profiler = Profiler::new(ProfileMode::Detailed);
         drop(profiler.span_with_args("capture.scan.file", || {
             (0..100)
                 .map(|index| {
@@ -767,8 +766,8 @@ mod tests {
     }
     #[test]
     fn sessions_are_isolated_and_export_complete_events() {
-        let a = GutchProfiler::new(GutchProfileMode::Detailed);
-        let b = GutchProfiler::new(GutchProfileMode::Summary);
+        let a = Profiler::new(ProfileMode::Detailed);
+        let b = Profiler::new(ProfileMode::Summary);
         drop(a.span("a"));
         drop(b.span("capture.build_snapshot"));
         assert_eq!(a.summary().spans[0].name, "a");

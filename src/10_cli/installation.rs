@@ -84,7 +84,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> c
     {
         return Err(crate::Error::manifest("installation repair cancelled"));
     }
-    let started_at = crate::profile::ProfileInstant::start(profile.as_deref());
+    let started_at = crate::profiling::ProfileInstant::start(profile.as_deref());
     let execution =
         crate::installation::repair_installation(crate::installation::InstallationRepairRequest {
             repo_path: command.repo.clone(),
@@ -167,7 +167,7 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::cli::Profile) ->
     {
         return Err(crate::Error::manifest("installation corruption cancelled"));
     }
-    let started_at = crate::profile::ProfileInstant::start(profile.as_deref());
+    let started_at = crate::profiling::ProfileInstant::start(profile.as_deref());
     let result = crate::installation::corrupt_installation(
         crate::installation::InstallationCorruptionRequest {
             destination_dir: command.destination.clone(),

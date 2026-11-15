@@ -29,7 +29,7 @@ pub struct SnapshotCaptureRequest {
     pub compression_level: Option<i32>,
     pub storage_mode: crate::artifact::profiles::ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
-    pub control: crate::progress::GutchOperationControl,
+    pub control: crate::progress::OperationControl,
 }
 
 #[derive(Debug, Clone)]

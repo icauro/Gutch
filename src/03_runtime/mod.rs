@@ -54,7 +54,7 @@ impl MemoryBudget {
     pub(crate) fn acquire(
         self: &std::sync::Arc<Self>,
         bytes: u64,
-        control: &crate::progress::GutchOperationControl,
+        control: &crate::progress::OperationControl,
     ) -> Result<MemoryPermit> {
         self.validate_request(bytes)?;
         let mut available = self.available.lock().map_err(memory_budget_poisoned)?;
@@ -186,17 +186,16 @@ mod tests {
     fn exhausted_memory_admission_remains_cancellable() {
         #[derive(Debug)]
         struct Cancellation(std::sync::atomic::AtomicBool);
-        impl crate::progress::GutchCancellationHook for Cancellation {
+        impl crate::progress::CancellationHook for Cancellation {
             fn is_cancelled(&self) -> bool {
                 self.0.load(std::sync::atomic::Ordering::Acquire)
             }
         }
         let budget = std::sync::Arc::new(MemoryBudget::new(FALLBACK_MEMORY_BUDGET_BYTES));
-        let profiler = std::sync::Arc::new(crate::profile::GutchProfiler::new(
-            crate::profile::GutchProfileMode::Detailed,
+        let profiler = std::sync::Arc::new(crate::profiling::Profiler::new(
+            crate::profiling::ProfileMode::Detailed,
         ));
-        let control =
-            crate::progress::GutchOperationControl::default().with_profiler(profiler.clone());
+        let control = crate::progress::OperationControl::default().with_profiler(profiler.clone());
         let permit = budget
             .acquire(FALLBACK_MEMORY_BUDGET_BYTES, &control)
             .unwrap();

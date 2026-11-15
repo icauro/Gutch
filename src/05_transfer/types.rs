@@ -1,4 +1,4 @@
-use crate::progress::GutchOperationControl;
+use crate::progress::OperationControl;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_TRANSFER_CONCURRENCY: usize = 4;
@@ -71,18 +71,18 @@ pub trait ArtifactUrlProvider: Send + Sync {
     fn resolve_artifact_urls(
         &self,
         artifact_ids: &[String],
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> crate::Result<Vec<ArtifactDownload>>;
 }
 
 impl<F> ArtifactUrlProvider for F
 where
-    F: Fn(&[String], &GutchOperationControl) -> crate::Result<Vec<ArtifactDownload>> + Send + Sync,
+    F: Fn(&[String], &OperationControl) -> crate::Result<Vec<ArtifactDownload>> + Send + Sync,
 {
     fn resolve_artifact_urls(
         &self,
         artifact_ids: &[String],
-        control: &GutchOperationControl,
+        control: &OperationControl,
     ) -> crate::Result<Vec<ArtifactDownload>> {
         self(artifact_ids, control)
     }

@@ -180,7 +180,7 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
         crate::artifact::profiles::CompressionKind::None,
         None,
     );
-    let control = crate::progress::GutchOperationControl::default();
+    let control = crate::progress::OperationControl::default();
     let exact =
         build_bounded_bundle_groups(planned.clone(), 216, &profile, &staging, &control).unwrap();
     assert_eq!(exact.len(), 1);
@@ -248,7 +248,7 @@ fn memory_admission_keeps_capture_results_in_input_order() {
         .num_threads(4)
         .build()
         .unwrap();
-    let control = crate::progress::GutchOperationControl::default();
+    let control = crate::progress::OperationControl::default();
     let result = super::run_parallel_chunk_work(
         (0..32).collect(),
         &pool,
@@ -356,7 +356,7 @@ fn capture_result_slots_join_workers_before_returning_an_error() {
     let result = super::run_parallel_chunk_work(
         (0..32).collect(),
         &pool,
-        &crate::progress::GutchOperationControl::default(),
+        &crate::progress::OperationControl::default(),
         4,
         |_| 1,
         |index, _| {
@@ -412,7 +412,7 @@ fn single_raw_group_skips_probe_but_keeps_placement_and_source_checks() {
         })
         .collect::<HashMap<_, _>>();
     let bundle_profile = BundleSizingProfile::default();
-    let control = crate::progress::GutchOperationControl::default();
+    let control = crate::progress::OperationControl::default();
     for codec in [
         CompressionKind::None,
         CompressionKind::Zstd,
@@ -526,7 +526,7 @@ fn source_change_after_single_group_planning_fails_encoding() {
         .build()
         .unwrap();
     let profile = crate::artifact::profiles::CompressionProfile::default();
-    let control = crate::progress::GutchOperationControl::default();
+    let control = crate::progress::OperationControl::default();
     let plan = plan_bundle_compressed_groups(
         chunks,
         &placements,
