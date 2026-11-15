@@ -2,7 +2,7 @@ use super::*;
 use crate::artifact::profiles::CompressionProfile;
 
 #[test]
-fn test_compress_decompress_roundtrip() {
+fn compress_decompress_roundtrip() {
     let original = b"hello world, this is some test data for compression ".repeat(100);
     let profile = CompressionProfile::default();
     let compressed = compress_with_profile(&original, &profile).unwrap();
@@ -16,7 +16,7 @@ fn test_compress_decompress_roundtrip() {
 }
 
 #[test]
-fn test_compress_small_data() {
+fn compress_small_data() {
     let original = b"hi";
     let profile = CompressionProfile::default();
     let compressed = compress_with_profile(original, &profile).unwrap();
@@ -25,7 +25,7 @@ fn test_compress_small_data() {
 }
 
 #[test]
-fn test_compress_segments_roundtrip() {
+fn compress_segments_roundtrip() {
     let first = b"first segment repeats ".repeat(100);
     let second = b"second segment repeats ".repeat(100);
     let third = b"third segment repeats ".repeat(100);
@@ -46,7 +46,7 @@ fn test_compress_segments_roundtrip() {
 }
 
 #[test]
-fn test_different_levels() {
+fn different_levels() {
     let original = b"some data that repeats again and again ".repeat(200);
     let c1 = compress_with_profile(
         &original,
@@ -69,14 +69,14 @@ fn test_different_levels() {
 }
 
 #[test]
-fn test_uncompressed_data_roundtrips_without_magic_sniffing() {
+fn uncompressed_data_roundtrips_without_magic_sniffing() {
     let original = [0x28, 0xB5, 0x2F, 0xFD, b'r', b'a', b'w', b'!'];
     let decompressed = decompress_data(&original, CompressionKind::None).unwrap();
     assert_eq!(decompressed, original);
 }
 
 #[test]
-fn test_lz4_roundtrip() {
+fn lz4_roundtrip() {
     let original = b"lz4 compression adapter data ".repeat(200);
     let profile = CompressionProfile::for_algorithm(CompressionKind::Lz4, Some(9));
     let compressed = compress_with_profile(&original, &profile).unwrap();
@@ -87,7 +87,7 @@ fn test_lz4_roundtrip() {
 }
 
 #[test]
-fn test_compression_levels_are_strictly_validated() {
+fn compression_levels_are_strictly_validated() {
     let zstd_invalid = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(23));
     let lz4_invalid = CompressionProfile::for_algorithm(CompressionKind::Lz4, Some(10));
     let none_invalid = CompressionProfile::for_algorithm(CompressionKind::None, Some(1));

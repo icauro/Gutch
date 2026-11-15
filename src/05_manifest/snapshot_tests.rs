@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_snapshot_manifest_new() {
+fn snapshot_manifest_new() {
     let mut tags = SnapshotTagSet::default();
     tags.insert("version", "1.0.0").unwrap();
     tags.insert("os", "windows").unwrap();
@@ -15,7 +15,7 @@ fn test_snapshot_manifest_new() {
 }
 
 #[test]
-fn test_manifest_serialization_roundtrip() {
+fn manifest_serialization_roundtrip() {
     let mut tags = SnapshotTagSet::default();
     tags.insert("version", "1.0.0").unwrap();
     tags.insert("os", "windows").unwrap();

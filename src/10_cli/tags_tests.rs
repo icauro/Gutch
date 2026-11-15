@@ -10,13 +10,13 @@ fn cli_tags_use_one_value_per_key() {
 }
 
 #[test]
-fn test_parse_cli_tags_rejects_bare_values() {
+fn parse_cli_tags_rejects_bare_values() {
     let error = parse_cli_tags(&["alpha".to_string()]).unwrap_err();
     assert!(error.to_string().contains("key=value"));
 }
 
 #[test]
-fn test_normalize_tags_uses_only_explicit_tags() {
+fn normalize_tags_uses_only_explicit_tags() {
     let mut explicit = SnapshotTagSet::default();
     explicit.insert("release_channel", "nightly").unwrap();
     explicit.insert("loader", "fabric").unwrap();
@@ -27,7 +27,7 @@ fn test_normalize_tags_uses_only_explicit_tags() {
 }
 
 #[test]
-fn test_normalize_tags_allows_tagless_snapshots() {
+fn normalize_tags_allows_tagless_snapshots() {
     let resolved = SnapshotTagSet::default().normalized().unwrap();
 
     assert!(resolved.is_empty());

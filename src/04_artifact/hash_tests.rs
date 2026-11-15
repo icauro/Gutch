@@ -1,17 +1,16 @@
 use super::*;
 use crate::artifact::integrity::hash_file;
-use std::env::temp_dir;
 use std::fs;
 
 #[test]
-fn test_hash_chunk() {
+fn hash_chunk_returns_a_64_digit_hex_digest() {
     let hash = hash_chunk(b"hello");
     let hex = hash_hex(&hash);
     assert_eq!(hex.len(), 64);
 }
 
 #[test]
-fn test_chunk_hash_byte_roundtrip() {
+fn chunk_hash_byte_roundtrip() {
     let hash = ChunkHash::of(b"hello");
     let reparsed = ChunkHash::from_bytes(*hash.as_bytes());
     assert_eq!(hash, reparsed);
@@ -24,11 +23,10 @@ fn test_chunk_hash_byte_roundtrip() {
 }
 
 #[test]
-fn test_hash_file() {
-    let dir = temp_dir();
-    let path = dir.join("gutch_test_hash_file.tmp");
+fn hash_file_matches_blake3_of_the_contents() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("content.tmp");
     fs::write(&path, b"test content").unwrap();
     let hash = hash_file(&path).unwrap();
-    let _ = fs::remove_file(&path);
     assert_eq!(hash, blake3::hash(b"test content"));
 }

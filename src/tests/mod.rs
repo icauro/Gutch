@@ -67,7 +67,7 @@ fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairCla
 }
 
 #[test]
-fn test_apply_snapshot_ops_reuses_verified_source_destination() {
+fn apply_snapshot_ops_reuses_verified_source_destination() {
     let root_temp = tempfile::tempdir().unwrap();
     let root = root_temp.path().to_path_buf();
     let v1_dir = root.join("v1");
@@ -155,7 +155,7 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
 }
 
 #[test]
-fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
+fn ensure_gutch_repo_layout_writes_repo_manifest() {
     let repo_root_temp = tempfile::tempdir().unwrap();
     let repo_root = repo_root_temp.path().join("test_gutch_repo_layout");
     let paths = RepoPaths::from_repo_root(&repo_root);
@@ -169,7 +169,7 @@ fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
 }
 
 #[test]
-fn test_verify_directory_missing_file() {
+fn verify_directory_missing_file() {
     let dir_temp = tempfile::tempdir().unwrap();
     let dir = dir_temp.path().to_path_buf();
 
@@ -191,7 +191,7 @@ fn test_verify_directory_missing_file() {
 }
 
 #[test]
-fn test_verify_directory_reports_extra_file() {
+fn verify_directory_reports_extra_file() {
     let dir_temp = tempfile::tempdir().unwrap();
     let dir = dir_temp.path().to_path_buf();
 
@@ -220,7 +220,7 @@ fn test_verify_directory_reports_extra_file() {
 }
 
 #[test]
-fn test_classify_directory_separates_missing_corrupt_and_extra() {
+fn classify_directory_separates_missing_corrupt_and_extra() {
     let dir_temp = tempfile::tempdir().unwrap();
     let dir = dir_temp.path().to_path_buf();
 
@@ -253,7 +253,7 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
 
 #[test]
 #[ignore = "writes about 200 MB; run with --ignored as a benchmark"]
-fn test_large_game_build_200mb() {
+fn large_game_build_200mb() {
     let root_temp = tempfile::tempdir().unwrap();
     let root = root_temp.path().to_path_buf();
     let artifacts_dir_temp = tempfile::tempdir().unwrap();

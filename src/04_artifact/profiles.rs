@@ -352,7 +352,7 @@ mod sizing_tests {
 mod contract_tests {
     use super::*;
     #[test]
-    fn test_chunking_profile_defaults() {
+    fn chunking_profile_defaults() {
         let p = ChunkSizingProfile::default();
         assert_eq!(p.preset, ChunkSizingPreset::Chunk128KiB);
         assert_eq!(p.min_chunk_bytes, 32 * 1024);
@@ -364,7 +364,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_small_chunk_profile_uses_sub_kib_range() {
+    fn small_chunk_profile_uses_sub_kib_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1KiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk1KiB);
         assert_eq!(p.min_chunk_bytes, 256);
@@ -373,7 +373,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_chunk_profile_4kib_uses_expected_range() {
+    fn chunk_profile_4kib_uses_expected_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk4KiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk4KiB);
         assert_eq!(p.min_chunk_bytes, 1024);
@@ -382,7 +382,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_chunk_profile_512kib_uses_expected_range() {
+    fn chunk_profile_512kib_uses_expected_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk512KiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk512KiB);
         assert_eq!(p.min_chunk_bytes, 128 * 1024);
@@ -391,7 +391,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_chunk_profile_1mib_uses_expected_range() {
+    fn chunk_profile_1mib_uses_expected_range() {
         let p = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk1MiB);
         assert_eq!(p.preset, ChunkSizingPreset::Chunk1MiB);
         assert_eq!(p.min_chunk_bytes, 256 * 1024);
@@ -400,7 +400,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_bundle_sizing_profile_defaults() {
+    fn bundle_sizing_profile_defaults() {
         let p = BundleSizingProfile::default();
         assert_eq!(p.preset, BundleSizingPreset::Bundle8MiB);
         assert_eq!(p.bundle_max_mib, 16);
@@ -410,7 +410,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_compression_profile_defaults() {
+    fn compression_profile_defaults() {
         let p = CompressionProfile::default();
         assert_eq!(p.level, Some(3));
         assert_eq!(p.compression, CompressionKind::Zstd);
@@ -418,7 +418,7 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_compression_profile_zstd5_level() {
+    fn compression_profile_zstd5_level() {
         let p = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(5));
         assert_eq!(p.level, Some(5));
         assert_eq!(p.compression, CompressionKind::Zstd);

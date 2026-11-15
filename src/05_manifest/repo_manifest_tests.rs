@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_repo_manifest_new() {
+fn repo_manifest_new() {
     let repo = RepoManifest::new("base".into());
     assert_eq!(repo.format, CONTENT_REPO_FORMAT);
     assert_eq!(repo.format_version, PUBLIC_METADATA_FORMAT_VERSION);

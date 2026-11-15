@@ -17,7 +17,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 #[test]
-fn test_build_and_read_bundle() {
+fn build_and_read_bundle() {
     let chunk1_data = b"chunk one data for testing ".repeat(10);
     let chunk2_data = b"chunk two different data ".repeat(10);
 
@@ -41,7 +41,7 @@ fn test_build_and_read_bundle() {
 }
 
 #[test]
-fn test_empty_bundle() {
+fn empty_bundle() {
     let builder = BundleBuilder::new(CompressionProfile::default());
     assert!(builder.is_empty());
     assert_eq!(builder.chunk_count(), 0);
@@ -51,7 +51,7 @@ fn test_empty_bundle() {
 }
 
 #[test]
-fn test_empty_lz4_bundle() {
+fn empty_lz4_bundle() {
     let profile = CompressionProfile::for_algorithm(CompressionKind::Lz4, None);
     let builder = BundleBuilder::new(profile.clone());
     let bundle_data = builder.build().unwrap();
@@ -61,7 +61,7 @@ fn test_empty_lz4_bundle() {
 }
 
 #[test]
-fn test_single_chunk_bundle() {
+fn single_chunk_bundle() {
     let data = b"single chunk test data ".repeat(20);
     let hash = ChunkHash::of(&data);
 
@@ -77,7 +77,7 @@ fn test_single_chunk_bundle() {
 }
 
 #[test]
-fn test_verify_bundle() {
+fn verify_bundle() {
     let chunk1 = b"verify test chunk one ".repeat(10);
     let chunk2 = b"verify test chunk two ".repeat(10);
 
@@ -91,7 +91,7 @@ fn test_verify_bundle() {
 }
 
 #[test]
-fn test_build_and_read_bundle_compressed_payload() {
+fn build_and_read_bundle_compressed_payload() {
     let chunk1 = b"bundle compression test chunk one ".repeat(8);
     let chunk2 = b"bundle compression test chunk two ".repeat(8);
 
@@ -161,7 +161,7 @@ fn test_build_and_read_bundle_compressed_payload() {
 }
 
 #[test]
-fn test_stream_bundle_chunks_only_delivers_required_chunks() {
+fn stream_bundle_chunks_only_delivers_required_chunks() {
     let chunks = [
         b"streamed chunk one".to_vec(),
         b"streamed chunk two".repeat(100),
@@ -206,7 +206,7 @@ fn test_stream_bundle_chunks_only_delivers_required_chunks() {
 }
 
 #[test]
-fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
+fn build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     let chunk1 = vec![0x28, 0xB5, 0x2F, 0xFD, b'r', b'a', b'w', b'1'];
     let chunk2 = b"plain uncompressed payload".to_vec();
 
@@ -224,7 +224,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
 }
 
 #[test]
-fn test_bundle_id_deterministic() {
+fn bundle_id_deterministic() {
     let data1 = b"deterministic test ".repeat(15);
     let hash1 = ChunkHash::of(&data1);
 
@@ -240,7 +240,7 @@ fn test_bundle_id_deterministic() {
 }
 
 #[test]
-fn test_bundle_id_depends_on_final_bundle_bytes() {
+fn bundle_id_depends_on_final_bundle_bytes() {
     let d1 = b"chunk a ".repeat(10);
     let d2 = b"chunk b ".repeat(10);
     let h1 = ChunkHash::of(&d1);
@@ -260,7 +260,7 @@ fn test_bundle_id_depends_on_final_bundle_bytes() {
 }
 
 #[test]
-fn test_invalid_bundle_table() {
+fn invalid_bundle_table() {
     let result = read_bundle(b"XXXX extra data to read");
     assert!(
         matches!(result, Err(Error::Artifact(_))),
@@ -283,7 +283,7 @@ fn write_named_bundle(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 #[test]
-fn test_bundle_identity_accepts_intact_file_and_bytes() {
+fn bundle_identity_accepts_intact_file_and_bytes() {
     let temp = tempfile::tempdir().unwrap();
     let (bundle_id, bundle_data) = test_bundle_with_id();
     verify_bundle_identity_bytes(&bundle_id, &bundle_data).unwrap();
@@ -344,7 +344,7 @@ fn invalid_download_is_not_promoted_over_a_valid_cached_bundle() {
 }
 
 #[test]
-fn test_bundle_identity_rejects_corrupt_filename() {
+fn bundle_identity_rejects_corrupt_filename() {
     let temp = tempfile::tempdir().unwrap();
     let (bundle_id, bundle_data) = test_bundle_with_id();
     // Valid hex that names nothing: the path-derived ID must match.
@@ -358,7 +358,7 @@ fn test_bundle_identity_rejects_corrupt_filename() {
 }
 
 #[test]
-fn test_bundle_identity_rejects_corrupt_trailing_id() {
+fn bundle_identity_rejects_corrupt_trailing_id() {
     let (bundle_id, mut bundle_data) = test_bundle_with_id();
     let last = bundle_data.len() - 1;
     bundle_data[last] = if bundle_data[last] == b'0' {
@@ -374,7 +374,7 @@ fn test_bundle_identity_rejects_corrupt_trailing_id() {
 }
 
 #[test]
-fn test_bundle_identity_rejects_corrupt_framing_and_payload() {
+fn bundle_identity_rejects_corrupt_framing_and_payload() {
     let (bundle_id, bundle_data) = test_bundle_with_id();
 
     // Corrupt framing: the magic no longer parses.

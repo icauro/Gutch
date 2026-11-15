@@ -59,7 +59,7 @@ fn small_file_scan_rejects_growth_and_truncation_since_inventory() {
 }
 
 #[test]
-fn test_chunk_bytes_basic() {
+fn chunk_bytes_basic() {
     let data =
         b"hello world here is some test data that should be longer than the minimum chunk size "
             .repeat(1000);
@@ -73,7 +73,7 @@ fn test_chunk_bytes_basic() {
 }
 
 #[test]
-fn test_chunk_bytes_empty() {
+fn chunk_bytes_empty() {
     let data: &[u8] = &[];
     let profile = ChunkSizingProfile::default();
     let results = chunk_bytes(data, &profile);
@@ -81,7 +81,7 @@ fn test_chunk_bytes_empty() {
 }
 
 #[test]
-fn test_chunk_bytes_small_data() {
+fn chunk_bytes_small_data() {
     let data = b"short";
     let profile = ChunkSizingProfile::default();
     let results = chunk_bytes(data, &profile);
@@ -90,7 +90,7 @@ fn test_chunk_bytes_small_data() {
 }
 
 #[test]
-fn test_chunks_have_increasing_offsets() {
+fn chunks_have_increasing_offsets() {
     let data = b"x".repeat(1024 * 64);
     let profile = ChunkSizingProfile::default();
     let results = chunk_bytes(&data, &profile);
@@ -100,7 +100,7 @@ fn test_chunks_have_increasing_offsets() {
 }
 
 #[test]
-fn test_chunk_file_streaming_matches_in_memory_chunking() {
+fn chunk_file_streaming_matches_in_memory_chunking() {
     let dir_temp = tempfile::tempdir().unwrap();
     let dir = dir_temp.path().to_path_buf();
     let path = dir.join("sample.bin");
@@ -130,7 +130,7 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
 }
 
 #[test]
-fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
+fn chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
     let dir_temp = tempfile::tempdir().unwrap();
     let dir = dir_temp.path().to_path_buf();
     let path = dir.join("sample.bin");

@@ -228,7 +228,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_impossible_column_counts_before_allocation() {
+    fn rejects_impossible_index_column_counts_before_allocation() {
         let index = metadata::encode(
             CHUNK_INDEX_BINARY_MAGIC,
             &[vec![0; 4], u32::MAX.to_le_bytes().to_vec()],

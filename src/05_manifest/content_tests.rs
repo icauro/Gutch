@@ -2,7 +2,7 @@ use super::*;
 use crate::artifact::hash::ChunkHash;
 
 #[test]
-fn test_file_manifest_serialization() {
+fn file_manifest_serialization() {
     let fm = FileManifest {
         path: "game.exe".to_string(),
         size: 12345,

@@ -32,7 +32,7 @@ mod snapshot_blueprint_tests {
     use crate::artifact::hash::ChunkHash;
 
     #[test]
-    fn rejects_impossible_column_counts_before_allocation() {
+    fn rejects_impossible_blueprint_column_counts_before_allocation() {
         let blueprint = metadata::encode(
             SNAPSHOT_BLUEPRINT_MAGIC,
             &[
