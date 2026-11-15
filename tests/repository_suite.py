@@ -160,7 +160,7 @@ def run_lifecycle(
                 repo,
                 data.root,
                 "--storage-mode",
-                storage,
+                storage.replace("_", "-"),
                 "--compression-algorithm",
                 compression,
             )
