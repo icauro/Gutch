@@ -23,10 +23,17 @@ pub(crate) fn normalize_artifact_downloads(
 }
 
 pub(crate) fn normalize_artifact_download(artifact: &ArtifactDownload) -> Result<(&str, &str)> {
-    Ok((
-        non_empty_trimmed(&artifact.artifact_id, "artifact id")?,
-        non_empty_trimmed(&artifact.url, "artifact URL")?,
-    ))
+    let artifact_id = non_empty_trimmed(&artifact.artifact_id, "artifact id")?;
+    let url = non_empty_trimmed(&artifact.url, "artifact URL")?;
+    // Reject unusable URLs up front; the message omits the URL, which may carry a token.
+    let scheme_supported = reqwest::Url::parse(url)
+        .is_ok_and(|parsed| matches!(parsed.scheme(), "http" | "https") && parsed.has_host());
+    if !scheme_supported {
+        return Err(Error::invalid_input(format!(
+            "artifact URL for '{artifact_id}' must be an absolute http or https URL"
+        )));
+    }
+    Ok((artifact_id, url))
 }
 
 fn non_empty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {
@@ -35,4 +42,24 @@ fn non_empty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {
         return Err(Error::invalid_input(format!("{label} is required")));
     }
     Ok(trimmed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_urls_must_be_absolute_http() {
+        let download = |url: &str| ArtifactDownload {
+            artifact_id: "chunk".into(),
+            url: url.into(),
+        };
+        for url in ["https://host/a?token=x", " http://host/a "] {
+            assert!(normalize_artifact_download(&download(url)).is_ok(), "{url}");
+        }
+        for url in ["file:///tmp/a", "host/a", "ftp://host/a", "https://"] {
+            let error = normalize_artifact_download(&download(url)).unwrap_err();
+            assert!(!error.to_string().contains(url), "{url}");
+        }
+    }
 }

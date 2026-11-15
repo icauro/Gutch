@@ -25,6 +25,8 @@ pub(crate) fn build_download_client() -> Result<DownloadClient> {
     let client = reqwest::Client::builder()
         .user_agent("Gutch")
         .connect_timeout(Duration::from_secs(10))
+        // A stalled body fails well before the whole-request limit.
+        .read_timeout(Duration::from_secs(60))
         .timeout(Duration::from_secs(30 * 60))
         .build()
         .map_err(|error| {
@@ -34,6 +36,13 @@ pub(crate) fn build_download_client() -> Result<DownloadClient> {
         client,
         runtime: Arc::new(runtime),
     })
+}
+
+/// Source URLs may carry access tokens, so errors never echo them. A malformed
+/// request or redirect policy failure repeats identically and is not retried.
+pub(crate) fn request_error(context: &str, error: reqwest::Error) -> Error {
+    let retryable = !(error.is_builder() || error.is_redirect());
+    Error::download(format!("{context}: {}", error.without_url()), retryable)
 }
 
 pub(crate) fn download_url_streaming<F, C>(
@@ -51,9 +60,12 @@ where
     control.checkpoint()?;
     client.runtime.block_on(async {
         let transfer = async {
-            let mut response = client.client.get(url).send().await.map_err(|error| {
-                Error::download(format!("download request failed: {error}"), true)
-            })?;
+            let mut response = client
+                .client
+                .get(url)
+                .send()
+                .await
+                .map_err(|error| request_error("download request failed", error))?;
             if !response.status().is_success() {
                 let status = response.status();
                 let mut body = Vec::new();
@@ -82,7 +94,7 @@ where
             while let Some(chunk) = response
                 .chunk()
                 .await
-                .map_err(|error| Error::download(format!("download body failed: {error}"), true))?
+                .map_err(|error| request_error("download body failed", error))?
             {
                 transferred_bytes = transferred_bytes.saturating_add(chunk.len() as u64);
                 if maximum_bytes.is_some_and(|maximum| transferred_bytes > maximum) {
@@ -284,5 +296,27 @@ mod tests {
             message,
             "download request failed with status 403 Forbidden: <Error>     <Code>AccessDenied</Code>   </Error>"
         );
+    }
+
+    #[test]
+    fn request_errors_never_echo_the_url() {
+        // Bind then drop a listener so the port refuses connections.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let client = super::build_download_client().unwrap();
+        let error = super::download_url_streaming(
+            &client,
+            &format!("http://127.0.0.1:{port}/chunk?token=secret-value"),
+            &OperationControl::default(),
+            None,
+            |_| Ok(()),
+            |_| Ok(()),
+        )
+        .unwrap_err();
+        assert!(!error.to_string().contains("secret-value"), "{error}");
+        assert!(error.is_retryable_download());
     }
 }

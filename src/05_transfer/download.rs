@@ -328,8 +328,10 @@ fn artifact_download_worker(
                 }
             }
             Err(error) => {
-                shared.cancelled.store(true, AtomicOrdering::Release);
+                // Queue the real failure before cancelling siblings, so their
+                // resulting `Cancelled` events can only arrive after it.
                 let _ = event_tx.send(ArtifactDownloadEvent::Failed(error));
+                shared.cancelled.store(true, AtomicOrdering::Release);
                 return;
             }
         }

@@ -16,6 +16,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 const MAX_ARTIFACT_DOWNLOAD_ATTEMPTS: usize = 3;
 
+/// Largest accepted artifact body: the 128 MiB bundle preset can overshoot by
+/// one 16 MiB chunk plus its tables, so this leaves ample headroom while still
+/// bounding a hostile or misconfigured source.
+const MAX_ARTIFACT_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
+
 pub(crate) struct TransferDownloadRequest<'a> {
     pub(crate) client: &'a DownloadClient,
     pub(crate) url: &'a str,
@@ -73,7 +78,7 @@ impl<'a> TransferDownloadRequest<'a> {
                 self.client,
                 self.url,
                 self.control,
-                None,
+                Some(MAX_ARTIFACT_DOWNLOAD_BYTES),
                 |content_length| {
                     reporter.record_content_length(content_length);
                     Ok(())
