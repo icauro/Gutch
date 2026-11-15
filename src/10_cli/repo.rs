@@ -211,16 +211,16 @@ fn verify(
     json_out: Option<&Path>,
 ) -> crate::Result<()> {
     let mode = if strict {
-        RepoArtifactVerification::Identity
+        RepoArtifactVerification::Strict
     } else {
-        RepoArtifactVerification::Structure
+        RepoArtifactVerification::Fast
     };
     let result = verify_gutch_repo_artifacts(repo, snapshot_id, mode)?;
     output::record(&result)?;
     write_json_file(json_out, &result)?;
 
     output::line(format_args!("{SECTION_SEPARATOR}"));
-    output::line(format_args!("Verify ({})", result.mode));
+    output::line(format_args!("Verify ({})", result.mode.as_str()));
     output::line(format_args!("ok: {}", result.ok));
     output::line(format_args!(
         "snapshots: {} ok={}",

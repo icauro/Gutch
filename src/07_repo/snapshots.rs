@@ -79,7 +79,7 @@ pub fn delete_repo_snapshot_and_cleanup(
                 operation: OperationKind::SnapshotDelete,
                 phase: ProgressPhase::Done,
                 message: format!(
-                    "Deleted snapshot, removed {} orphan bundle(s)",
+                    "Deleted snapshot, removed {} orphan artifact(s)",
                     orphan_count
                 ),
                 current: TOTAL,

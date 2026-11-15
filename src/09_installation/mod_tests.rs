@@ -1,4 +1,3 @@
-use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::hash::hash_hex;
 use crate::artifact::profiles::ArtifactStorageMode;
@@ -271,8 +270,6 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     let chunk_a = test_hash("chunk-a");
     let chunk_b = test_hash("chunk-b");
     let chunk_index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(BTreeMap::from([
             (
                 chunk_a.clone(),

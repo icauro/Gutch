@@ -177,8 +177,8 @@ snapshot preparation. Artifact readiness still enables reconstruction before all
 downloads finish; repository metadata is published after successful execution.
 Local reconstruction and repair continue to use the shared installation executor.
 
-Repository artifact verification selects `RepoArtifactVerification::Structure`
-or `Identity`; these retain the CLI's `fast` and `strict` report labels.
+Repository artifact verification selects `RepoArtifactVerification::Fast`
+(structure) or `Strict` (also content identity), reported as `fast` and `strict`.
 The verifier loads repository metadata, the index and committed snapshots directly.
 It decodes each blueprint once and retains that manifest through path and artifact
 checks. Snapshot selection limits payload checks; metadata identity and chunk

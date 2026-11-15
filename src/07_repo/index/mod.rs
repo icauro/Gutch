@@ -4,20 +4,14 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 
-use rayon::prelude::*;
-
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
-use crate::artifact::profiles::ArtifactStorageMode;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::repo::paths::bundle_id_from_bundle_path;
 
 use crate::repo::paths::RepoPaths;
 
 pub(crate) fn empty_chunk_index() -> ChunkIndex {
     ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: ChunkIndexEntries::new(),
     }
 }
@@ -78,64 +72,6 @@ pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-pub fn rebuild_chunk_index_from_bundles(
-    paths: &RepoPaths,
-    pool: &rayon::ThreadPool,
-) -> Result<ChunkIndex> {
-    let bundle_paths = collect_file_paths(&paths.bundles_root)?;
-    let bundle_entries = pool.install(|| {
-        bundle_paths
-            .par_iter()
-            .map(|path| read_bundle_index_entries(path))
-            .collect::<Result<Vec<_>>>()
-    })?;
-    build_chunk_index_from_bundle_entries(bundle_entries)
-}
-
-fn read_bundle_index_entries(path: &Path) -> Result<Vec<(String, ChunkIndexEntry)>> {
-    let Some(bundle_id) = bundle_id_from_bundle_path(path) else {
-        return Ok(Vec::new());
-    };
-    let shared_bundle_id = smol_str::SmolStr::new(&bundle_id);
-    let artifact_size = size_u32(fs::metadata(path)?.len())?;
-    let file = File::open(path)?;
-    let reader = BundleReader::open(file)?;
-    Ok(reader
-        .entries()
-        .iter()
-        .enumerate()
-        .map(|(ordinal, chunk)| {
-            (
-                chunk.chunk_hash.to_hex(),
-                ChunkIndexEntry::new(
-                    artifact_size,
-                    ordinal as u32,
-                    shared_bundle_id.clone(),
-                    chunk.raw_size,
-                    ArtifactStorageMode::Bundled,
-                ),
-            )
-        })
-        .collect())
-}
-
-fn build_chunk_index_from_bundle_entries(
-    bundle_entries: Vec<Vec<(String, ChunkIndexEntry)>>,
-) -> Result<ChunkIndex> {
-    let mut entries = BTreeMap::new();
-    for bundle_entries in bundle_entries {
-        for (chunk_hash, entry) in bundle_entries {
-            entries.insert(ChunkHash::parse_hex(&chunk_hash)?, entry);
-        }
-    }
-
-    Ok(ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
-        entries: entries.into_iter().collect(),
-    })
-}
-
 pub(crate) fn write_chunk_index(paths: &RepoPaths, index: &ChunkIndex) -> Result<()> {
     binary_codec::write_chunk_index_binary(&paths.chunk_map_path, index)
 }
@@ -143,20 +79,15 @@ pub(crate) fn write_chunk_index(paths: &RepoPaths, index: &ChunkIndex) -> Result
 pub(crate) mod binary_codec;
 mod entries;
 mod records;
-use crate::artifact::bundle::BundleReader;
-use crate::artifact::format::FORMAT_VERSION;
-use crate::artifact::format::size_u32;
 use crate::artifact::reference::ArtifactRef;
 use crate::repo::artifacts::required_artifacts;
 pub use entries::ChunkIndexEntries;
 pub use records::{ChunkIndex, ChunkIndexEntry};
-use std::collections::BTreeMap;
-use std::fs;
-use std::fs::File;
 
 #[cfg(test)]
 mod cache_merge_tests {
     use super::*;
+    use crate::artifact::profiles::ArtifactStorageMode;
 
     #[test]
     fn incoming_indexes_keep_cached_and_local_only_locations_for_both_storage_modes() {

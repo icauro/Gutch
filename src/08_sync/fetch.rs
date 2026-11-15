@@ -403,7 +403,7 @@ fn prefer_verified_local_snapshot(
             repo_paths,
             &local_index,
             snapshot_id,
-            RepoArtifactVerification::Identity,
+            RepoArtifactVerification::Strict,
         )
         .is_ok_and(|result| result.ok);
     Ok(if local_is_complete { local } else { downloaded })

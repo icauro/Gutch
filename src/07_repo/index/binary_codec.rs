@@ -13,7 +13,6 @@ use crate::artifact::format::CHUNK_INDEX_MAGIC as CHUNK_INDEX_BINARY_MAGIC;
 use crate::artifact::binary_io::{
     BinaryReader, read_chunk_hash, read_u32, write_chunk_hash, write_u32,
 };
-use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::format::MAX_RAW_BUNDLE_SIZE;
 use crate::artifact::format::MAX_RAW_CHUNK_SIZE;
 use crate::artifact::metadata;
@@ -132,10 +131,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<ChunkIndex> {
         return Err(Error::artifact("chunk index contains trailing bytes"));
     }
     let entries = ChunkIndexEntries::from_sorted_rows(rows)?;
-    Ok(ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-        entries,
-    })
+    Ok(ChunkIndex { entries })
 }
 
 pub(crate) fn load_chunk_index_binary_from_bytes(bytes: &[u8]) -> Result<ChunkIndex> {
@@ -276,7 +272,6 @@ mod tests {
         let bundle = smol_str::SmolStr::new("07".repeat(32));
         let loose = ChunkHash::from_bytes([3; 32]);
         let mut index = crate::repo::index::ChunkIndex {
-            format_version: crate::artifact::format::FORMAT_VERSION.into(),
             entries: [
                 (
                     ChunkHash::from_bytes([1; 32]),
@@ -392,7 +387,6 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("index");
         let index = crate::repo::index::ChunkIndex {
-            format_version: crate::artifact::format::FORMAT_VERSION.into(),
             entries: (0..2u8)
                 .map(|ordinal| {
                     (

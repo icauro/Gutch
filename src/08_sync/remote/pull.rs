@@ -112,7 +112,7 @@ pub(super) fn compute_pull_plan(
                 repo_paths,
                 &index,
                 &snapshot.snapshot_id,
-                RepoArtifactVerification::Identity,
+                RepoArtifactVerification::Strict,
             )
             .is_ok_and(|result| result.ok)
         {

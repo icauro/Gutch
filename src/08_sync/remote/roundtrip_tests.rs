@@ -372,7 +372,7 @@ fn prune_removes_local_only_snapshots_and_their_bundles_without_requesting_them(
     let verified = crate::repo::verify::verify_gutch_repo_artifacts(
         &clone,
         None,
-        crate::repo::verify::RepoArtifactVerification::Identity,
+        crate::repo::verify::RepoArtifactVerification::Strict,
     )
     .unwrap();
     assert!(verified.ok);

@@ -2,7 +2,6 @@ use super::*;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
 use crate::capture::reuse::load_capture_reuse_state;
 use crate::repo::index::load_chunk_index;
-use crate::repo::index::rebuild_chunk_index_from_bundles;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
@@ -11,6 +10,7 @@ use crate::repo::paths::chunk_path;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::recovery::rebuild_chunk_index_from_artifacts;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots;
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
@@ -22,7 +22,6 @@ use std::path::PathBuf;
 
 use crate::artifact::bundle::BundleBuilder;
 use crate::artifact::bundle::read_bundle;
-use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::profiles::BundleSizingPreset;
@@ -47,9 +46,7 @@ use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::test_util::chunk_entries;
 use crate::test_util::index_manifest;
 use crate::test_util::loose_bytes;
-use std::env::temp_dir;
 use std::fs;
-use std::process;
 use std::slice::from_ref;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
@@ -296,8 +293,6 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
     });
 
     let chunk_index = ChunkIndex {
-        format_version: FORMAT_VERSION.into(),
-
         entries: chunk_entries(BTreeMap::from([
             (
                 test_hash("chunk-a"),
@@ -329,14 +324,10 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
 
 #[test]
 fn check_gutch_repo_reports_snapshots() {
-    let root = temp_dir().join(format!(
-        "gutch_repo_inspect_test_{}_{}",
-        process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    ));
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().to_path_buf();
     let repo_root = root.join("repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    let _ = fs::remove_dir_all(&root);
 
     ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
     let snapshot_id = test_hash("snapshot-one");
@@ -378,8 +369,6 @@ fn check_gutch_repo_reports_snapshots() {
     assert_eq!(status.bundle_count, 1);
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -447,8 +436,6 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     .unwrap();
 
     let index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(BTreeMap::from([(
             chunk_hash.to_hex(),
             ChunkIndexEntry::new(
@@ -470,7 +457,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     let verification = verify_gutch_repo_artifacts(
         temp.path(),
         Some(&snapshot.snapshot_id),
-        RepoArtifactVerification::Identity,
+        RepoArtifactVerification::Strict,
     )
     .unwrap();
     assert!(verification.ok);
@@ -480,8 +467,8 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
 #[test]
 fn chunk_index_write_and_load_roundtrip() {
-    let root = temp_dir().join("gutch_chunk_index_test");
-    let _ = fs::remove_dir_all(&root);
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().to_path_buf();
     fs::create_dir_all(&root).unwrap();
     let paths = RepoPaths::from_repo_root(&root);
 
@@ -517,15 +504,12 @@ fn chunk_index_write_and_load_roundtrip() {
         ),
     );
     let index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(entries),
     };
     write_chunk_index(&paths, &index).unwrap();
     assert!(paths.chunk_map_path.exists());
 
     let loaded = load_chunk_index(&paths).unwrap();
-    assert_eq!(loaded.format_version, FORMAT_VERSION);
     assert_eq!(loaded.entries.len(), 3);
     assert_eq!(
         loaded
@@ -542,28 +526,23 @@ fn chunk_index_write_and_load_roundtrip() {
         Some(test_hash("bundle-2").as_str())
     );
     assert!(!loaded.entries.contains_key(&test_chunk_hash("nonexistent")));
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn chunk_index_load_empty_when_file_missing() {
-    let root = temp_dir().join("gutch_chunk_index_empty_test");
-    let _ = fs::remove_dir_all(&root);
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().to_path_buf();
     fs::create_dir_all(&root).unwrap();
     let paths = RepoPaths::from_repo_root(&root);
 
     let loaded = load_chunk_index(&paths).unwrap();
     assert!(loaded.entries.is_empty());
-    assert_eq!(loaded.format_version, FORMAT_VERSION);
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn incremental_chunk_index_matches_rebuilt_bundle_index() {
-    let root = temp_dir().join("gutch_incremental_chunk_index_test");
-    let _ = fs::remove_dir_all(&root);
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().to_path_buf();
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
@@ -582,8 +561,6 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     };
 
     let mut incremental = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: ChunkIndexEntries::new(),
     };
     add_built_bundles_to_chunk_index(&mut incremental, from_ref(&built_bundle)).unwrap();
@@ -592,7 +569,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     fs::copy(built_bundle.staged_file.path(), bundle_path).unwrap();
     let pool = build_thread_pool(1, "gutch-test").unwrap();
-    let rebuilt = rebuild_chunk_index_from_bundles(&paths, &pool).unwrap();
+    let rebuilt = rebuild_chunk_index_from_artifacts(&paths, &pool).unwrap();
 
     assert_eq!(incremental.entries, rebuilt.entries);
     assert_eq!(
@@ -602,14 +579,12 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
             .map(|entry| entry.bundle_id.as_str()),
         Some(bundle_id.as_str())
     );
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn inspect_repo_shows_snapshot_tags() {
-    let root = temp_dir().join("gutch_inspect_tags_test");
-    let _ = fs::remove_dir_all(&root);
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().to_path_buf();
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
@@ -643,14 +618,12 @@ fn inspect_repo_shows_snapshot_tags() {
     assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
     assert_eq!(status.snapshots[0].version_tag, "2.0.0");
     assert_eq!(status.snapshots[0].os, "linux");
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
-    let root = temp_dir().join("gutch_snapshot_blueprint_roundtrip");
-    let _ = fs::remove_dir_all(&root);
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().to_path_buf();
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
@@ -712,8 +685,6 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         loaded.files().next().unwrap().chunks[1].chunk_hash.to_hex(),
         chunk_two
     );
-
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]

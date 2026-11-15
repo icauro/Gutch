@@ -169,7 +169,7 @@ fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     let verification = verify_gutch_repo_artifacts(
         repo_root,
         Some(snapshot_id),
-        RepoArtifactVerification::Identity,
+        RepoArtifactVerification::Strict,
     )
     .unwrap();
     assert!(verification.ok, "strict verification failed");

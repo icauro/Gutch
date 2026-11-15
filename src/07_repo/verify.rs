@@ -25,17 +25,18 @@ use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use std::collections::HashMap;
 use std::fs::File;
 
-/// Structural artifact checks optionally include full content-addressed identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `Fast` checks artifact structure; `Strict` also checks content-addressed identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RepoArtifactVerification {
-    Structure,
-    Identity,
+    Fast,
+    Strict,
 }
 impl RepoArtifactVerification {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Structure => "fast",
-            Self::Identity => "strict",
+            Self::Fast => "fast",
+            Self::Strict => "strict",
         }
     }
 }
@@ -44,7 +45,7 @@ impl RepoArtifactVerification {
 #[serde(rename_all = "camelCase")]
 pub struct RepoArtifactVerifyResult {
     pub ok: bool,
-    pub mode: String,
+    pub mode: RepoArtifactVerification,
     pub snapshot_count: usize,
     pub snapshots_ok: usize,
     pub snapshots: Vec<SnapshotArtifactVerifyResult>,
@@ -115,7 +116,7 @@ pub fn verify_gutch_repo_artifacts(
 
         Ok(RepoArtifactVerifyResult {
             ok,
-            mode: mode.as_str().to_string(),
+            mode,
             snapshot_count: snapshots.len(),
             snapshots_ok,
             snapshots,
@@ -223,7 +224,7 @@ fn verify_snapshot_artifacts_cached(
 
 fn verify_bundle_file(path: &Path, bundle_id: &str, mode: RepoArtifactVerification) -> Result<()> {
     let mut reader = bundle::BundleReader::open(File::open(path)?)?;
-    if mode == RepoArtifactVerification::Identity {
+    if mode == RepoArtifactVerification::Strict {
         reader.verify_identity(bundle_id)?;
     }
     Ok(())
@@ -273,8 +274,8 @@ mod tests {
         crate::test_util::index_manifest(&paths, &unselected);
 
         for mode in [
-            RepoArtifactVerification::Structure,
-            RepoArtifactVerification::Identity,
+            RepoArtifactVerification::Fast,
+            RepoArtifactVerification::Strict,
         ] {
             let result =
                 verify_gutch_repo_artifacts(root.path(), Some(&selected.snapshot_id), mode)
@@ -305,7 +306,7 @@ mod tests {
         let error = verify_gutch_repo_artifacts(
             root.path(),
             Some(&selected.snapshot_id),
-            RepoArtifactVerification::Structure,
+            RepoArtifactVerification::Fast,
         )
         .unwrap_err();
         assert!(error.to_string().contains("chunk index size disagrees"));
@@ -315,7 +316,7 @@ mod tests {
         let error = verify_gutch_repo_artifacts(
             root.path(),
             Some(&selected.snapshot_id),
-            RepoArtifactVerification::Structure,
+            RepoArtifactVerification::Fast,
         )
         .unwrap_err();
         assert!(error.to_string().contains("missing chunk index entry"));
@@ -335,7 +336,7 @@ mod tests {
         let error = verify_gutch_repo_artifacts(
             root.path(),
             Some(&selected.snapshot_id),
-            RepoArtifactVerification::Structure,
+            RepoArtifactVerification::Fast,
         )
         .unwrap_err();
         assert!(matches!(error, Error::SnapshotIntegrityMismatch { .. }));
@@ -347,15 +348,14 @@ mod tests {
         let paths = RepoPaths::from_repo_root(root.path());
         crate::repo::paths::ensure_gutch_repo_layout(&paths, "empty").unwrap();
         let result =
-            verify_gutch_repo_artifacts(root.path(), None, RepoArtifactVerification::Structure)
-                .unwrap();
+            verify_gutch_repo_artifacts(root.path(), None, RepoArtifactVerification::Fast).unwrap();
         assert!(result.ok);
         assert_eq!(result.snapshot_count, 0);
         let unknown = "a".repeat(64);
         let error = verify_gutch_repo_artifacts(
             root.path(),
             Some(&unknown),
-            RepoArtifactVerification::Structure,
+            RepoArtifactVerification::Fast,
         )
         .unwrap_err();
         assert!(error.to_string().contains("snapshot not found in repo"));
@@ -371,11 +371,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("bundle");
         std::fs::write(&path, encoded).unwrap();
-        verify_bundle_file(&path, &bundle_id, RepoArtifactVerification::Identity).unwrap();
+        verify_bundle_file(&path, &bundle_id, RepoArtifactVerification::Strict).unwrap();
         let incorrect_id = "0".repeat(64);
-        verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Structure).unwrap();
+        verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Fast).unwrap();
         assert!(
-            verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Identity).is_err()
+            verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Strict).is_err()
         );
     }
 }

@@ -3,7 +3,6 @@
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle::BundleReader;
-use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::format::size_u32;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::read_loose_chunk;
@@ -22,6 +21,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+
+use rayon::prelude::*;
+
+use crate::repo::paths::RepoPaths;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,7 +69,16 @@ pub fn rebuild_index(
                 Ok(chunks) => {
                     result.artifact_count += 1;
                     for (hash, entry) in chunks {
-                        add_recovered_chunk(&mut entries, &mut result, hash, entry);
+                        match add_recovered_chunk(&mut entries, hash, entry) {
+                            ChunkLocation::New => {}
+                            ChunkLocation::Duplicate => result.duplicate_locations += 1,
+                            ChunkLocation::ConflictingSize => {
+                                result.duplicate_locations += 1;
+                                result
+                                    .corrupt_artifacts
+                                    .push(format!("conflicting sizes for chunk {hash}"));
+                            }
+                        }
                     }
                 }
             }
@@ -99,8 +111,6 @@ pub fn rebuild_index(
             write_chunk_index(
                 &paths,
                 &ChunkIndex {
-                    format_version: FORMAT_VERSION.into(),
-
                     entries: entries.into_iter().collect(),
                 },
             )?;
@@ -113,6 +123,33 @@ pub fn rebuild_index(
     } else {
         super::coordination::read_with_control(root, control, work)
     }
+}
+
+/// Rebuilds the chunk index from every stored bundle and loose chunk with the
+/// same identity checks and duplicate rules as `rebuild_index`, failing on the
+/// first unreadable artifact or conflicting chunk size.
+pub(crate) fn rebuild_chunk_index_from_artifacts(
+    paths: &RepoPaths,
+    pool: &rayon::ThreadPool,
+) -> Result<ChunkIndex> {
+    let artifacts = super::inventory::list_repo_artifact_paths(paths)?;
+    let recovered = pool.install(|| {
+        artifacts
+            .par_iter()
+            .map(|(artifact, path)| recover_artifact_chunks(artifact, path))
+            .collect::<Result<Vec<_>>>()
+    })?;
+    let mut entries = BTreeMap::new();
+    for (hash, entry) in recovered.into_iter().flatten() {
+        if let ChunkLocation::ConflictingSize = add_recovered_chunk(&mut entries, hash, entry) {
+            return Err(Error::repository(format!(
+                "conflicting sizes for chunk {hash}"
+            )));
+        }
+    }
+    Ok(ChunkIndex {
+        entries: entries.into_iter().collect(),
+    })
 }
 
 /// Reads and verifies one artifact, returning the index entry for each chunk
@@ -167,26 +204,70 @@ fn recover_artifact_chunks(
     }
 }
 
+enum ChunkLocation {
+    New,
+    Duplicate,
+    ConflictingSize,
+}
+
 /// Adds a recovered chunk location. When several artifacts hold the chunk,
 /// the lowest artifact ID and ordinal wins regardless of enumeration order.
 fn add_recovered_chunk(
     entries: &mut BTreeMap<ChunkHash, ChunkIndexEntry>,
-    result: &mut IndexRebuildResult,
     hash: ChunkHash,
     entry: ChunkIndexEntry,
-) {
-    if let Some(previous) = entries.get(&hash) {
-        result.duplicate_locations += 1;
-        if previous.raw_size != entry.raw_size {
-            result
-                .corrupt_artifacts
-                .push(format!("conflicting sizes for chunk {hash}"));
-        }
-        if (previous.bundle_id.as_str(), previous.chunk_ordinal)
-            <= (entry.bundle_id.as_str(), entry.chunk_ordinal)
-        {
-            return;
-        }
+) -> ChunkLocation {
+    let Some(previous) = entries.get(&hash) else {
+        entries.insert(hash, entry);
+        return ChunkLocation::New;
+    };
+    let location = if previous.raw_size == entry.raw_size {
+        ChunkLocation::Duplicate
+    } else {
+        ChunkLocation::ConflictingSize
+    };
+    if (entry.bundle_id.as_str(), entry.chunk_ordinal)
+        < (previous.bundle_id.as_str(), previous.chunk_ordinal)
+    {
+        entries.insert(hash, entry);
     }
-    entries.insert(hash, entry);
+    location
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn location(id: &str, ordinal: u32, raw_size: u32) -> ChunkIndexEntry {
+        ChunkIndexEntry::new(
+            64,
+            ordinal,
+            id.into(),
+            raw_size,
+            ArtifactStorageMode::Bundled,
+        )
+    }
+
+    #[test]
+    fn duplicate_chunks_keep_the_lowest_location_in_any_order() {
+        let hash = ChunkHash::of(b"chunk");
+        let candidates = [
+            location("b", 0, 5),
+            location("a", 3, 5),
+            location("a", 1, 5),
+        ];
+        for order in [[0, 1, 2], [2, 1, 0], [1, 2, 0]] {
+            let mut entries = BTreeMap::new();
+            let locations = order
+                .map(|index| add_recovered_chunk(&mut entries, hash, candidates[index].clone()));
+            assert!(matches!(locations[0], ChunkLocation::New));
+            assert!(matches!(locations[1], ChunkLocation::Duplicate));
+            assert_eq!(entries[&hash], candidates[2]);
+        }
+        let mut entries = BTreeMap::from([(hash, location("a", 0, 5))]);
+        assert!(matches!(
+            add_recovered_chunk(&mut entries, hash, location("b", 0, 6)),
+            ChunkLocation::ConflictingSize
+        ));
+    }
 }

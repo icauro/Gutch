@@ -1,6 +1,5 @@
 //! Deterministic test data: seeded files, sources and repository fixtures.
 
-use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::write_loose_chunk;
 use crate::artifact::profiles::ArtifactStorageMode;
@@ -208,12 +207,5 @@ pub fn index_manifest(paths: &RepoPaths, manifest: &SnapshotManifest) {
             )
         })
         .collect();
-    write_chunk_index(
-        paths,
-        &ChunkIndex {
-            format_version: FORMAT_VERSION.into(),
-            entries,
-        },
-    )
-    .unwrap();
+    write_chunk_index(paths, &ChunkIndex { entries }).unwrap();
 }

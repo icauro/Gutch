@@ -4,9 +4,10 @@ use crate::artifact::profiles::ArtifactStorageMode;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::sync::Arc;
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// The binary chunk map carries its own format header, so the record holds
+/// only entries.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChunkIndex {
-    pub format_version: String,
     pub entries: super::entries::ChunkIndexEntries,
 }
 

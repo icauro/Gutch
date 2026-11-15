@@ -12,11 +12,10 @@ use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
-use crate::repo::index::{
-    collect_file_paths, empty_chunk_index, load_chunk_index, rebuild_chunk_index_from_bundles,
-};
+use crate::repo::index::{collect_file_paths, empty_chunk_index, load_chunk_index};
 use crate::repo::inventory::list_repo_snapshot_ids;
 use crate::repo::paths::{RepoPaths, bundle_id_from_bundle_path, chunk_path};
+use crate::repo::recovery::rebuild_chunk_index_from_artifacts;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use rayon::prelude::*;
@@ -72,7 +71,7 @@ pub fn load_capture_reuse_state(
     state.chunk_index = if chunk_index.entries.is_empty() {
         let _rebuild_span = control
             .profile_span("capture.prepare_source.load_existing_store_state.rebuild_chunk_index");
-        let result = rebuild_chunk_index_from_bundles(paths, pool);
+        let result = rebuild_chunk_index_from_artifacts(paths, pool);
         drop(_rebuild_span);
         result?
     } else {
@@ -231,7 +230,6 @@ pub(crate) fn add_built_loose_chunks_to_chunk_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::artifact::format::FORMAT_VERSION;
     use ArtifactStorageMode::{Bundled, LooseChunks};
 
     #[test]
@@ -265,10 +263,7 @@ mod tests {
                 )
             })
             .collect();
-        let index = crate::repo::index::ChunkIndex {
-            format_version: FORMAT_VERSION.into(),
-            entries,
-        };
+        let index = crate::repo::index::ChunkIndex { entries };
         let pool = crate::runtime::build_thread_pool(1, "capture-test").unwrap();
         let available = HashSet::from([bundle_a.to_string(), bundle_b.to_string()]);
         let estimates = available_chunk_sizes(&index, &paths, &pool, &available).unwrap();
@@ -283,7 +278,6 @@ mod tests {
         }
 
         let partial = crate::repo::index::ChunkIndex {
-            format_version: FORMAT_VERSION.into(),
             entries: index
                 .entries
                 .iter()

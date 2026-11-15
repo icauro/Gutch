@@ -1,7 +1,6 @@
 use super::*;
 use crate::Error;
 use crate::artifact::bundle::BundleBuilder;
-use crate::artifact::format::FORMAT_VERSION;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::hash::hash_hex;
 use crate::artifact::loose::write_loose_chunk;
@@ -98,8 +97,6 @@ fn snapshot_manifest_with_chunk(
 
 fn bundled_chunk_index() -> ChunkIndex {
     ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(BTreeMap::from([(
             test_hash(b"game"),
             ChunkIndexEntry::new(
@@ -261,8 +258,6 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
     let _ = fs::remove_dir_all(&repo_root);
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     let chunk_index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(BTreeMap::from([(
             snapshot_only_chunk_hash,
             ChunkIndexEntry::new(
@@ -345,8 +340,6 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
         replacement_chunk_hash.clone(),
     );
     let chunk_index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(BTreeMap::from([(
             replacement_chunk_hash.clone(),
             ChunkIndexEntry::new(
@@ -434,8 +427,6 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     let compression_profile = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(3));
     fs::write(&chunk_path, loose_bytes(b"game", &compression_profile)).unwrap();
     let chunk_index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
             ChunkIndexEntry::new(
@@ -554,8 +545,6 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         ],
     });
     let chunk_index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
-
         entries: chunk_entries(BTreeMap::from([
             (
                 first_hash,
@@ -693,7 +682,6 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         existing_artifacts.insert(artifact);
     }
     let chunk_index = ChunkIndex {
-        format_version: FORMAT_VERSION.to_string(),
         entries: chunk_entries(entries_by_hash),
     };
     let mut snapshot = SnapshotManifest::new("readiness".to_string(), SnapshotTagSet::default());
@@ -806,8 +794,6 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         snapshot.push_file(file);
     }
     let index = ChunkIndex {
-        format_version: FORMAT_VERSION.into(),
-
         entries: chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
             ChunkIndexEntry::new(
@@ -1006,7 +992,6 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     let first_bundle = test_hash(b"first bundle");
     let second_bundle = test_hash(b"second bundle");
     let index = ChunkIndex {
-        format_version: FORMAT_VERSION.into(),
         entries: [
             (b"newA", &first_bundle, 0),
             (b"newB", &first_bundle, 1),
@@ -1204,7 +1189,6 @@ fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
         let entry = ChunkIndexEntry::new(128, 0, id.into(), 4, mode);
         let artifact = ArtifactRef::from_chunk_entry(&hash, &entry);
         let index = ChunkIndex {
-            format_version: FORMAT_VERSION.into(),
             entries: [(hash, entry)].into_iter().collect(),
         };
         let mut snapshot = snapshot_manifest_with_file("snapshot", &hash.to_hex());
