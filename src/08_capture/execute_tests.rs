@@ -77,8 +77,9 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
     let old_snapshot_id = snapshot_id_from_entries(&old_entries);
     let mut old_manifest =
         SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
-    old_manifest.source_modified_at =
-        format_system_time_utc(source_modified_at(&new_source).unwrap());
+    old_manifest.source_modified_at = format_system_time_utc(
+        source_modified_at(&new_source, &OperationControl::default()).unwrap(),
+    );
     old_manifest.set_files(old_files);
     write_snapshot_manifest_artifacts(
         &repo_paths,

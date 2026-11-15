@@ -314,7 +314,7 @@ impl NewestFileTime {
 }
 
 /// Returns the newest file modification time under `dir`, as `scan` records it.
-pub(crate) fn source_modified_at(dir: &Path) -> Result<SystemTime> {
+pub(crate) fn source_modified_at(dir: &Path, control: &OperationControl) -> Result<SystemTime> {
     if !dir.is_dir() {
         return Err(Error::invalid_input(format!(
             "source path is not a directory: {}",
@@ -323,6 +323,7 @@ pub(crate) fn source_modified_at(dir: &Path) -> Result<SystemTime> {
     }
     let mut newest_file_time = NewestFileTime::default();
     for entry in walkdir::WalkDir::new(dir) {
+        control.checkpoint()?;
         let entry = entry?;
         if entry.file_type().is_file() {
             newest_file_time.observe(entry.metadata()?.modified()?);

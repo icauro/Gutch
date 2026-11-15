@@ -10,6 +10,7 @@ use crate::Result;
 use crate::capture::scan::format_system_time_utc;
 use crate::capture::scan::source_modified_at;
 use crate::manifest;
+use crate::progress::OperationControl;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_tag_summary::summarize_snapshot_tags;
 
@@ -44,6 +45,7 @@ pub enum SourceSnapshotDisposition {
 pub fn discover_source_snapshots(
     repo_root: &Path,
     source_snapshots_root: &Path,
+    control: &OperationControl,
 ) -> Result<Vec<SourceSnapshotCandidate>> {
     if !source_snapshots_root.exists() {
         return Err(Error::invalid_input(format!(
@@ -64,7 +66,7 @@ pub fn discover_source_snapshots(
 
     for snapshot in config.discover_snapshot_sources(source_snapshots_root)? {
         let explicit_tags = snapshot.config_tags.clone().unwrap_or_default();
-        let candidate = source_modified_at(&snapshot.path).and_then(|modified_at| {
+        let candidate = source_modified_at(&snapshot.path, control).and_then(|modified_at| {
             source_snapshot_candidate(
                 &snapshot.path,
                 &explicit_tags,
@@ -73,6 +75,7 @@ pub fn discover_source_snapshots(
         });
         match candidate {
             Ok(candidate) => candidates.push(candidate),
+            Err(err) if err.is_cancelled() => return Err(err),
             Err(err) => {
                 let folder_name = snapshot
                     .path
@@ -160,7 +163,9 @@ mod tests {
         std::fs::create_dir_all(source_root.join("ae2-v15.4.10-loader-fabric-mc-1.21")).unwrap();
         std::fs::create_dir_all(source_root.join("not-a-snapshot-folder")).unwrap();
 
-        let candidates = discover_source_snapshots(&repo_root, &source_root).unwrap();
+        let candidates =
+            discover_source_snapshots(&repo_root, &source_root, &OperationControl::default())
+                .unwrap();
 
         assert_eq!(candidates.len(), 2);
         // Folder names are not interpreted as tags.
@@ -186,5 +191,33 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[derive(Debug)]
+    struct AlwaysCancelled;
+
+    impl crate::progress::CancellationHook for AlwaysCancelled {
+        fn is_cancelled(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn cancelled_discovery_stops_instead_of_marking_sources_invalid() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_root = temp.path().join("repo");
+        let source_root = temp.path().join("sources");
+        let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
+        let repo_manifest =
+            crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "mods").unwrap();
+        crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &repo_manifest).unwrap();
+        std::fs::create_dir_all(source_root.join("game")).unwrap();
+        std::fs::write(source_root.join("game/file.bin"), b"data").unwrap();
+        let control =
+            OperationControl::default().with_cancellation(std::sync::Arc::new(AlwaysCancelled));
+
+        let error = discover_source_snapshots(&repo_root, &source_root, &control).unwrap_err();
+
+        assert!(error.is_cancelled(), "{error}");
     }
 }

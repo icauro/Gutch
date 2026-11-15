@@ -70,8 +70,9 @@ impl SnapshotSourcesCapturePlan {
 pub fn plan_snapshot_sources_capture(
     repo_root: &Path,
     sources_path: Option<&Path>,
+    control: &OperationControl,
 ) -> Result<SnapshotSourcesCapturePlan> {
-    plan_snapshot_sources_capture_with_context(repo_root, sources_path, None, None)
+    plan_snapshot_sources_capture_with_context(repo_root, sources_path, None, None, control)
 }
 
 pub fn plan_snapshot_sources_capture_with_context(
@@ -79,6 +80,7 @@ pub fn plan_snapshot_sources_capture_with_context(
     sources_path: Option<&Path>,
     candidates: Option<&[SourceSnapshotCandidate]>,
     repo_status: Option<&RepoStatus>,
+    control: &OperationControl,
 ) -> Result<SnapshotSourcesCapturePlan> {
     let Some(sources_path) = normalized_sources_path(sources_path) else {
         return Ok(SnapshotSourcesCapturePlan::empty());
@@ -91,7 +93,7 @@ pub fn plan_snapshot_sources_capture_with_context(
 
     let candidates = match candidates {
         Some(candidates) => candidates.to_vec(),
-        None => discover_source_snapshots(repo_root, &sources_path)?,
+        None => discover_source_snapshots(repo_root, &sources_path, control)?,
     };
 
     // Multi-source capture only adds content-derived snapshots. Every
@@ -150,7 +152,7 @@ pub fn capture_snapshot_sources(
     let operation_root = (repo_root).to_path_buf();
     coordination::write(&operation_root, || {
         control.checkpoint()?;
-        let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path))?;
+        let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path), control)?;
         if !plan.sources_ready {
             return Err(crate::Error::invalid_input(
                 "snapshot sources path is missing or invalid",
@@ -313,7 +315,8 @@ mod tests {
         let repo_paths = RepoPaths::from_repo_root(&repo_root);
         ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
 
-        let plan = plan_snapshot_sources_capture(&repo_root, None).unwrap();
+        let plan =
+            plan_snapshot_sources_capture(&repo_root, None, &OperationControl::default()).unwrap();
         assert!(!plan.sources_ready);
         assert_eq!(plan.capturable_count, 0);
         assert!(plan.to_capture.is_empty());
@@ -332,7 +335,9 @@ mod tests {
         let game_path = source_dir.join("game.exe");
         std::fs::write(&game_path, b"same-content").unwrap();
 
-        let candidate = discover_source_snapshots(&repo_root, &source_root).unwrap();
+        let candidate =
+            discover_source_snapshots(&repo_root, &source_root, &OperationControl::default())
+                .unwrap();
         assert_eq!(candidate.len(), 1);
 
         let tags = candidate[0].snapshot_tags.clone();
@@ -364,7 +369,12 @@ mod tests {
         std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&game_path, b"new-content").unwrap();
 
-        let plan = plan_snapshot_sources_capture(&repo_root, Some(&source_root)).unwrap();
+        let plan = plan_snapshot_sources_capture(
+            &repo_root,
+            Some(&source_root),
+            &OperationControl::default(),
+        )
+        .unwrap();
         assert_eq!(plan.capturable_count, 1);
         assert_eq!(plan.to_capture.len(), 1);
     }
@@ -400,6 +410,7 @@ mod tests {
             Some(&source_root),
             Some(&[candidate("game-a"), candidate("game-b")]),
             None,
+            &OperationControl::default(),
         )
         .unwrap();
         assert_eq!(plan.candidate_count, 2);
@@ -445,7 +456,10 @@ mod tests {
         let repo_root = temp.path().join("repo");
         ensure_gutch_repo_layout(&RepoPaths::from_repo_root(&repo_root), "base").unwrap();
         let missing = temp.path().join("missing");
-        assert!(plan_snapshot_sources_capture(&repo_root, Some(&missing)).is_err());
+        assert!(
+            plan_snapshot_sources_capture(&repo_root, Some(&missing), &OperationControl::default())
+                .is_err()
+        );
         assert!(
             capture_snapshot_sources(&repo_root, &missing, &OperationControl::default()).is_err()
         );
