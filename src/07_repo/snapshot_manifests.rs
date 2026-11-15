@@ -9,7 +9,6 @@ use crate::manifest::{
     snapshot::{SnapshotManifest, SnapshotMetadata, SnapshotProductMetadata},
 };
 
-use crate::filesystem::constraints::validate_paths;
 use crate::manifest::validate_snapshot_entries;
 use crate::progress::OperationControl;
 use crate::repo::coordination;
@@ -250,16 +249,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     if paths.repo_metadata_path.exists() {
         let (_, repository) = load_gutch_repo_manifest(&paths.repo_root)?;
         let constraints = repository.constraints.unwrap_or_default();
-        constraints.validate_snapshot_tags(
-            &snapshot_manifest.snapshot_tags,
-            &snapshot_manifest.snapshot_id,
-        )?;
-        validate_paths(
-            &constraints.targets,
-            snapshot_manifest.entries.iter().map(|entry| entry.path()),
-            "publish snapshot",
-            Some(&snapshot_manifest.snapshot_id),
-        )?;
+        constraints.validate_snapshot(snapshot_manifest, "publish snapshot")?;
     }
     if let Some(product) = snapshot_manifest.product_metadata.as_ref() {
         product.validate_for_snapshot(snapshot_manifest)?;

@@ -170,6 +170,30 @@ impl RepositoryConstraints {
         }
         Ok(())
     }
+
+    /// Checks every entry path of `manifest` against the filesystem targets.
+    pub(crate) fn validate_snapshot_paths(
+        &self,
+        manifest: &super::SnapshotManifest,
+        operation: &str,
+    ) -> crate::Result<()> {
+        crate::filesystem::constraints::validate_paths(
+            &self.targets,
+            manifest.entries.iter().map(|entry| entry.path()),
+            operation,
+            Some(&manifest.snapshot_id),
+        )
+    }
+
+    /// Checks the tags and entry paths of `manifest`.
+    pub(crate) fn validate_snapshot(
+        &self,
+        manifest: &super::SnapshotManifest,
+        operation: &str,
+    ) -> crate::Result<()> {
+        self.validate_snapshot_tags(&manifest.snapshot_tags, &manifest.snapshot_id)?;
+        self.validate_snapshot_paths(manifest, operation)
+    }
 }
 
 #[cfg(test)]

@@ -4,7 +4,6 @@ use std::path::Path;
 
 use crate::Result;
 use crate::artifact::reference::ArtifactRef;
-use crate::filesystem::constraints::validate_paths;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::installation::execute::jobs::ReconstructPipelinePlan;
 use crate::installation::plan::build_reconstruct_pipeline_plan;
@@ -62,15 +61,10 @@ pub(super) fn load_repo_snapshot_manifest(
 ) -> Result<LoadedRepoSnapshot> {
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
     let snapshot_manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
-    validate_paths(
-        repo_manifest
-            .constraints
-            .as_ref()
-            .map_or(&[], |constraints| constraints.targets.as_slice()),
-        snapshot_manifest.entries.iter().map(|entry| entry.path()),
-        "installation",
-        Some(snapshot_id),
-    )?;
+    repo_manifest
+        .constraints
+        .unwrap_or_default()
+        .validate_snapshot_paths(&snapshot_manifest, "installation")?;
     Ok(LoadedRepoSnapshot {
         repo_paths,
         snapshot_manifest,

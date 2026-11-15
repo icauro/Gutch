@@ -9,7 +9,6 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::reference::ArtifactRef;
 use crate::filesystem;
-use crate::filesystem::constraints::validate_paths;
 use crate::filesystem::from_json_bytes;
 use crate::manifest::SnapshotProductMetadata;
 use crate::manifest::repo_manifest::RepoManifest;
@@ -188,7 +187,6 @@ pub(crate) fn prepare_snapshot_fetch(
     };
     let (downloaded_manifest, blueprint_bytes) = download_snapshot_manifest(request, &downloader)?;
     check_incoming_constraints(
-        snapshot_id,
         &repo_paths,
         &repo_manifest,
         &downloaded_manifest,
@@ -338,20 +336,13 @@ fn download_snapshot_manifest(
 /// Rejects a snapshot that breaks the incoming repository constraints, and
 /// incoming constraints that differ from an existing local repository's.
 fn check_incoming_constraints(
-    snapshot_id: &str,
     repo_paths: &RepoPaths,
     repo_manifest: &RepoManifest,
     snapshot_manifest: &SnapshotManifest,
     repository_existed: bool,
 ) -> Result<()> {
     let incoming_constraints = repo_manifest.constraints.clone().unwrap_or_default();
-    incoming_constraints.validate_snapshot_tags(&snapshot_manifest.snapshot_tags, snapshot_id)?;
-    validate_paths(
-        &incoming_constraints.targets,
-        snapshot_manifest.entries.iter().map(|entry| entry.path()),
-        "fetch",
-        Some(snapshot_id),
-    )?;
+    incoming_constraints.validate_snapshot(snapshot_manifest, "fetch")?;
     if repository_existed {
         let local_constraints = load_gutch_repo_manifest(&repo_paths.repo_root)?
             .1

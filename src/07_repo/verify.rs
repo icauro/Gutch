@@ -12,7 +12,6 @@ use crate::manifest::SnapshotManifest;
 
 use super::inventory::list_repo_snapshot_ids;
 use crate::artifact::loose::read_loose_chunk;
-use crate::filesystem::constraints::validate_paths;
 use crate::repo::artifacts::RequiredArtifacts;
 use crate::repo::artifacts::classify_required_artifacts;
 use crate::repo::artifacts::required_artifacts;
@@ -89,12 +88,7 @@ pub fn verify_gutch_repo_artifacts(
                 required_artifacts(&manifest, &chunk_index)?;
                 continue;
             }
-            validate_paths(
-                &constraints.targets,
-                manifest.entries.iter().map(|entry| entry.path()),
-                "verify",
-                Some(&stored_snapshot_id),
-            )?;
+            constraints.validate_snapshot_paths(&manifest, "verify")?;
             snapshots.push(verify_snapshot_artifacts(
                 &repo_paths,
                 &chunk_index,

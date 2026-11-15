@@ -4,7 +4,6 @@ use std::path::Path;
 
 use crate::Result;
 use crate::filesystem;
-use crate::filesystem::constraints::validate_paths;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::constraints::RepositoryConstraints;
 use crate::repo::coordination;
@@ -32,12 +31,7 @@ pub(crate) fn validate_existing_constraints(
     let (paths, _) = load_gutch_repo_manifest(repo_root)?;
     for id in super::inventory::list_repo_snapshot_ids(&paths)? {
         let manifest = super::snapshot_manifests::load_snapshot_manifest(&paths, &id)?;
-        validate_paths(
-            &constraints.targets,
-            manifest.entries.iter().map(|entry| entry.path()),
-            operation,
-            Some(&id),
-        )?;
+        constraints.validate_snapshot_paths(&manifest, operation)?;
     }
     Ok(())
 }
