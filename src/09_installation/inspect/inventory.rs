@@ -298,3 +298,7 @@ pub(super) fn inventory_has_symlink_parent(
     }
     false
 }
+
+#[cfg(test)]
+#[path = "inventory_tests.rs"]
+mod tests;

@@ -434,36 +434,8 @@ fn parallel_verification_preserves_issue_order_across_worker_counts() {
 }
 
 #[test]
-fn insensitive_name_keys_fold_unicode_case() {
-    use super::inventory::NameCase;
-    assert_eq!(
-        NameCase::Insensitive.key("Äpfel/ä.txt"),
-        NameCase::Insensitive.key("äPFEL/Ä.TXT")
-    );
-    assert_ne!(
-        NameCase::Sensitive.key("Ä.txt"),
-        NameCase::Sensitive.key("ä.txt")
-    );
-    // A letter whose uppercase form is two letters keeps its own spelling.
-    assert_eq!(NameCase::Insensitive.key("straße"), "STRAßE");
-}
-
-#[test]
-fn name_case_probe_matches_the_filesystem() {
-    use super::inventory::NameCase;
-    let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("Probe.txt"), b"x").unwrap();
-    let expected = if temp.path().join("PROBE.TXT").exists() {
-        NameCase::Insensitive
-    } else {
-        NameCase::Sensitive
-    };
-    assert_eq!(NameCase::detect(temp.path()), expected);
-}
-
-#[test]
 fn case_variant_is_the_expected_file_where_the_filesystem_ignores_case() {
-    use super::inventory::NameCase;
+    use super::super::inventory::NameCase;
     let temp = tempfile::tempdir().unwrap();
     let content = b"apple";
     fs::write(temp.path().join("äpfel.txt"), content).unwrap();

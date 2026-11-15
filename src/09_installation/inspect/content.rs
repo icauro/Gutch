@@ -1,6 +1,6 @@
 //! Verify file metadata and full-file or chunk content hashes.
+use super::classify::{PreparedFileMetadata, PreparedVerifyFile};
 use super::types::{RepairIssue, VerifyMode, VerifyTimings};
-use super::{PreparedFileMetadata, PreparedVerifyFile};
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::integrity::verify_full_file_integrity;
