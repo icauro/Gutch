@@ -9,12 +9,13 @@ use crate::capture::build::types::BuiltLooseChunk;
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
-use crate::repo::index::{collect_file_paths, empty_chunk_index, load_chunk_index};
+use crate::repo::index::{empty_chunk_index, load_chunk_index};
 use crate::repo::paths::{RepoPaths, bundle_id_from_bundle_path, chunk_path};
 use crate::repo::recovery::rebuild_chunk_index_from_artifacts;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct CaptureReuseState {
@@ -164,6 +165,19 @@ pub(crate) fn add_built_loose_chunks_to_chunk_index(
     }
     chunk_index.entries.extend(updates);
     Ok(())
+}
+
+/// Lists the files under `root`, following symlinks to files.
+fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for entry in walkdir::WalkDir::new(root).sort_by_file_name() {
+        let entry = entry?;
+        if entry.file_type().is_file() || (entry.file_type().is_symlink() && entry.path().is_file())
+        {
+            paths.push(entry.into_path());
+        }
+    }
+    Ok(paths)
 }
 
 #[cfg(test)]
