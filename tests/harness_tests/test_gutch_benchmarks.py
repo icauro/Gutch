@@ -1359,3 +1359,49 @@ def test_vram_fixture_exposes_three_chunkers():
     ]
     args = GutchCli.profile_args(fixture.lanes[2].profile)
     assert args[:4] == ["--chunker", "vram256", "--chunk-preset", "128KiB"]
+
+
+def test_corrupt_and_repair_corrupts_then_repairs_each_installation(
+    tmp_path: Path,
+) -> None:
+    from tests.benchmarks.support.artifacts import LaneLayout
+    from tests.benchmarks.support.gutch import GutchOperations
+
+    destination = tmp_path / "installation"
+    destination.mkdir()
+    (destination / "a.bin").write_bytes(b"first payload")
+    (destination / "b.bin").write_bytes(b"second payload!")
+
+    class FakeRunner:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        def run(self, command, *, description, **_kwargs):
+            rendered = tuple(str(item) for item in command)
+            self.calls.append(rendered)
+            return CommandResult(rendered, 0.5, 0, "", "")
+
+    lane = LaneLayout(
+        tmp_path, tmp_path / "stats", tmp_path / "traces", tmp_path / "payload"
+    )
+    profile = (
+        FixtureCatalog(
+            Path(__file__).resolve().parents[1] / "benchmarks/comparison/fixtures"
+        )
+        .resolve("07_gutch_default_trace_with_corrupt_repair")
+        .lanes[0]
+        .profile
+    )
+    fake = FakeRunner()
+    result = GutchOperations(GutchCli(Path("gutch-cli.exe")), fake).corrupt_and_repair(
+        lane, tmp_path / "repo", [("local", "snapshot-1", destination)], profile, "a b"
+    )
+
+    assert [call[1:3] for call in fake.calls] == [
+        ("debug", "corrupt-installation"),
+        ("installation", "repair"),
+    ]
+    assert (lane.stats / "corruption-a-b-001.json").is_file()
+    assert result["corrupt"] == 0.5
+    assert result["repair"] == 0.5
+    assert len(result["corrupt_traces"]) == len(result["repair_traces"]) == 1

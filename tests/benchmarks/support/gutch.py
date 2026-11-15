@@ -8,7 +8,8 @@ from typing import Any
 from tests.benchmarks.support.commands import GutchCli
 from tests.benchmarks.support.command import CommandRunner
 from tests.benchmarks.support.models import GutchProfile
-from tests.benchmarks.support.artifacts import LaneLayout
+from tests.benchmarks.support.artifacts import LaneLayout, safe_component
+from tests.benchmarks.support.recovery import build_corruption_plan
 
 def snapshot_version(name: str) -> str:
     if re.fullmatch(r"v[1-9][0-9]*", name):
@@ -127,3 +128,53 @@ class GutchOperations:
                 "--profile-dir", lane.traces / f"{operation}-{index}"), description=f"{label} {operation} {name}")
             total += result.elapsed_seconds
         return total
+
+    def corrupt_and_repair(
+        self,
+        lane: LaneLayout,
+        repo: Path,
+        snapshots: list[tuple[str, str, Path]],
+        profile: GutchProfile,
+        label: str,
+    ) -> dict[str, float | list[str]]:
+        """Damages each installation with a seeded plan, then repairs it."""
+        safe = safe_component(label)
+        corrupt_seconds = 0.0
+        repair_seconds = 0.0
+        corrupt_traces: list[str] = []
+        repair_traces: list[str] = []
+        for index, (name, snapshot, destination) in enumerate(snapshots, 1):
+            plan = build_corruption_plan(
+                destination, lane.stats / f"corruption-{safe}-{index:03d}.json", index
+            )
+            trace = lane.traces / f"corrupt-{safe}-{index:03d}" / "trace.json"
+            result = self.commands.run(
+                self.cli.command(
+                    "debug", "corrupt-installation", "--destination", destination,
+                    "--plan", plan, "--json", "--output",
+                    lane.stats / f"corrupt-{safe}-{index:03d}.json", "--yes",
+                    "--profile-dir", trace.parent,
+                ),
+                description=f"{label} corrupt {name}",
+            )
+            corrupt_seconds += result.elapsed_seconds
+            corrupt_traces.append(str(trace))
+            trace = lane.traces / f"repair-{safe}-{index:03d}" / "trace.json"
+            result = self.commands.run(
+                self.cli.command(
+                    "installation", "repair", "--repo", repo, "--snapshot", snapshot,
+                    "--destination", destination, "--remove-extra-files", "--yes",
+                    *GutchCli.runtime_args(profile), "--json", "--output",
+                    lane.stats / f"repair-{safe}-{index:03d}.json",
+                    "--profile-dir", trace.parent,
+                ),
+                description=f"{label} repair {name}",
+            )
+            repair_seconds += result.elapsed_seconds
+            repair_traces.append(str(trace))
+        return {
+            "corrupt": corrupt_seconds,
+            "repair": repair_seconds,
+            "corrupt_traces": corrupt_traces,
+            "repair_traces": repair_traces,
+        }
