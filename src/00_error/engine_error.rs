@@ -198,3 +198,14 @@ impl Error {
 #[cfg(test)]
 #[path = "engine_error_tests.rs"]
 mod tests;
+
+/// Names the operation and path behind an I/O failure.
+pub(crate) trait IoContext<T> {
+    fn io_context(self, operation: impl Into<String>, path: &Path) -> Result<T>;
+}
+
+impl<T> IoContext<T> for std::io::Result<T> {
+    fn io_context(self, operation: impl Into<String>, path: &Path) -> Result<T> {
+        self.map_err(|source| Error::io_context(operation, path, source))
+    }
+}

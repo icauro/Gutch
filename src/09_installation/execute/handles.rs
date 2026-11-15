@@ -1,4 +1,5 @@
 //! Bounded file handles, buffered output ranges, and platform-specific positioned writes.
+use crate::error::IoContext;
 use crate::progress::OperationControl;
 use crate::{Error, Result};
 use std::collections::{HashMap, VecDeque};
@@ -155,8 +156,7 @@ impl SourceHandleCache {
                     handles.remove(&key);
                 }
                 let file = Arc::new(Mutex::new(SourceReadHandle {
-                    file: File::open(path)
-                        .map_err(|e| Error::io_context("opening reused source file", path, e))?,
+                    file: File::open(path).io_context("opening reused source file", path)?,
                     position: Some(0),
                 }));
                 handles.insert(path.to_path_buf(), Arc::clone(&file));
@@ -171,7 +171,7 @@ impl SourceHandleCache {
             input
                 .file
                 .seek(SeekFrom::Start(offset))
-                .map_err(|e| Error::io_context("seeking reused source file", path, e))?;
+                .io_context("seeking reused source file", path)?;
         }
         // A failed read can advance the cursor. Only a complete read establishes
         // a reusable position; the same handle mutex protects both values.
@@ -179,7 +179,7 @@ impl SourceHandleCache {
         input
             .file
             .read_exact(bytes)
-            .map_err(|e| Error::io_context("reading reused source range", path, e))?;
+            .io_context("reading reused source range", path)?;
         input.position = offset.checked_add(bytes.len() as u64);
         Ok(())
     }

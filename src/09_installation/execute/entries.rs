@@ -1,5 +1,6 @@
 //! Creates directories and symlinks before writing and finalizes entry attributes after.
 
+use crate::error::IoContext;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -166,7 +167,7 @@ fn create_snapshot_directory(path: &Path) -> Result<()> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == ErrorKind::AlreadyExists => {
             if std::fs::metadata(path)
-                .map_err(|e| Error::io_context("checking output directory", path, e))?
+                .io_context("checking output directory", path)?
                 .is_dir()
             {
                 Ok(())
@@ -364,12 +365,12 @@ pub(crate) fn finalize_snapshot_entries(
                 );
                 let path = path_resolver.resolve(&directory.path)?;
                 let mut permissions = std::fs::metadata(&path)
-                    .map_err(|e| Error::io_context("reading directory permissions", &path, e))?
+                    .io_context("reading directory permissions", &path)?
                     .permissions();
                 if permissions.readonly() != directory.read_only {
                     set_read_only(&mut permissions, directory.read_only);
                     fs::set_permissions(&path, permissions)
-                        .map_err(|e| Error::io_context("setting entry permissions", &path, e))?;
+                        .io_context("setting entry permissions", &path)?;
                 }
                 Ok(())
             },
@@ -506,7 +507,7 @@ pub(crate) fn apply_entry_permissions(
     executable: Option<bool>,
 ) -> Result<()> {
     let mut permissions = std::fs::symlink_metadata(path)
-        .map_err(|e| Error::io_context("reading entry permissions", path, e))?
+        .io_context("reading entry permissions", path)?
         .permissions();
     let original = permissions.clone();
     #[cfg(unix)]
@@ -525,8 +526,7 @@ pub(crate) fn apply_entry_permissions(
         set_read_only(&mut permissions, read_only);
     }
     if permissions != original {
-        fs::set_permissions(path, permissions)
-            .map_err(|e| Error::io_context("setting entry permissions", path, e))?;
+        fs::set_permissions(path, permissions).io_context("setting entry permissions", path)?;
     }
     Ok(())
 }

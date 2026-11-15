@@ -2,6 +2,7 @@
 
 use super::handles::ReconstructOutputWriter;
 use super::handles::{OutputHandleCache, SourceHandleCache, cached_target_handle, write_file_at};
+use crate::error::IoContext;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::profiling::ProfileInstant;
 use std::collections::HashMap;
@@ -80,7 +81,7 @@ fn reconstruct_artifact_job(
         control.profile_span_with_args(artifact_span_name, || reconstruct_artifact_trace_args(job));
     let profiler = control.profiler();
     let compressed_bytes = fs::metadata(&job.artifact_path)
-        .map_err(|e| Error::io_context("reading artifact metadata", &job.artifact_path, e))?
+        .io_context("reading artifact metadata", &job.artifact_path)?
         .len();
     let mut timings = ReconstructTimings::default();
     let mut output_writer = ReconstructOutputWriter::new(output_handles, control);
@@ -393,10 +394,7 @@ fn copy_source_file_job(
     let _source_span = control.profile_span_with_args("installation.file.copy_and_hash", || {
         file_trace_args(&file_plan.path, file_plan.size)
     });
-    let mut input = {
-        File::open(source_path)
-            .map_err(|e| Error::io_context("opening source file", source_path, e))?
-    };
+    let mut input = { File::open(source_path).io_context("opening source file", source_path)? };
     let mut output = {
         OpenOptions::new()
             .write(true)
@@ -416,7 +414,7 @@ fn copy_source_file_job(
         let read = {
             input
                 .read(&mut buffer)
-                .map_err(|e| Error::io_context("reading source file", source_path, e))?
+                .io_context("reading source file", source_path)?
         };
         if read == 0 {
             break;
@@ -549,7 +547,7 @@ pub(crate) fn check_reconstructed_output_size(
     control.checkpoint()?;
     let started_at = ProfileInstant::detailed(control.profiler());
     let actual_size = fs::metadata(output_path)
-        .map_err(|e| Error::io_context("reading reconstructed file metadata", output_path, e))?
+        .io_context("reading reconstructed file metadata", output_path)?
         .len();
     if actual_size != file_plan.size {
         return Err(Error::reconstruct(format!(

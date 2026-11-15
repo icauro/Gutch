@@ -1,5 +1,6 @@
 //! Coordinates artifact readiness, job dispatch and file verification for one reconstruction.
 
+use crate::error::IoContext;
 use crate::profiling::ProfileInstant;
 use crate::profiling::ProfileSpan;
 use std::collections::HashMap;
@@ -712,7 +713,7 @@ fn ensure_empty_reconstruct_output_file(
             .create(true)
             .truncate(false)
             .open(output_path)
-            .map_err(|e| Error::io_context("creating empty output file", output_path, e))?
+            .io_context("creating empty output file", output_path)?
     };
     {
         let _size_span = control
@@ -721,7 +722,7 @@ fn ensure_empty_reconstruct_output_file(
             });
         output
             .set_len(file_plan.size)
-            .map_err(|e| Error::io_context("sizing empty output file", output_path, e))?;
+            .io_context("sizing empty output file", output_path)?;
     }
     Ok(())
 }

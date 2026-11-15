@@ -1,6 +1,7 @@
 //! Recoverable directory replacement shared by repository and installation publication.
 use super::{create_dir_all, read, write};
 use crate::Error;
+use crate::error::IoContext;
 use crate::error::promotion_diagnostics::{
     DirectoryPromotionDiagnostic, PromotionPhase, PromotionRecoveryAttempt,
     PromotionRecoveryOperation,
@@ -285,7 +286,7 @@ pub(crate) fn lock_directory_promotion(
         .create(true)
         .truncate(false)
         .open(&lock_path)
-        .map_err(|e| Error::io_context("opening promotion lock", &lock_path, e))?;
+        .io_context("opening promotion lock", &lock_path)?;
     loop {
         control.checkpoint()?;
         match file.try_lock() {
@@ -357,8 +358,8 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
             "a promotion backup exists that Gutch did not create; move or remove it",
         ));
     }
-    let metadata = fs::symlink_metadata(&backup)
-        .map_err(|error| Error::io_context("inspecting promotion backup", &backup, error))?;
+    let metadata =
+        fs::symlink_metadata(&backup).io_context("inspecting promotion backup", &backup)?;
     if metadata.file_type().is_symlink() {
         return Err(invalid_path(
             &backup,
@@ -366,8 +367,7 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
         ));
     }
     if destination.exists() {
-        fs::remove_dir_all(&backup)
-            .map_err(|e| Error::io_context("removing recovered promotion backup", &backup, e))?;
+        fs::remove_dir_all(&backup).io_context("removing recovered promotion backup", &backup)?;
     } else {
         fs::rename(&backup, destination).map_err(|error| {
             Error::io_context(
@@ -377,8 +377,7 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
             )
         })?;
     }
-    fs::remove_file(&owner_path)
-        .map_err(|error| Error::io_context("removing promotion marker", &owner_path, error))?;
+    fs::remove_file(&owner_path).io_context("removing promotion marker", &owner_path)?;
     Ok(())
 }
 
