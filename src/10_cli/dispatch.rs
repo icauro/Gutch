@@ -34,7 +34,7 @@ pub(crate) fn run(
                     | RepoCommands::Push { .. }
                     | RepoCommands::Pull { .. }
             } | Commands::Snapshot {
-                command: SnapshotCommands::Capture { .. }
+                command: SnapshotCommands::Capture(_)
                     | SnapshotCommands::Delete { .. }
                     | SnapshotCommands::Tags { .. }
             } | Commands::Installation {

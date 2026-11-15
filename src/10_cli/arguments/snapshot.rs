@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use clap::Args;
 use clap::Subcommand;
 
 use super::{ArtifactBuildProfileArgs, RuntimeArgs, TransferArgs, parse_cli_path};
@@ -19,24 +20,7 @@ pub(crate) enum SnapshotCommands {
     },
     /// Capture source trees as deduplicated, compressed snapshots.
     #[command(name = "capture")]
-    Capture {
-        #[arg(short, long = "source", value_parser = parse_cli_path)]
-        source_dirs: Vec<PathBuf>,
-        #[arg(long = "discover-from", value_parser = parse_cli_path)]
-        source_root: Option<PathBuf>,
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-        #[command(flatten)]
-        build_profile: ArtifactBuildProfileArgs,
-        #[command(flatten)]
-        runtime: RuntimeArgs,
-        #[arg(skip)]
-        stats_json_out: Option<PathBuf>,
-        #[arg(long = "yes")]
-        yes: bool,
-    },
+    Capture(CaptureArgs),
     Delete {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
@@ -112,4 +96,24 @@ pub(crate) enum SnapshotTagsCommands {
         #[arg(long = "yes")]
         yes: bool,
     },
+}
+
+#[derive(Args)]
+pub(crate) struct CaptureArgs {
+    #[arg(short, long = "source", value_parser = parse_cli_path)]
+    pub(crate) source_dirs: Vec<PathBuf>,
+    #[arg(long = "discover-from", value_parser = parse_cli_path)]
+    pub(crate) source_root: Option<PathBuf>,
+    #[arg(long = "repo", value_parser = parse_cli_path)]
+    pub(crate) repo: PathBuf,
+    #[arg(long = "tag")]
+    pub(crate) tags: Vec<String>,
+    #[command(flatten)]
+    pub(crate) build_profile: ArtifactBuildProfileArgs,
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    #[arg(skip)]
+    pub(crate) stats_json_out: Option<PathBuf>,
+    #[arg(long = "yes")]
+    pub(crate) yes: bool,
 }

@@ -11,6 +11,7 @@ use crate::capture::sources::resolve_capture_sources;
 use crate::cli::Profile;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::SnapshotCommands;
+use crate::cli::arguments::CaptureArgs;
 use crate::cli::arguments::SnapshotTagsCommands;
 use crate::cli::command_support::SnapshotCaptureManyStats;
 use crate::cli::command_support::SnapshotCaptureStats;
@@ -22,11 +23,11 @@ use crate::cli::output;
 use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::build_timings_summary;
-use crate::cli::reporting::ensure_parent_directory;
 use crate::cli::reporting::optional_output_paths;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
+use crate::cli::reporting::write_json_file;
 use crate::cli::snapshot_transfer;
 use crate::cli::snapshot_transfer::FetchCommand;
 use crate::cli::tags::parse_cli_tags;
@@ -42,6 +43,7 @@ use crate::repo::snapshots::retag_snapshots;
 use crate::repo::status::read_repo_status;
 use crate::snapshot::diff::SnapshotChangeKind;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// Maps an engine capture result to CLI stats. The generic command calls the
 /// same additive engine path as every other caller instead of reimplementing
@@ -99,209 +101,14 @@ fn capture_stats_from_engine_result(
 
 pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result<()> {
     match command {
-        SnapshotCommands::Diff { repo, from, to } => {
-            let result = diff_repo_snapshots(&repo, &from, &to, &control_with_profile(profile))?;
-            output::record(&result)?;
-            {
-                for entry in &result.changes {
-                    let label = match entry.change {
-                        SnapshotChangeKind::Added => "Added",
-                        SnapshotChangeKind::Removed => "Removed",
-                        SnapshotChangeKind::Modified => "Modified",
-                        SnapshotChangeKind::Metadata => "Metadata",
-                    };
-                    output::line(format_args!(
-                        "{label:<8} {:>+12} B  {:?}",
-                        entry.delta_bytes, entry.path
-                    ));
-                }
-                output::line(format_args!(
-                    "{} changes; total {:+} B",
-                    result.changes.len(),
-                    result.delta_bytes
-                ));
-            }
-        }
-        SnapshotCommands::Capture {
-            source_dirs,
-            source_root,
-            repo,
-            tags,
-            build_profile,
-            runtime,
-            stats_json_out,
-            yes,
-        } => {
-            let single_report = source_root.is_none();
-            let sources =
-                resolve_capture_sources(source_root.clone(), source_dirs, parse_cli_tags(&tags)?)?;
-            let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo)?;
-            let requests = sources
-                .iter()
-                .map(|source| SnapshotCaptureRequest {
-                    repo_root: repo.clone(),
-                    source_dir: source.path.clone(),
-                    explicit_tags: source.tags.clone(),
-                    chunk_profile: build_profile.chunk_profile,
-                    chunker: build_profile.chunker,
-                    bundle_profile: build_profile.bundle_profile,
-                    compression_algorithm: build_profile.compression_algorithm,
-                    compression_level: build_profile.compression_level,
-                    storage_mode: build_profile.storage_mode,
-                    runtime_hints: runtime.hints(),
-                    control: control_with_profile(profile).with_progress(CliProgressSink::new()),
-                })
-                .collect::<Vec<_>>();
-            if dry_run() {
-                let plans = plan_snapshot_captures(&requests)?;
-                output::record(&plans)?;
-                for plan in plans {
-                    output::line(format_args!("{}", describe_snapshot_capture_plan(&plan)));
-                }
-                return Ok(());
-            }
-            if !yes {
-                output::line(format_args!("snapshot capture plan:"));
-                for plan in plan_snapshot_captures(&requests)? {
-                    output::line(format_args!("  {}", describe_snapshot_capture_plan(&plan)));
-                }
-                if !prompt_yes_no("Proceed?", false)? {
-                    return Err(crate::Error::manifest("snapshot capture cancelled"));
-                }
-            }
-            let results = capture_snapshots(requests)?;
-            if let Some(source_root) = source_root {
-                initialize_source_config(&source_root)?;
-            }
-            let mut snapshot_stats = Vec::with_capacity(results.len());
-            for (result, source) in results.iter().zip(&sources) {
-                output::line(format_args!("{}", result.outcome.message()));
-                snapshot_stats.push(capture_stats_from_engine_result(
-                    &repo.display().to_string(),
-                    &source.path.display().to_string(),
-                    &repo_manifest,
-                    &source.tags,
-                    build_profile.storage_mode.cli_name().to_string(),
-                    result,
-                    profile_mode(profile.as_deref()),
-                ));
-            }
-            if single_report && snapshot_stats.len() == 1 {
-                let stats = SnapshotCaptureStats {
-                    outputs: optional_output_paths(&stats_json_out),
-                    ..snapshot_stats.into_iter().next().unwrap()
-                };
-                write_report(&stats_json_out, &stats, profile.as_deref())?;
-            } else {
-                let total_logical_size = snapshot_stats
-                    .iter()
-                    .map(|stats| stats.total_logical_size)
-                    .sum();
-                let total_compressed_size_estimate = snapshot_stats
-                    .iter()
-                    .map(|stats| stats.total_compressed_size_estimate)
-                    .sum();
-                let generated_bundle_count = snapshot_stats
-                    .iter()
-                    .map(|stats| stats.generated_bundle_count)
-                    .sum();
-                let generated_bundle_bytes = snapshot_stats
-                    .iter()
-                    .map(|stats| stats.generated_bundle_bytes)
-                    .sum();
-                let generated_chunk_count = snapshot_stats
-                    .iter()
-                    .map(|stats| stats.generated_chunk_count)
-                    .sum();
-                let generated_chunk_bytes = snapshot_stats
-                    .iter()
-                    .map(|stats| stats.generated_chunk_bytes)
-                    .sum();
-                let total_build_seconds = snapshot_stats
-                    .iter()
-                    .map(|stats| stats.timings.total_seconds)
-                    .sum::<Option<f64>>()
-                    .filter(|_| profile_mode(profile.as_deref()) == ProfileMode::Detailed);
-                let aggregate_stats = SnapshotCaptureManyStats {
-                    command: "snapshot capture",
-                    repo_root: repo_paths.repo_root.display().to_string(),
-                    snapshot_count: snapshot_stats.len(),
-                    total_logical_size,
-                    total_compressed_size_estimate,
-                    generated_bundle_count,
-                    generated_bundle_bytes,
-                    generated_chunk_count,
-                    generated_chunk_bytes,
-                    total_build_seconds,
-                    snapshots: snapshot_stats,
-                    outputs: optional_output_paths(&stats_json_out),
-                };
-
-                write_report(&stats_json_out, &aggregate_stats, profile.as_deref())?;
-            }
-            print_profile_summary(profile.as_deref());
-        }
-
-        SnapshotCommands::List { repo, json_out } => {
-            let status = read_repo_status(&repo)?;
-            output::record(&status.snapshots)?;
-            if !status.is_repo {
-                return Err(crate::Error::manifest(format!(
-                    "no gutch repo found at {}",
-                    repo.display()
-                )));
-            }
-            if let Some(json_out) = json_out.as_ref() {
-                ensure_parent_directory(json_out)?;
-                filesystem::write(json_out, serde_json::to_vec_pretty(&status.snapshots)?)?;
-            }
-            output::line(format_args!("{SECTION_SEPARATOR}"));
-            output::line(format_args!("Snapshots"));
-            for snapshot in &status.snapshots {
-                output::line(format_args!("{}", snapshot.snapshot_id));
-            }
-            output::line(format_args!("{SECTION_SEPARATOR}"));
-            output::line(format_args!("Total"));
-            output::line(format_args!("name: {}", status.name));
-            output::line(format_args!("snapshots: {}", status.snapshots.len()));
-            output::line(format_args!("bundles: {}", status.bundle_count));
-        }
-
+        SnapshotCommands::Diff { repo, from, to } => diff(&repo, &from, &to, profile),
+        SnapshotCommands::Capture(args) => capture(args, profile),
+        SnapshotCommands::List { repo, json_out } => list(&repo, json_out.as_deref()),
         SnapshotCommands::Delete {
             repo,
             snapshot_id,
             yes,
-        } => {
-            load_snapshot_manifest_from_repo(&repo, &snapshot_id)?;
-            if dry_run() {
-                output::record(
-                    &serde_json::json!({"operation": "delete", "snapshot": snapshot_id}),
-                )?;
-                output::line(format_args!(
-                    "Would delete snapshot {} and clean up unreferenced artifacts",
-                    snapshot_id
-                ));
-                return Ok(());
-            }
-            if !yes
-                && !prompt_yes_no(
-                    "Delete this snapshot and clean up unreferenced artifacts?",
-                    false,
-                )?
-            {
-                return Err(crate::Error::manifest("snapshot deletion cancelled"));
-            }
-
-            let progress = CliProgressSink::new();
-            let control = control_with_profile(profile).with_progress(progress);
-            let orphan_count = delete_repo_snapshot_and_cleanup(&repo, &snapshot_id, &control)?;
-
-            output::line(format_args!(
-                "deleted snapshot '{}': removed manifest, {} orphaned artifacts cleaned up",
-                snapshot_id, orphan_count
-            ));
-        }
-
+        } => delete(&repo, &snapshot_id, yes, profile),
         SnapshotCommands::Tags {
             command:
                 SnapshotTagsCommands::Replace {
@@ -311,44 +118,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
                     tags_file,
                     yes,
                 },
-        } => {
-            let single_snapshot = snapshot_id.is_some();
-            let replacements = if let Some(path) = tags_file {
-                serde_json::from_str(&filesystem::read_to_string(&path)?)?
-            } else {
-                BTreeMap::from([(
-                    snapshot_id
-                        .ok_or_else(|| crate::Error::manifest("select a snapshot or tags file"))?,
-                    parse_cli_tags(&tags)?,
-                )])
-            };
-            if replacements.is_empty() {
-                return Err(crate::Error::manifest("select at least one snapshot"));
-            }
-            let preview = plan_snapshot_tag_updates(&repo, &replacements)?;
-            for change in &preview {
-                output::line(format_args!(
-                    "{}: {} -> {}",
-                    change.snapshot_id,
-                    change.previous_tags.to_canonical_strings().join(" "),
-                    change.new_tags.to_canonical_strings().join(" ")
-                ));
-            }
-            if dry_run() {
-                output::record(&preview)?;
-                return Ok(());
-            }
-            if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
-                return Err(crate::Error::manifest("snapshot tag replacement cancelled"));
-            }
-            let results = retag_snapshots(&repo, replacements)?;
-            if single_snapshot {
-                output::record(&results[0])?;
-            } else {
-                output::record(&results)?;
-            }
-        }
-
+        } => replace_tags(&repo, snapshot_id, &tags, tags_file.as_deref(), yes),
         SnapshotCommands::Fetch {
             repo,
             snapshot_id,
@@ -378,35 +148,274 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
                 transfer_policy: transfer.policy(),
             },
             profile,
-        )?,
+        ),
+        SnapshotCommands::Measure { source_dir, tags } => measure(&source_dir, &tags),
+    }
+}
 
-        SnapshotCommands::Measure { source_dir, tags } => {
-            let result = estimate_snapshot(&source_dir, &parse_cli_tags(&tags)?)?;
-            output::record(
-                &serde_json::json!({"file_count": result.file_count, "logical_bytes": result.total_logical_size, "unique_chunks": result.estimate.unique_chunk_count, "encoded_artifact_bytes": result.estimate.encoded_artifact_bytes}),
-            )?;
-            let est = &result.estimate;
+fn diff(repo: &Path, from: &str, to: &str, profile: &Profile) -> crate::Result<()> {
+    let result = diff_repo_snapshots(repo, from, to, &control_with_profile(profile))?;
+    output::record(&result)?;
+    for entry in &result.changes {
+        let label = match entry.change {
+            SnapshotChangeKind::Added => "Added",
+            SnapshotChangeKind::Removed => "Removed",
+            SnapshotChangeKind::Modified => "Modified",
+            SnapshotChangeKind::Metadata => "Metadata",
+        };
+        output::line(format_args!(
+            "{label:<8} {:>+12} B  {:?}",
+            entry.delta_bytes, entry.path
+        ));
+    }
+    output::line(format_args!(
+        "{} changes; total {:+} B",
+        result.changes.len(),
+        result.delta_bytes
+    ));
+    Ok(())
+}
 
-            output::line(format_args!(
-                "fresh capture measurement (default packaging presets):"
-            ));
-            output::line(format_args!("  files: {}", result.file_count));
-            output::line(format_args!(
-                "  logical size:  {:.2} MiB",
-                result.total_logical_size as f64 / (1024.0 * 1024.0)
-            ));
-            output::line(format_args!("  unique chunks: {}", est.unique_chunk_count));
-            output::line(format_args!(
-                "  unique chunk bytes: {:.2} MiB",
-                est.unique_chunk_bytes as f64 / (1024.0 * 1024.0)
-            ));
-            output::line(format_args!(
-                "  encoded artifacts: {:.2} MiB",
-                est.encoded_artifact_bytes as f64 / (1024.0 * 1024.0)
-            ));
-            output::line(format_args!("  artifacts: {}", est.bundle_count));
+fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
+    let CaptureArgs {
+        source_dirs,
+        source_root,
+        repo,
+        tags,
+        build_profile,
+        runtime,
+        stats_json_out,
+        yes,
+    } = args;
+    let single_report = source_root.is_none();
+    let sources =
+        resolve_capture_sources(source_root.clone(), source_dirs, parse_cli_tags(&tags)?)?;
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo)?;
+    let requests = sources
+        .iter()
+        .map(|source| SnapshotCaptureRequest {
+            repo_root: repo.clone(),
+            source_dir: source.path.clone(),
+            explicit_tags: source.tags.clone(),
+            chunk_profile: build_profile.chunk_profile,
+            chunker: build_profile.chunker,
+            bundle_profile: build_profile.bundle_profile,
+            compression_algorithm: build_profile.compression_algorithm,
+            compression_level: build_profile.compression_level,
+            storage_mode: build_profile.storage_mode,
+            runtime_hints: runtime.hints(),
+            control: control_with_profile(profile).with_progress(CliProgressSink::new()),
+        })
+        .collect::<Vec<_>>();
+    if dry_run() {
+        let plans = plan_snapshot_captures(&requests)?;
+        output::record(&plans)?;
+        for plan in plans {
+            output::line(format_args!("{}", describe_snapshot_capture_plan(&plan)));
+        }
+        return Ok(());
+    }
+    if !yes {
+        output::line(format_args!("snapshot capture plan:"));
+        for plan in plan_snapshot_captures(&requests)? {
+            output::line(format_args!("  {}", describe_snapshot_capture_plan(&plan)));
+        }
+        if !prompt_yes_no("Proceed?", false)? {
+            return Err(crate::Error::manifest("snapshot capture cancelled"));
         }
     }
+    let results = capture_snapshots(requests)?;
+    if let Some(source_root) = source_root {
+        initialize_source_config(&source_root)?;
+    }
+    let mut snapshot_stats = Vec::with_capacity(results.len());
+    for (result, source) in results.iter().zip(&sources) {
+        output::line(format_args!("{}", result.outcome.message()));
+        snapshot_stats.push(capture_stats_from_engine_result(
+            &repo.display().to_string(),
+            &source.path.display().to_string(),
+            &repo_manifest,
+            &source.tags,
+            build_profile.storage_mode.cli_name().to_string(),
+            result,
+            profile_mode(profile.as_deref()),
+        ));
+    }
+    if single_report && snapshot_stats.len() == 1 {
+        let stats = SnapshotCaptureStats {
+            outputs: optional_output_paths(&stats_json_out),
+            ..snapshot_stats.into_iter().next().unwrap()
+        };
+        write_report(&stats_json_out, &stats, profile.as_deref())?;
+    } else {
+        let mut aggregate_stats = aggregate_capture_stats(
+            &repo_paths.repo_root.display().to_string(),
+            snapshot_stats,
+            profile_mode(profile.as_deref()),
+        );
+        aggregate_stats.outputs = optional_output_paths(&stats_json_out);
+        write_report(&stats_json_out, &aggregate_stats, profile.as_deref())?;
+    }
+    print_profile_summary(profile.as_deref());
+    Ok(())
+}
 
+/// Sums the per-snapshot capture stats into one report.
+fn aggregate_capture_stats(
+    repo_root: &str,
+    snapshot_stats: Vec<SnapshotCaptureStats>,
+    mode: ProfileMode,
+) -> SnapshotCaptureManyStats {
+    let sum =
+        |field: fn(&SnapshotCaptureStats) -> u64| snapshot_stats.iter().map(field).sum::<u64>();
+    SnapshotCaptureManyStats {
+        command: "snapshot capture",
+        repo_root: repo_root.to_string(),
+        snapshot_count: snapshot_stats.len(),
+        total_logical_size: sum(|stats| stats.total_logical_size),
+        total_compressed_size_estimate: sum(|stats| stats.total_compressed_size_estimate),
+        generated_bundle_count: snapshot_stats
+            .iter()
+            .map(|stats| stats.generated_bundle_count)
+            .sum(),
+        generated_bundle_bytes: sum(|stats| stats.generated_bundle_bytes),
+        generated_chunk_count: snapshot_stats
+            .iter()
+            .map(|stats| stats.generated_chunk_count)
+            .sum(),
+        generated_chunk_bytes: sum(|stats| stats.generated_chunk_bytes),
+        total_build_seconds: snapshot_stats
+            .iter()
+            .map(|stats| stats.timings.total_seconds)
+            .sum::<Option<f64>>()
+            .filter(|_| mode == ProfileMode::Detailed),
+        snapshots: snapshot_stats,
+        outputs: optional_output_paths(&None),
+    }
+}
+
+fn list(repo: &Path, json_out: Option<&Path>) -> crate::Result<()> {
+    let status = read_repo_status(repo)?;
+    output::record(&status.snapshots)?;
+    if !status.is_repo {
+        return Err(crate::Error::manifest(format!(
+            "no gutch repo found at {}",
+            repo.display()
+        )));
+    }
+    write_json_file(json_out, &status.snapshots)?;
+    output::line(format_args!("{SECTION_SEPARATOR}"));
+    output::line(format_args!("Snapshots"));
+    for snapshot in &status.snapshots {
+        output::line(format_args!("{}", snapshot.snapshot_id));
+    }
+    output::line(format_args!("{SECTION_SEPARATOR}"));
+    output::line(format_args!("Total"));
+    output::line(format_args!("name: {}", status.name));
+    output::line(format_args!("snapshots: {}", status.snapshots.len()));
+    output::line(format_args!("bundles: {}", status.bundle_count));
+    Ok(())
+}
+
+fn delete(repo: &Path, snapshot_id: &str, yes: bool, profile: &Profile) -> crate::Result<()> {
+    load_snapshot_manifest_from_repo(repo, snapshot_id)?;
+    if dry_run() {
+        output::record(&serde_json::json!({"operation": "delete", "snapshot": snapshot_id}))?;
+        output::line(format_args!(
+            "Would delete snapshot {snapshot_id} and clean up unreferenced artifacts"
+        ));
+        return Ok(());
+    }
+    if !yes
+        && !prompt_yes_no(
+            "Delete this snapshot and clean up unreferenced artifacts?",
+            false,
+        )?
+    {
+        return Err(crate::Error::manifest("snapshot deletion cancelled"));
+    }
+
+    let control = control_with_profile(profile).with_progress(CliProgressSink::new());
+    let orphan_count = delete_repo_snapshot_and_cleanup(repo, snapshot_id, &control)?;
+    output::line(format_args!(
+        "deleted snapshot '{snapshot_id}': removed manifest, {orphan_count} orphaned artifacts cleaned up"
+    ));
+    Ok(())
+}
+
+fn replace_tags(
+    repo: &Path,
+    snapshot_id: Option<String>,
+    tags: &[String],
+    tags_file: Option<&Path>,
+    yes: bool,
+) -> crate::Result<()> {
+    let single_snapshot = snapshot_id.is_some();
+    let replacements = if let Some(path) = tags_file {
+        serde_json::from_str(&filesystem::read_to_string(path)?)?
+    } else {
+        BTreeMap::from([(
+            snapshot_id.ok_or_else(|| crate::Error::manifest("select a snapshot or tags file"))?,
+            parse_cli_tags(tags)?,
+        )])
+    };
+    if replacements.is_empty() {
+        return Err(crate::Error::manifest("select at least one snapshot"));
+    }
+    let preview = plan_snapshot_tag_updates(repo, &replacements)?;
+    for change in &preview {
+        output::line(format_args!(
+            "{}: {} -> {}",
+            change.snapshot_id,
+            change.previous_tags.to_canonical_strings().join(" "),
+            change.new_tags.to_canonical_strings().join(" ")
+        ));
+    }
+    if dry_run() {
+        output::record(&preview)?;
+        return Ok(());
+    }
+    if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
+        return Err(crate::Error::manifest("snapshot tag replacement cancelled"));
+    }
+    let results = retag_snapshots(repo, replacements)?;
+    if single_snapshot {
+        output::record(&results[0])
+    } else {
+        output::record(&results)
+    }
+}
+
+fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
+    const MIB: f64 = 1024.0 * 1024.0;
+    let result = estimate_snapshot(source_dir, &parse_cli_tags(tags)?)?;
+    let estimate = &result.estimate;
+    output::record(&serde_json::json!({
+        "file_count": result.file_count,
+        "logical_bytes": result.total_logical_size,
+        "unique_chunks": estimate.unique_chunk_count,
+        "encoded_artifact_bytes": estimate.encoded_artifact_bytes,
+    }))?;
+    output::line(format_args!(
+        "fresh capture measurement (default packaging presets):"
+    ));
+    output::line(format_args!("  files: {}", result.file_count));
+    output::line(format_args!(
+        "  logical size:  {:.2} MiB",
+        result.total_logical_size as f64 / MIB
+    ));
+    output::line(format_args!(
+        "  unique chunks: {}",
+        estimate.unique_chunk_count
+    ));
+    output::line(format_args!(
+        "  unique chunk bytes: {:.2} MiB",
+        estimate.unique_chunk_bytes as f64 / MIB
+    ));
+    output::line(format_args!(
+        "  encoded artifacts: {:.2} MiB",
+        estimate.encoded_artifact_bytes as f64 / MIB
+    ));
+    output::line(format_args!("  artifacts: {}", estimate.bundle_count));
     Ok(())
 }

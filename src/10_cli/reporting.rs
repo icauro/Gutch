@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::capture::build::types::BuildTimings;
 use crate::cli::output;
+use crate::filesystem;
 use crate::installation::ReconstructTimings;
 use crate::installation::inspect::VerifyTimings;
 use crate::profiling::ProfileMode;
@@ -654,6 +655,15 @@ pub(crate) fn ensure_parent_directory(path: &Path) -> crate::Result<()> {
         fs::create_dir_all(parent)?;
     }
 
+    Ok(())
+}
+
+/// Writes `value` as pretty JSON to `path` when one was requested.
+pub(crate) fn write_json_file(path: Option<&Path>, value: &impl Serialize) -> crate::Result<()> {
+    if let Some(path) = path {
+        ensure_parent_directory(path)?;
+        filesystem::write(path, serde_json::to_vec_pretty(value)?)?;
+    }
     Ok(())
 }
 

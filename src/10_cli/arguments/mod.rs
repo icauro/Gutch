@@ -9,7 +9,7 @@ pub(crate) use installation::{InstallationCommands, ReconstructArgs};
 pub(crate) use repo::{
     ConstraintCommands, RemoteCommands, RepoCommands, RepoIndexCommands, RepoTagsCommands,
 };
-pub(crate) use snapshot::{SnapshotCommands, SnapshotTagsCommands};
+pub(crate) use snapshot::{CaptureArgs, SnapshotCommands, SnapshotTagsCommands};
 
 use std::path::PathBuf;
 

@@ -9,8 +9,7 @@ use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::output::dry_run;
 use crate::cli::prompt_yes_no;
-use crate::cli::reporting::ensure_parent_directory;
-use crate::filesystem;
+use crate::cli::reporting::write_json_file;
 use crate::progress::ProgressEvent;
 use crate::progress::ProgressSink;
 use crate::repo::read::load_gutch_repo_manifest;
@@ -239,10 +238,7 @@ pub(crate) fn tag_references(
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let result: RemoteTagReferencesResult = inspect_repo_tag_references(&repo, provider)?;
-    if let Some(json_out) = json_out.as_ref() {
-        ensure_parent_directory(json_out)?;
-        filesystem::write(json_out, serde_json::to_vec_pretty(&result)?)?;
-    }
+    write_json_file(json_out.as_deref(), &result)?;
 
     output::line(format_args!("repo: {}", result.repo_root));
     output::line(format_args!("remote_repo_id: {}", result.remote_repo_id));

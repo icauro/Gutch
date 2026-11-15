@@ -40,7 +40,7 @@ pub(crate) struct ReconstructWorkQueue {
     pub(crate) in_flight: usize,
 }
 
-pub(crate) struct AdmittedReconstructionWork {
+pub(crate) struct AdmittedReconstructWork {
     pub(crate) work: ReconstructWorkItem,
     pub(crate) permit: MemoryPermit,
     pub(crate) queued_at: ProfileInstant,
@@ -52,7 +52,7 @@ impl ReconstructWorkQueue {
         jobs: &[ReconstructJob],
         file_plans: &[ReconstructPipelineFile],
         memory: &Arc<MemoryBudget>,
-    ) -> Result<Option<AdmittedReconstructionWork>> {
+    ) -> Result<Option<AdmittedReconstructWork>> {
         for (index, (work, _)) in self.ready.iter().enumerate() {
             let bytes = match work {
                 ReconstructWorkItem::Jobs(indices) => {
@@ -72,7 +72,7 @@ impl ReconstructWorkQueue {
                     }
                 }
                 self.in_flight += 1;
-                return Ok(Some(AdmittedReconstructionWork {
+                return Ok(Some(AdmittedReconstructWork {
                     work,
                     permit,
                     queued_at,

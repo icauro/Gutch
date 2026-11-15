@@ -13,6 +13,7 @@ use crate::cli::output::dry_run;
 use crate::cli::repo_remote;
 use crate::cli::repo_remote::tag_references;
 use crate::cli::reporting::ensure_parent_directory;
+use crate::cli::reporting::write_json_file;
 use crate::filesystem;
 use crate::manifest::constraints::FilesystemTarget;
 use crate::manifest::constraints::RepositoryConstraints;
@@ -39,40 +40,7 @@ pub(crate) fn run(
     profile: &Profile,
 ) -> crate::Result<()> {
     match command {
-        RepoCommands::Constraints { command } => {
-            let (repo, replacement) = match command {
-                ConstraintCommands::Show { repo } => (repo, None),
-                ConstraintCommands::Set {
-                    repo,
-                    targets,
-                    constraints,
-                } => (
-                    repo,
-                    Some(read_constraint_input(constraints.as_deref(), targets)?),
-                ),
-                ConstraintCommands::Clear { repo } => {
-                    (repo, Some(RepositoryConstraints::default()))
-                }
-            };
-            if let Some(constraints) = replacement {
-                let constraints = plan_repository_constraints(&repo, constraints)?;
-                if !dry_run() {
-                    update_repository_constraints(&repo, constraints.clone())?;
-                }
-                output::record(&constraints)?;
-                output::line(format_args!(
-                    "{}",
-                    serde_json::to_string_pretty(&constraints)?
-                ));
-            } else {
-                let constraints = read_repository_constraints(&repo)?;
-                output::record(&constraints)?;
-                output::line(format_args!(
-                    "{}",
-                    serde_json::to_string_pretty(&constraints)?
-                ));
-            }
-        }
+        RepoCommands::Constraints { command } => constraints(command),
         RepoCommands::Index {
             command:
                 RepoIndexCommands::Rebuild {
@@ -80,178 +48,206 @@ pub(crate) fn run(
                     apply,
                     json_out,
                 },
-        } => {
-            let result = rebuild_index(&repo, apply && !dry_run(), &OperationControl::default())?;
-            output::record(&result)?;
-            let json = serde_json::to_vec_pretty(&result)?;
-            if let Some(path) = json_out {
-                ensure_parent_directory(&path)?;
-                filesystem::write(&path, &json)?;
-            }
-            output::line(format_args!("{}", String::from_utf8_lossy(&json)));
-            if !result.complete {
-                return Err(crate::Error::manifest(
-                    "chunk index rebuild is incomplete; the index was not replaced",
-                ));
-            }
-        }
+        } => rebuild_chunk_index(&repo, apply, json_out.as_deref()),
         RepoCommands::Init {
             path,
             force,
             targets,
             constraints,
-        } => {
-            let constraints = read_constraint_input(constraints.as_deref(), targets)?;
-            crate::cli::repo::init_repo(&path, force, constraints)?;
-        }
-
-        RepoCommands::Push { repo, yes } => {
-            repo_remote::push(repo, yes, remote_provider, profile)?;
-        }
-
+        } => init_repo(
+            &path,
+            force,
+            read_constraint_input(constraints.as_deref(), targets)?,
+        ),
+        RepoCommands::Push { repo, yes } => repo_remote::push(repo, yes, remote_provider, profile),
         RepoCommands::Pull {
             repo,
             remote,
             on_conflict,
             prune,
             yes,
-        } => {
-            repo_remote::pull(
-                repo,
-                remote,
-                on_conflict,
-                prune,
-                yes,
-                remote_provider,
-                profile,
-            )?;
-        }
-
+        } => repo_remote::pull(
+            repo,
+            remote,
+            on_conflict,
+            prune,
+            yes,
+            remote_provider,
+            profile,
+        ),
         RepoCommands::Remote { command } => match command {
-            RemoteCommands::List => repo_remote::list(remote_provider)?,
+            RemoteCommands::List => repo_remote::list(remote_provider),
             RemoteCommands::Create { repo, scope_id } => {
-                repo_remote::create(repo, scope_id, remote_provider)?
+                repo_remote::create(repo, scope_id, remote_provider)
             }
             RemoteCommands::Bind {
                 repo,
                 remote_repo_id,
-            } => repo_remote::bind(repo, remote_repo_id, remote_provider)?,
+            } => repo_remote::bind(repo, remote_repo_id, remote_provider),
             RemoteCommands::Unbind {
                 repo,
                 delete_remote,
-            } => repo_remote::unbind(repo, delete_remote, remote_provider)?,
+            } => repo_remote::unbind(repo, delete_remote, remote_provider),
         },
         RepoCommands::Rename { repo, name } => {
             if dry_run() {
                 let name = plan_repo_rename(&repo, &name)?;
                 output::record(&serde_json::json!({"operation": "rename", "name": name}))?;
                 output::line(format_args!("Would rename {} to {}", repo.display(), name));
+                Ok(())
             } else {
-                crate::cli::repo::rename_repo(&repo, &name)?;
+                rename_repo(&repo, &name)
             }
         }
         RepoCommands::Tags {
             command: RepoTagsCommands::References { repo, json_out },
-        } => {
-            tag_references(repo, json_out, remote_provider)?;
-        }
-
-        RepoCommands::Status { repo, json_out } => {
-            let _check_span = profile.as_ref().and_then(|p| p.span("repo.status"));
-            let status = read_repo_status(&repo)?;
-            output::record(&status)?;
-            if let Some(json_out) = json_out.as_ref() {
-                ensure_parent_directory(json_out)?;
-                filesystem::write(json_out, serde_json::to_vec_pretty(&status)?)?;
-            }
-
-            if status.is_repo {
-                output::line(format_args!("{SECTION_SEPARATOR}"));
-                output::line(format_args!("Snapshots"));
-                for snapshot in &status.snapshots {
-                    output::line(format_args!(
-                        "{} | version={} | os={} | arch={} | files={} | missing_artifacts={}",
-                        snapshot.snapshot_id,
-                        snapshot.version_tag,
-                        snapshot.os,
-                        snapshot.arch,
-                        snapshot.file_count,
-                        snapshot.missing_artifact_count
-                    ));
-                }
-                output::line(format_args!("{SECTION_SEPARATOR}"));
-                output::line(format_args!("Total"));
-                output::line(format_args!("name: {}", status.name));
-                output::line(format_args!(
-                    "remote_repo_id: {}",
-                    if status.remote_repo_id.is_empty() {
-                        "(not linked)"
-                    } else {
-                        &status.remote_repo_id
-                    }
-                ));
-                output::line(format_args!("repo_path: {}", status.repo_path));
-                output::line(format_args!("snapshots: {}", status.snapshots.len()));
-                output::line(format_args!("bundles: {}", status.bundle_count));
-                output::line(format_args!("bundle_bytes: {}", status.bundle_bytes));
-                output::line(format_args!("artifacts: {}", status.artifact_count));
-                output::line(format_args!("artifact_bytes: {}", status.artifact_bytes));
-            } else if let Some(error) = status.error.as_deref() {
-                output::line(format_args!("status: {}", error));
-            } else {
-                output::line(format_args!(
-                    "status: no gutch repo found at {}",
-                    status.repo_path
-                ));
-            }
-        }
-
+        } => tag_references(repo, json_out, remote_provider),
+        RepoCommands::Status { repo, json_out } => status(&repo, json_out.as_deref(), profile),
         RepoCommands::Verify {
             repo,
             snapshot_id,
             strict,
             json_out,
-        } => {
-            let mode = if strict {
-                RepoArtifactVerification::Identity
-            } else {
-                RepoArtifactVerification::Structure
-            };
-            let result = verify_gutch_repo_artifacts(&repo, snapshot_id.as_deref(), mode)?;
-            output::record(&result)?;
-            if let Some(json_out) = json_out.as_ref() {
-                ensure_parent_directory(json_out)?;
-                filesystem::write(json_out, serde_json::to_vec_pretty(&result)?)?;
-            }
+        } => verify(&repo, snapshot_id.as_deref(), strict, json_out.as_deref()),
+    }
+}
 
-            output::line(format_args!("{SECTION_SEPARATOR}"));
-            output::line(format_args!("Verify ({})", result.mode));
-            output::line(format_args!("ok: {}", result.ok));
-            output::line(format_args!(
-                "snapshots: {} ok={}",
-                result.snapshot_count, result.snapshots_ok
-            ));
-            for snapshot_result in &result.snapshots {
-                output::line(format_args!(
-                    "{} | ok={} | missing_artifacts={} | corrupt_artifacts={}",
-                    snapshot_result.snapshot_id,
-                    snapshot_result.ok,
-                    snapshot_result.missing_artifact_count,
-                    snapshot_result.corrupt_artifact_count
-                ));
-                for missing in &snapshot_result.missing_artifacts {
-                    output::line(format_args!("  missing artifact: {missing}"));
-                }
-                for corrupt in &snapshot_result.corrupt_artifacts {
-                    output::line(format_args!("  corrupt artifact: {corrupt}"));
-                }
+/// Shows the repository constraints, or replaces them for `set` and `clear`.
+fn constraints(command: ConstraintCommands) -> crate::Result<()> {
+    let (repo, replacement) = match command {
+        ConstraintCommands::Show { repo } => (repo, None),
+        ConstraintCommands::Set {
+            repo,
+            targets,
+            constraints,
+        } => (
+            repo,
+            Some(read_constraint_input(constraints.as_deref(), targets)?),
+        ),
+        ConstraintCommands::Clear { repo } => (repo, Some(RepositoryConstraints::default())),
+    };
+    let constraints = match replacement {
+        Some(replacement) => {
+            let constraints = plan_repository_constraints(&repo, replacement)?;
+            if !dry_run() {
+                update_repository_constraints(&repo, constraints.clone())?;
             }
-            if !result.ok {
-                return Err(crate::Error::verify("repository verification failed"));
-            }
+            constraints
+        }
+        None => read_repository_constraints(&repo)?,
+    };
+    output::record(&constraints)?;
+    output::line(format_args!(
+        "{}",
+        serde_json::to_string_pretty(&constraints)?
+    ));
+    Ok(())
+}
+
+fn rebuild_chunk_index(repo: &Path, apply: bool, json_out: Option<&Path>) -> crate::Result<()> {
+    let result = rebuild_index(repo, apply && !dry_run(), &OperationControl::default())?;
+    output::record(&result)?;
+    let json = serde_json::to_vec_pretty(&result)?;
+    if let Some(path) = json_out {
+        ensure_parent_directory(path)?;
+        filesystem::write(path, &json)?;
+    }
+    output::line(format_args!("{}", String::from_utf8_lossy(&json)));
+    if !result.complete {
+        return Err(crate::Error::manifest(
+            "chunk index rebuild is incomplete; the index was not replaced",
+        ));
+    }
+    Ok(())
+}
+
+fn status(repo: &Path, json_out: Option<&Path>, profile: &Profile) -> crate::Result<()> {
+    let _status_span = profile.as_ref().and_then(|p| p.span("repo.status"));
+    let status = read_repo_status(repo)?;
+    output::record(&status)?;
+    write_json_file(json_out, &status)?;
+
+    if !status.is_repo {
+        match status.error.as_deref() {
+            Some(error) => output::line(format_args!("status: {error}")),
+            None => output::line(format_args!(
+                "status: no gutch repo found at {}",
+                status.repo_path
+            )),
+        }
+        return Ok(());
+    }
+    output::line(format_args!("{SECTION_SEPARATOR}"));
+    output::line(format_args!("Snapshots"));
+    for snapshot in &status.snapshots {
+        output::line(format_args!(
+            "{} | version={} | os={} | arch={} | files={} | missing_artifacts={}",
+            snapshot.snapshot_id,
+            snapshot.version_tag,
+            snapshot.os,
+            snapshot.arch,
+            snapshot.file_count,
+            snapshot.missing_artifact_count
+        ));
+    }
+    let remote_repo_id = if status.remote_repo_id.is_empty() {
+        "(not linked)"
+    } else {
+        &status.remote_repo_id
+    };
+    output::line(format_args!("{SECTION_SEPARATOR}"));
+    output::line(format_args!("Total"));
+    output::line(format_args!("name: {}", status.name));
+    output::line(format_args!("remote_repo_id: {remote_repo_id}"));
+    output::line(format_args!("repo_path: {}", status.repo_path));
+    output::line(format_args!("snapshots: {}", status.snapshots.len()));
+    output::line(format_args!("bundles: {}", status.bundle_count));
+    output::line(format_args!("bundle_bytes: {}", status.bundle_bytes));
+    output::line(format_args!("artifacts: {}", status.artifact_count));
+    output::line(format_args!("artifact_bytes: {}", status.artifact_bytes));
+    Ok(())
+}
+
+fn verify(
+    repo: &Path,
+    snapshot_id: Option<&str>,
+    strict: bool,
+    json_out: Option<&Path>,
+) -> crate::Result<()> {
+    let mode = if strict {
+        RepoArtifactVerification::Identity
+    } else {
+        RepoArtifactVerification::Structure
+    };
+    let result = verify_gutch_repo_artifacts(repo, snapshot_id, mode)?;
+    output::record(&result)?;
+    write_json_file(json_out, &result)?;
+
+    output::line(format_args!("{SECTION_SEPARATOR}"));
+    output::line(format_args!("Verify ({})", result.mode));
+    output::line(format_args!("ok: {}", result.ok));
+    output::line(format_args!(
+        "snapshots: {} ok={}",
+        result.snapshot_count, result.snapshots_ok
+    ));
+    for snapshot in &result.snapshots {
+        output::line(format_args!(
+            "{} | ok={} | missing_artifacts={} | corrupt_artifacts={}",
+            snapshot.snapshot_id,
+            snapshot.ok,
+            snapshot.missing_artifact_count,
+            snapshot.corrupt_artifact_count
+        ));
+        for missing in &snapshot.missing_artifacts {
+            output::line(format_args!("  missing artifact: {missing}"));
+        }
+        for corrupt in &snapshot.corrupt_artifacts {
+            output::line(format_args!("  corrupt artifact: {corrupt}"));
         }
     }
-
+    if !result.ok {
+        return Err(crate::Error::verify("repository verification failed"));
+    }
     Ok(())
 }
 

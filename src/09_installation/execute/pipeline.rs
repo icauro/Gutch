@@ -1,9 +1,11 @@
 //! Coordinates artifact readiness, job dispatch and file verification for one reconstruction.
 
 use crate::profiling::ProfileInstant;
+use crate::profiling::ProfileSpan;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
+use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,6 +30,7 @@ use crate::transfer::download::PendingArtifactDownload;
 use crate::transfer::progress::FetchTransferProgress;
 
 use super::handles::{OutputHandleCache, SourceHandleCache};
+use super::job_io::ReconstructedFileVerification;
 use super::jobs::{ReconstructJob, ReconstructPipelineFile, ReconstructPipelinePlan};
 use crate::installation::plan::build_artifact_priorities;
 
@@ -93,7 +96,7 @@ pub(crate) fn run_reconstruction_jobs(
         verify_files: true,
         ..ReconstructTimings::default()
     };
-    let mut verify_timings = VerifyTimings {
+    let verify_timings = VerifyTimings {
         verify_mode: VerifyMode::Fast,
         runtime_plan: Some(plan_runtime(runtime_hints)),
         ..VerifyTimings::default()
@@ -120,43 +123,22 @@ pub(crate) fn run_reconstruction_jobs(
         )?;
         (artifact_job_indices, artifact_scheduler)
     };
-    let artifact_worker_count = artifact_scheduler
-        .as_ref()
-        .map(ArtifactDownloadScheduler::worker_count)
-        .unwrap_or(0);
-
-    emit_progress(
-        control.progress(),
-        ProgressEvent {
-            feedback: None,
-            operation: OperationKind::Fetch,
-            phase: ProgressPhase::Reconstruct,
-            message: format!("Preparing files (0/{})", file_plans.len().max(1)),
-            current: 0,
-            total: file_plans.len().max(1),
-            transferred_bytes: 0,
-            total_bytes: 0,
-            detail: Some(snapshot_id.to_string()),
-            done: false,
-        },
+    emit_reconstruct_progress(
+        control,
+        "Preparing files",
+        0,
+        file_plans.len(),
+        Some(snapshot_id),
     );
 
     let (event_tx, event_rx) = mpsc::channel::<ReconstructJobEvent>();
-    let compression_profile = Arc::new((*compression_profile).clone());
     // Keep producer accounting after download startup so handle selection does
     // not delay the existing overlap between transfer and preparation.
-    let mut remaining_file_jobs = vec![0usize; file_plans.len()];
     let job_file_indices = jobs
         .iter()
         .map(reconstruct_job_file_indices)
         .collect::<Vec<_>>();
-    for file_indices in &job_file_indices {
-        for &file_index in file_indices {
-            if let Some(remaining) = remaining_file_jobs.get_mut(file_index) {
-                *remaining += 1;
-            }
-        }
-    }
+    let remaining_file_jobs = count_jobs_per_file(&job_file_indices, file_plans.len());
     let output_handles = Arc::new(OutputHandleCache::new(
         Arc::clone(&output_paths),
         Arc::clone(&output_sizes),
@@ -170,25 +152,11 @@ pub(crate) fn run_reconstruction_jobs(
         file_plans: Arc::clone(&file_plans),
         output_paths: Arc::clone(&output_paths),
         output_handles,
-        compression_profile,
+        compression_profile: Arc::new(compression_profile.clone()),
         control: control.clone(),
         reconstruct_worker_count: runtime_plan.worker_count,
     });
-    let mut work_queue = ReconstructWorkQueue::default();
-    let mut enqueued_job_count = 0usize;
-    let mut downloads_done = artifact_scheduler.is_none();
-    let mut completed_download_worker_count = 0usize;
-
-    let mut completed_job_count = 0usize;
-    let mut completed_file_count = 0usize;
-    let mut verification_queued = vec![false; file_plans.len()];
-    let mut verify_started_at = None;
-    let mut verify_finished_at = None;
-    let mut verify_span = None;
-    let mut verified_file_bytes = 0u64;
-    let mut pipeline_error = None;
     let reconstruct_started_at = ProfileInstant::start(control.profiler());
-    let mut reconstruct_finished_at = jobs.is_empty().then_some(reconstruct_started_at);
     if jobs.is_empty() {
         control.output_finished();
     }
@@ -206,312 +174,420 @@ pub(crate) fn run_reconstruction_jobs(
             ));
         }
     };
-    let mut scheduled_jobs = {
-        let _dispatch_span = control.profile_span("installation.reconstruct.dispatch.ready");
-        let mut scheduled_jobs = vec![false; jobs.len()];
-        for (job_index, job) in jobs.iter().enumerate() {
-            let ready = match job {
-                ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
-                ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
-            };
-            if ready {
-                work_queue.ready.push_back((
-                    ReconstructWorkItem::Jobs(job_index..job_index + 1),
-                    ProfileInstant::detailed(control.profiler()),
-                ));
-                scheduled_jobs[job_index] = true;
 
-                enqueued_job_count += 1;
-            }
-        }
-        scheduled_jobs
-    };
-    update_reconstruct_backpressure(
+    let mut coordinator = PipelineCoordinator {
+        control,
         transfer_progress,
-        enqueued_job_count,
-        completed_job_count,
-        runtime_plan.worker_count,
-    );
-    for file_index in 0..file_plans.len() {
-        if remaining_file_jobs[file_index] == 0 {
-            ensure_empty_reconstruct_output_file(
-                &file_plans[file_index],
-                &output_paths[file_index],
-                control,
-            )?;
-            work_queue.ready.push_back((
-                ReconstructWorkItem::VerifyFiles(vec![file_index]),
-                ProfileInstant::detailed(control.profiler()),
-            ));
-            verification_queued[file_index] = true;
-
-            if verify_started_at.is_none() {
-                verify_started_at = Some(ProfileInstant::start(control.profiler()));
-                verify_span = control.profile_span("installation.reconstruct.verify");
-            }
-        }
-    }
-    while completed_job_count < jobs.len() || completed_file_count < file_plans.len() {
-        if let Err(error) = control.checkpoint() {
-            pipeline_error = Some(error);
-            break;
-        }
-        if !downloads_done && let Some(scheduler) = artifact_scheduler.as_ref() {
-            while !downloads_done {
-                match scheduler.try_recv() {
-                    Ok(ArtifactDownloadEvent::Ready(artifact)) => {
-                        let Some(&job_index) = artifact_job_indices.get(&artifact) else {
-                            pipeline_error = Some(Error::reconstruct(format!(
-                                "downloaded unexpected artifact '{}'",
-                                artifact.id()
-                            )));
-                            break;
-                        };
-                        let ReconstructJob::Artifact(job) = &jobs[job_index] else {
-                            pipeline_error = Some(Error::reconstruct(format!(
-                                "downloaded artifact '{}' is not an artifact job",
-                                artifact.id()
-                            )));
-                            break;
-                        };
-                        if !job.artifact_path.is_file() {
-                            pipeline_error = Some(Error::reconstruct(format!(
-                                "downloaded artifact '{}' is missing at {}",
-                                artifact.id(),
-                                job.artifact_path.display()
-                            )));
-                            break;
-                        }
-                        if !scheduled_jobs[job_index] {
-                            scheduled_jobs[job_index] = true;
-                            let _dispatch_span = control
-                                .profile_span("installation.reconstruct.dispatch.downloaded");
-                            work_queue.ready.push_back((
-                                ReconstructWorkItem::Jobs(job_index..job_index + 1),
-                                ProfileInstant::detailed(control.profiler()),
-                            ));
-
-                            enqueued_job_count += 1;
-                            update_reconstruct_backpressure(
-                                transfer_progress,
-                                enqueued_job_count,
-                                completed_job_count,
-                                runtime_plan.worker_count,
-                            );
-                        }
-                    }
-                    Ok(ArtifactDownloadEvent::Failed(error)) => {
-                        pipeline_error = Some(error);
-                        break;
-                    }
-                    Ok(ArtifactDownloadEvent::WorkerDone) => {
-                        completed_download_worker_count += 1;
-                        if completed_download_worker_count == artifact_worker_count {
-                            downloads_done = true;
-                            if let Some(transfer_progress) = transfer_progress {
-                                transfer_progress.finish();
-                                control.download_finished();
-                            }
-                        }
-                    }
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        pipeline_error = Some(Error::reconstruct(format!(
-                            "artifact download scheduler channel closed unexpectedly after scheduling {}/{} artifact jobs; {completed_download_worker_count}/{artifact_worker_count} workers reported completion",
-                            enqueued_job_count,
-                            artifact_job_indices.len(),
-                        )));
-                        break;
-                    }
-                }
-            }
-        }
-
-        if pipeline_error.is_none()
-            && let Err(error) = dispatch_ready_work(pool, &mut work_queue, &work_context, &event_tx)
-        {
-            pipeline_error = Some(error);
-        }
-        if pipeline_error.is_some() {
-            break;
-        }
-        if completed_job_count == jobs.len() && completed_file_count == file_plans.len() {
-            break;
-        }
-        let event = {
-            let _wait_span = control.profile_span("installation.coordinator.wait_for_worker");
-            event_rx.recv_timeout(Duration::from_millis(10))
-        };
-        match event {
-            Ok(ReconstructJobEvent::Completed {
-                job_indices,
-                timings: job_timings,
-            }) => {
-                work_queue.complete();
-                completed_job_count += job_indices.len();
-                update_reconstruct_backpressure(
-                    transfer_progress,
-                    enqueued_job_count,
-                    completed_job_count,
-                    runtime_plan.worker_count,
-                );
-                for timings in &job_timings {
-                    accumulate_pipeline_timings(
-                        &mut reconstruct_timings,
-                        &mut verify_timings,
-                        timings,
-                    );
-                }
-                emit_progress(
-                    control.progress(),
-                    ProgressEvent {
-                        feedback: None,
-                        operation: OperationKind::Fetch,
-                        phase: ProgressPhase::Reconstruct,
-                        message: format!(
-                            "Reconstructing jobs ({}/{})",
-                            completed_job_count,
-                            jobs.len().max(1)
-                        ),
-                        current: completed_job_count,
-                        total: jobs.len().max(1),
-                        transferred_bytes: 0,
-                        total_bytes: 0,
-                        detail: None,
-                        done: false,
-                    },
-                );
-                if reconstruct_finished_at.is_none() && completed_job_count == jobs.len() {
-                    reconstruct_finished_at = Some(ProfileInstant::start(control.profiler()));
-                    control.output_finished();
-                }
-                for &file_index in
-                    job_indices.flat_map(|job_index| job_file_indices[job_index].iter())
-                {
-                    remaining_file_jobs[file_index] =
-                        remaining_file_jobs[file_index].saturating_sub(1);
-                    if remaining_file_jobs[file_index] == 0 && !verification_queued[file_index] {
-                        if verify_started_at.is_none() {
-                            verify_started_at = Some(ProfileInstant::start(control.profiler()));
-                            verify_span = control.profile_span("installation.reconstruct.verify");
-                        }
-                        // Verify while the completed file may still be cached, overlapping
-                        // hashing with remaining writes. All its producers have finished.
-                        work_queue.ready.push_front((
-                            ReconstructWorkItem::VerifyFiles(vec![file_index]),
-                            ProfileInstant::detailed(control.profiler()),
-                        ));
-                        verification_queued[file_index] = true;
-                    }
-                }
-            }
-            Ok(ReconstructJobEvent::Verified {
-                file_count,
-                timings: file_verification,
-            }) => {
-                work_queue.complete();
-                completed_file_count += file_count;
-                if verify_finished_at.is_none() && completed_file_count == file_plans.len() {
-                    verify_finished_at = Some(ProfileInstant::start(control.profiler()));
-                }
-                reconstruct_timings.file_verify += file_verification.elapsed;
-                reconstruct_timings.file_verify_bytes = reconstruct_timings
-                    .file_verify_bytes
-                    .saturating_add(file_verification.bytes);
-                verified_file_bytes = verified_file_bytes.saturating_add(file_verification.bytes);
-                emit_progress(
-                    control.progress(),
-                    ProgressEvent {
-                        feedback: None,
-                        operation: OperationKind::Fetch,
-                        phase: ProgressPhase::Reconstruct,
-                        message: format!(
-                            "Reconstructing files ({}/{})",
-                            completed_file_count,
-                            file_plans.len().max(1)
-                        ),
-                        current: completed_file_count,
-                        total: file_plans.len().max(1),
-                        transferred_bytes: 0,
-                        total_bytes: 0,
-                        detail: None,
-                        done: false,
-                    },
-                );
-            }
-            Ok(ReconstructJobEvent::Failed(error)) => {
-                work_queue.complete();
-                pipeline_error = Some(error);
-                break;
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                pipeline_error = Some(Error::reconstruct(
-                    "reconstruction job event channel closed unexpectedly",
-                ));
-                break;
-            }
-        }
-    }
-    finish_pipeline_workers(
+        jobs: &jobs,
+        file_plans: &file_plans,
+        output_paths: &output_paths,
+        job_file_indices: &job_file_indices,
+        worker_count: runtime_plan.worker_count,
+        downloads_done: artifact_scheduler.is_none(),
+        artifact_worker_count: artifact_scheduler
+            .as_ref()
+            .map(ArtifactDownloadScheduler::worker_count)
+            .unwrap_or(0),
+        finished_download_workers: 0,
         artifact_scheduler,
-        &mut work_queue,
+        artifact_job_indices,
+        work_queue: ReconstructWorkQueue::default(),
+        scheduled_jobs: vec![false; jobs.len()],
+        remaining_file_jobs,
+        verification_queued: vec![false; file_plans.len()],
+        enqueued_job_count: 0,
+        completed_job_count: 0,
+        completed_file_count: 0,
+        reconstruct_started_at,
+        reconstruct_finished_at: jobs.is_empty().then_some(reconstruct_started_at),
+        verify_started_at: None,
+        verify_finished_at: None,
+        verify_span: None,
+        verified_file_bytes: 0,
+        reconstruct_timings,
+        verify_timings,
+    };
+    coordinator.queue_initial_work(existing_artifacts)?;
+    let result = coordinator.run(pool, &work_context, &event_tx, &event_rx);
+    finish_pipeline_workers(
+        coordinator.artifact_scheduler.take(),
+        &mut coordinator.work_queue,
         &event_rx,
         control,
-        pipeline_error.is_some(),
+        result.is_err(),
     )?;
-    if let Some(error) = pipeline_error {
-        return Err(error);
-    }
-    if completed_job_count != jobs.len() {
-        return Err(Error::reconstruct(format!(
-            "reconstruction completed {completed_job_count} of {} jobs",
-            jobs.len()
-        )));
-    }
-    if completed_file_count != file_plans.len() {
-        return Err(Error::reconstruct(format!(
-            "verification completed {completed_file_count} of {} files",
-            file_plans.len()
-        )));
+    result?;
+    coordinator.finish(pipeline_started_at)
+}
+
+/// Tracks one reconstruction run: which jobs and verifications are queued,
+/// which artifacts arrived, and how far jobs and files have progressed.
+struct PipelineCoordinator<'a> {
+    control: &'a OperationControl,
+    transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
+    jobs: &'a [ReconstructJob],
+    file_plans: &'a [ReconstructPipelineFile],
+    output_paths: &'a [PathBuf],
+    /// Output files each job writes, by job index.
+    job_file_indices: &'a [Vec<usize>],
+    worker_count: usize,
+
+    artifact_scheduler: Option<ArtifactDownloadScheduler>,
+    artifact_job_indices: HashMap<ArtifactRef, usize>,
+    artifact_worker_count: usize,
+    finished_download_workers: usize,
+    downloads_done: bool,
+
+    work_queue: ReconstructWorkQueue,
+    scheduled_jobs: Vec<bool>,
+    /// Jobs still to finish writing each output file, by file index.
+    remaining_file_jobs: Vec<usize>,
+    verification_queued: Vec<bool>,
+    enqueued_job_count: usize,
+    completed_job_count: usize,
+    completed_file_count: usize,
+
+    reconstruct_started_at: ProfileInstant,
+    reconstruct_finished_at: Option<ProfileInstant>,
+    verify_started_at: Option<ProfileInstant>,
+    verify_finished_at: Option<ProfileInstant>,
+    verify_span: Option<ProfileSpan>,
+    verified_file_bytes: u64,
+    reconstruct_timings: ReconstructTimings,
+    verify_timings: VerifyTimings,
+}
+
+impl PipelineCoordinator<'_> {
+    /// Queues jobs whose inputs are already local, then the verification of
+    /// files that no job writes.
+    fn queue_initial_work(&mut self, existing_artifacts: &HashSet<ArtifactRef>) -> Result<()> {
+        {
+            let _dispatch_span = self
+                .control
+                .profile_span("installation.reconstruct.dispatch.ready");
+            let jobs = self.jobs;
+            for (job_index, job) in jobs.iter().enumerate() {
+                let ready = match job {
+                    ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
+                    ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
+                };
+                if ready {
+                    self.queue_job(job_index);
+                }
+            }
+        }
+        self.update_backpressure();
+        for file_index in 0..self.file_plans.len() {
+            if self.remaining_file_jobs[file_index] == 0 {
+                ensure_empty_reconstruct_output_file(
+                    &self.file_plans[file_index],
+                    &self.output_paths[file_index],
+                    self.control,
+                )?;
+                let work = self.start_verification(file_index);
+                self.work_queue.ready.push_back(work);
+            }
+        }
+        Ok(())
     }
 
-    let verify_elapsed = verify_started_at
-        .zip(verify_finished_at)
-        .map(|(started_at, finished_at)| finished_at.saturating_duration_since(started_at))
-        .unwrap_or_default();
-    drop(verify_span);
-    verify_timings.file_hash += verify_elapsed;
-    verify_timings.file_hash_bytes = verify_timings
-        .file_hash_bytes
-        .saturating_add(verified_file_bytes);
+    /// Dispatches work and handles download and worker events until every job
+    /// and file verification has completed.
+    fn run(
+        &mut self,
+        pool: &ThreadPool,
+        work_context: &Arc<ReconstructWorkContext>,
+        event_tx: &mpsc::Sender<ReconstructJobEvent>,
+        event_rx: &mpsc::Receiver<ReconstructJobEvent>,
+    ) -> Result<()> {
+        while !self.is_complete() {
+            self.control.checkpoint()?;
+            self.receive_download_events()?;
+            dispatch_ready_work(pool, &mut self.work_queue, work_context, event_tx)?;
+            if self.is_complete() {
+                break;
+            }
+            let event = {
+                let _wait_span = self
+                    .control
+                    .profile_span("installation.coordinator.wait_for_worker");
+                event_rx.recv_timeout(Duration::from_millis(10))
+            };
+            match event {
+                Ok(ReconstructJobEvent::Completed {
+                    job_indices,
+                    timings,
+                }) => self.complete_jobs(job_indices, &timings),
+                Ok(ReconstructJobEvent::Verified {
+                    file_count,
+                    timings,
+                }) => self.complete_verification(file_count, timings),
+                Ok(ReconstructJobEvent::Failed(error)) => {
+                    self.work_queue.complete();
+                    return Err(error);
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(Error::reconstruct(
+                        "reconstruction job event channel closed unexpectedly",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn is_complete(&self) -> bool {
+        self.completed_job_count == self.jobs.len()
+            && self.completed_file_count == self.file_plans.len()
+    }
+
+    /// Queues the jobs whose artifacts finished downloading since the last call.
+    fn receive_download_events(&mut self) -> Result<()> {
+        while !self.downloads_done {
+            let Some(scheduler) = self.artifact_scheduler.as_ref() else {
+                return Ok(());
+            };
+            match scheduler.try_recv() {
+                Ok(ArtifactDownloadEvent::Ready(artifact)) => self.artifact_ready(&artifact)?,
+                Ok(ArtifactDownloadEvent::Failed(error)) => return Err(error),
+                Ok(ArtifactDownloadEvent::WorkerDone) => self.download_worker_done(),
+                Err(mpsc::TryRecvError::Empty) => return Ok(()),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err(Error::reconstruct(format!(
+                        "artifact download scheduler channel closed unexpectedly after scheduling {}/{} artifact jobs; {}/{} workers reported completion",
+                        self.enqueued_job_count,
+                        self.artifact_job_indices.len(),
+                        self.finished_download_workers,
+                        self.artifact_worker_count,
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn artifact_ready(&mut self, artifact: &ArtifactRef) -> Result<()> {
+        let Some(&job_index) = self.artifact_job_indices.get(artifact) else {
+            return Err(Error::reconstruct(format!(
+                "downloaded unexpected artifact '{}'",
+                artifact.id()
+            )));
+        };
+        let ReconstructJob::Artifact(job) = &self.jobs[job_index] else {
+            return Err(Error::reconstruct(format!(
+                "downloaded artifact '{}' is not an artifact job",
+                artifact.id()
+            )));
+        };
+        if !job.artifact_path.is_file() {
+            return Err(Error::reconstruct(format!(
+                "downloaded artifact '{}' is missing at {}",
+                artifact.id(),
+                job.artifact_path.display()
+            )));
+        }
+        if !self.scheduled_jobs[job_index] {
+            let _dispatch_span = self
+                .control
+                .profile_span("installation.reconstruct.dispatch.downloaded");
+            self.queue_job(job_index);
+            self.update_backpressure();
+        }
+        Ok(())
+    }
+
+    fn download_worker_done(&mut self) {
+        self.finished_download_workers += 1;
+        if self.finished_download_workers < self.artifact_worker_count {
+            return;
+        }
+        self.downloads_done = true;
+        if let Some(transfer_progress) = self.transfer_progress {
+            transfer_progress.finish();
+            self.control.download_finished();
+        }
+    }
+
+    fn complete_jobs(&mut self, job_indices: Range<usize>, job_timings: &[ReconstructTimings]) {
+        self.work_queue.complete();
+        self.completed_job_count += job_indices.len();
+        self.update_backpressure();
+        for timings in job_timings {
+            accumulate_pipeline_timings(
+                &mut self.reconstruct_timings,
+                &mut self.verify_timings,
+                timings,
+            );
+        }
+        emit_reconstruct_progress(
+            self.control,
+            "Reconstructing jobs",
+            self.completed_job_count,
+            self.jobs.len(),
+            None,
+        );
+        if self.reconstruct_finished_at.is_none() && self.completed_job_count == self.jobs.len() {
+            self.reconstruct_finished_at = Some(ProfileInstant::start(self.control.profiler()));
+            self.control.output_finished();
+        }
+        let job_file_indices = self.job_file_indices;
+        for &file_index in job_indices.flat_map(|job_index| job_file_indices[job_index].iter()) {
+            let remaining = &mut self.remaining_file_jobs[file_index];
+            *remaining = remaining.saturating_sub(1);
+            if *remaining == 0 && !self.verification_queued[file_index] {
+                // Verify while the completed file may still be cached, overlapping
+                // hashing with remaining writes. All its producers have finished.
+                let work = self.start_verification(file_index);
+                self.work_queue.ready.push_front(work);
+            }
+        }
+    }
+
+    fn complete_verification(
+        &mut self,
+        file_count: usize,
+        verification: ReconstructedFileVerification,
+    ) {
+        self.work_queue.complete();
+        self.completed_file_count += file_count;
+        if self.verify_finished_at.is_none() && self.completed_file_count == self.file_plans.len() {
+            self.verify_finished_at = Some(ProfileInstant::start(self.control.profiler()));
+        }
+        self.reconstruct_timings.file_verify += verification.elapsed;
+        self.reconstruct_timings.file_verify_bytes = self
+            .reconstruct_timings
+            .file_verify_bytes
+            .saturating_add(verification.bytes);
+        self.verified_file_bytes = self.verified_file_bytes.saturating_add(verification.bytes);
+        emit_reconstruct_progress(
+            self.control,
+            "Reconstructing files",
+            self.completed_file_count,
+            self.file_plans.len(),
+            None,
+        );
+    }
+
+    fn queue_job(&mut self, job_index: usize) {
+        self.work_queue.ready.push_back((
+            ReconstructWorkItem::Jobs(job_index..job_index + 1),
+            ProfileInstant::detailed(self.control.profiler()),
+        ));
+        self.scheduled_jobs[job_index] = true;
+        self.enqueued_job_count += 1;
+    }
+
+    /// Marks `file_index` as queued for verification and returns its work item.
+    fn start_verification(&mut self, file_index: usize) -> (ReconstructWorkItem, ProfileInstant) {
+        if self.verify_started_at.is_none() {
+            self.verify_started_at = Some(ProfileInstant::start(self.control.profiler()));
+            self.verify_span = self.control.profile_span("installation.reconstruct.verify");
+        }
+        self.verification_queued[file_index] = true;
+        (
+            ReconstructWorkItem::VerifyFiles(vec![file_index]),
+            ProfileInstant::detailed(self.control.profiler()),
+        )
+    }
+
+    /// Slows downloads while more than two jobs per worker wait to run.
+    fn update_backpressure(&self) {
+        let Some(transfer_progress) = self.transfer_progress else {
+            return;
+        };
+        let queue_limit = self.worker_count.saturating_mul(2).max(1);
+        let queued_jobs = self
+            .enqueued_job_count
+            .saturating_sub(self.completed_job_count);
+        transfer_progress.set_downstream_backpressure(queued_jobs > queue_limit);
+    }
+
+    /// Checks that all work completed and returns the run's timings.
+    fn finish(
+        mut self,
+        pipeline_started_at: ProfileInstant,
+    ) -> Result<(ReconstructTimings, VerifyTimings)> {
+        if self.completed_job_count != self.jobs.len() {
+            return Err(Error::reconstruct(format!(
+                "reconstruction completed {} of {} jobs",
+                self.completed_job_count,
+                self.jobs.len()
+            )));
+        }
+        if self.completed_file_count != self.file_plans.len() {
+            return Err(Error::reconstruct(format!(
+                "verification completed {} of {} files",
+                self.completed_file_count,
+                self.file_plans.len()
+            )));
+        }
+
+        let verify_elapsed = self
+            .verify_started_at
+            .zip(self.verify_finished_at)
+            .map(|(started_at, finished_at)| finished_at.saturating_duration_since(started_at))
+            .unwrap_or_default();
+        drop(self.verify_span.take());
+        self.verify_timings.file_hash += verify_elapsed;
+        self.verify_timings.file_hash_bytes = self
+            .verify_timings
+            .file_hash_bytes
+            .saturating_add(self.verified_file_bytes);
+        emit_reconstruct_progress(
+            self.control,
+            "Reconstructing files",
+            self.file_plans.len(),
+            self.file_plans.len(),
+            None,
+        );
+
+        self.reconstruct_timings.reconstruct_wall = self
+            .reconstruct_finished_at
+            .map(|finished_at| finished_at.saturating_duration_since(self.reconstruct_started_at))
+            .unwrap_or_default();
+        self.reconstruct_timings.total = pipeline_started_at.elapsed();
+        self.verify_timings.verify_files_wall = verify_elapsed;
+        self.verify_timings.total = verify_elapsed;
+        Ok((self.reconstruct_timings, self.verify_timings))
+    }
+}
+
+/// Counts the jobs that write each output file.
+fn count_jobs_per_file(job_file_indices: &[Vec<usize>], file_count: usize) -> Vec<usize> {
+    let mut job_counts = vec![0usize; file_count];
+    for &file_index in job_file_indices.iter().flatten() {
+        if let Some(count) = job_counts.get_mut(file_index) {
+            *count += 1;
+        }
+    }
+    job_counts
+}
+
+/// Reports reconstruction progress as "`label` (current/total)".
+fn emit_reconstruct_progress(
+    control: &OperationControl,
+    label: &str,
+    current: usize,
+    total: usize,
+    detail: Option<&str>,
+) {
+    let total = total.max(1);
     emit_progress(
         control.progress(),
         ProgressEvent {
             feedback: None,
             operation: OperationKind::Fetch,
             phase: ProgressPhase::Reconstruct,
-            message: format!(
-                "Reconstructing files ({}/{})",
-                file_plans.len(),
-                file_plans.len().max(1)
-            ),
-            current: file_plans.len(),
-            total: file_plans.len().max(1),
+            message: format!("{label} ({current}/{total})"),
+            current,
+            total,
             transferred_bytes: 0,
             total_bytes: 0,
-            detail: None,
+            detail: detail.map(str::to_string),
             done: false,
         },
     );
-
-    reconstruct_timings.reconstruct_wall = reconstruct_finished_at
-        .map(|finished_at| finished_at.saturating_duration_since(reconstruct_started_at))
-        .unwrap_or_default();
-    reconstruct_timings.total = pipeline_started_at.elapsed();
-    verify_timings.verify_files_wall = verify_elapsed;
-    verify_timings.total = verify_elapsed;
-    Ok((reconstruct_timings, verify_timings))
 }
 
 fn validate_artifact_jobs(
@@ -630,20 +706,6 @@ fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {
     file_indices.sort_unstable();
     file_indices.dedup();
     file_indices
-}
-
-fn update_reconstruct_backpressure(
-    transfer_progress: Option<&Arc<FetchTransferProgress>>,
-    enqueued_job_count: usize,
-    completed_job_count: usize,
-    worker_count: usize,
-) {
-    let Some(transfer_progress) = transfer_progress else {
-        return;
-    };
-    let queue_limit = worker_count.saturating_mul(2).max(1);
-    let queued_jobs = enqueued_job_count.saturating_sub(completed_job_count);
-    transfer_progress.set_downstream_backpressure(queued_jobs > queue_limit);
 }
 
 fn ensure_empty_reconstruct_output_file(
