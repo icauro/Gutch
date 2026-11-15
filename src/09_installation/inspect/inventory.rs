@@ -1,4 +1,5 @@
 //! Physical inventory and symlink-parent classification for inspection.
+use crate::filesystem;
 use crate::filesystem::paths::ManifestPathResolver;
 use crate::filesystem::paths::validate_manifest_relative_path;
 use crate::manifest::SnapshotEntry;
@@ -246,10 +247,8 @@ pub(super) fn augment_inventory_for_symlinked_parents(
                 path_resolver.resolve_entry(entry.path())?
             }
         };
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.into()),
+        let Some(metadata) = filesystem::symlink_metadata_if_exists(&path)? else {
+            continue;
         };
         let kind = if metadata.file_type().is_symlink() {
             InventoryEntryKind::Symlink

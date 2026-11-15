@@ -14,6 +14,15 @@ pub(crate) fn read_to_string(path: &Path) -> Result<String, Error> {
     fs::read_to_string(path).io_context("reading file", path)
 }
 
+/// Metadata of the entry at `path` itself, or `None` when nothing is there.
+pub(crate) fn symlink_metadata_if_exists(path: &Path) -> std::io::Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// Read a file to bytes.
 pub(crate) fn read(path: &Path) -> Result<Vec<u8>, Error> {
     fs::read(path).io_context("reading file", path)

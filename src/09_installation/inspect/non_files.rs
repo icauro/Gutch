@@ -2,11 +2,11 @@
 use super::inventory::{FilesystemInventory, InventoryEntryKind};
 use super::types::{RepairClassification, RepairIssue};
 use crate::Result;
+use crate::filesystem;
 use crate::filesystem::paths::normalize_link_target;
 use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
 use std::fs;
-use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -58,14 +58,13 @@ pub(super) fn classify_resolved_non_files(
         if non_file_path(entry).is_none() {
             continue;
         }
-        let found = match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_dir() => FoundEntry::Directory {
+        let found = match filesystem::symlink_metadata_if_exists(path)? {
+            Some(metadata) if metadata.file_type().is_dir() => FoundEntry::Directory {
                 read_only: metadata.permissions().readonly(),
             },
-            Ok(metadata) if metadata.file_type().is_symlink() => FoundEntry::Symlink { path },
-            Ok(_) => FoundEntry::Other,
-            Err(error) if error.kind() == ErrorKind::NotFound => FoundEntry::Nothing,
-            Err(error) => return Err(error.into()),
+            Some(metadata) if metadata.file_type().is_symlink() => FoundEntry::Symlink { path },
+            Some(_) => FoundEntry::Other,
+            None => FoundEntry::Nothing,
         };
         if let Some(issue) = check_non_file(entry, found)? {
             classification.push(issue);

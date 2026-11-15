@@ -4,13 +4,12 @@ use super::types::{RepairIssue, VerifyMode, VerifyTimings};
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::integrity::verify_full_file_integrity;
+use crate::filesystem;
 use crate::manifest;
 use crate::profiling::ProfileInstant;
 use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
-use std::fs;
 use std::fs::File;
-use std::io;
 use std::io::BufReader;
 use std::io::Read;
 use std::path::Path;
@@ -84,10 +83,9 @@ fn check_file_metadata(
         PreparedFileMetadata::Inventory(None) => return missing(),
         PreparedFileMetadata::ResolveDuringVerification => {
             let metadata_read_started = ProfileInstant::detailed(control.profiler());
-            let metadata = match fs::symlink_metadata(&prepared_file.path) {
-                Ok(metadata) => metadata,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return missing(),
-                Err(error) => return Err(error.into()),
+            let Some(metadata) = filesystem::symlink_metadata_if_exists(&prepared_file.path)?
+            else {
+                return missing();
             };
             timings.stat += metadata_read_started.elapsed();
             metadata

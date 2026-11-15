@@ -1,7 +1,9 @@
 //! Manifest path validation, native/manifest path conversion, and guards that keep operation paths disjoint.
 
+use super::files::symlink_metadata_if_exists;
 use crate::Error;
 use crate::Result;
+use crate::error::IoContext;
 use crate::error::path_validation::PathValidationFailure;
 use crate::error::path_validation::PathViolation;
 use crate::error::path_validation::ViolationCode;
@@ -9,7 +11,6 @@ use crate::filesystem::constraints::MAX_NAME_LENGTH;
 use crate::filesystem::constraints::fold_case;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::ErrorKind;
 use std::path;
 use std::path::Component;
 use std::path::Path;
@@ -196,10 +197,8 @@ pub(crate) fn resolve_operation_path(path: &Path) -> Result<PathBuf> {
             }
             _ => {
                 resolved.push(component);
-                match fs::symlink_metadata(&resolved) {
-                    Ok(_) => resolved = resolved.canonicalize()?,
-                    Err(error) if error.kind() == ErrorKind::NotFound => {}
-                    Err(error) => return Err(error.into()),
+                if symlink_metadata_if_exists(&resolved)?.is_some() {
+                    resolved = resolved.canonicalize()?;
                 }
             }
         }
@@ -372,12 +371,11 @@ fn ensure_existing_ancestors_stay_within_root(
         }
         // Inspect the link itself: a dangling symlink reports `exists() == false`,
         // yet a later create through it would land wherever the link points.
-        match fs::symlink_metadata(&current) {
-            Ok(_) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => break,
-            Err(error) => {
-                return Err(Error::io_context("inspecting path", &current, error));
-            }
+        if symlink_metadata_if_exists(&current)
+            .io_context("inspecting path", &current)?
+            .is_none()
+        {
+            break;
         }
         let canonical_current = current.canonicalize().map_err(|error| {
             Error::invalid_path(

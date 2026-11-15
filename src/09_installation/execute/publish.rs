@@ -22,7 +22,6 @@ use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::fs;
-use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -323,10 +322,8 @@ fn reopen_read_only_directories(
 }
 
 fn remove_existing_entry(path: &Path) -> Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
+    let Some(metadata) = filesystem::symlink_metadata_if_exists(path)? else {
+        return Ok(());
     };
     if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
         filesystem::remove_dir_all(path)
