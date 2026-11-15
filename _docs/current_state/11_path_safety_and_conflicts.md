@@ -73,7 +73,9 @@ warning. Failure diagnostics and JSON export are documented in
 [CLI integration](10_cli_and_app_integration.md).
 
 A retained owned directory backup is excluded from snapshot listings and its removal is retried
-before the next promotion. Old metadata generations are retried on the next
+before the next promotion. Its owner marker is removed once the backup is
+restored or removed; an orphaned marker without a backup is removed during
+recovery so it can never vouch for an unowned backup. Old metadata generations are retried on the next
 publication; undeleted orphan artifacts remain eligible for repository cleanup.
 These leftovers can temporarily consume disk space. Ownership checks and
 recovery before a new mutation still fail if they cannot complete safely.
@@ -160,7 +162,9 @@ of 4,095 bytes (1,023 on macOS). These are supported platform budgets; unusual
 filesystems may impose smaller limits and can still return filesystem errors.
 
 A disposable probe on the target volume detects case and normalization behavior.
-Potential aliasing paths are confirmed on that filesystem before rejection.
+Potential aliasing paths are confirmed on that filesystem before rejection;
+siblings are compared only under the same parent spelling, because distinct
+parents were already settled one level up.
 Names are never truncated, renamed or normalized to make an installation fit.
 Read-only directories or changes to mount/case settings can still prevent the
 probe or subsequent writes; errors leave installed content unpromoted.

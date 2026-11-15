@@ -87,18 +87,20 @@ fn validate_paths_on_destination_volume<'a>(
                 prefix.clone()
             };
             let key = if fold_case { key.to_uppercase() } else { key };
+            let parent = &prefix[..prefix.len() - part.len()];
             let previous_names = spellings.entry(key).or_default();
-            for previous in previous_names
-                .iter()
-                .filter(|previous| *previous != &prefix)
-            {
+            // Spellings under a different parent were settled one level up: those
+            // parents either alias (already rejected) or are distinct directories.
+            for previous in previous_names.iter().filter(|previous| {
+                *previous != &prefix
+                    && previous
+                        .strip_prefix(parent)
+                        .is_some_and(|name| !name.contains('/'))
+            }) {
                 // Uppercasing is only a candidate filter. Ask the filesystem before
                 // rejecting names such as sharp-s versus SS on Windows.
                 let comparison = tempfile::tempdir_in(probe.path())?;
-                fs::write(
-                    comparison.path().join(previous.rsplit('/').next().unwrap()),
-                    b"",
-                )?;
+                fs::write(comparison.path().join(&previous[parent.len()..]), b"")?;
                 if comparison.path().join(part).exists() {
                     return Err(Error::InvalidPath {
                         path: absolute.join(relative),
@@ -547,12 +549,17 @@ pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Resul
         .parent()
         .unwrap_or_else(|| Path::new(""))
         .join(target);
-    let mut normalized = PathBuf::new();
+    let mut normalized = Vec::new();
     for component in combined.components() {
         match component {
-            Component::Normal(part) => normalized.push(part),
+            Component::Normal(part) => {
+                normalized.push(part.to_str().ok_or_else(|| Error::InvalidPath {
+                    path: link_path.to_path_buf(),
+                    reason: "symbolic-link target is not valid Unicode".into(),
+                })?)
+            }
             Component::CurDir => {}
-            Component::ParentDir if normalized.pop() => {}
+            Component::ParentDir if normalized.pop().is_some() => {}
             _ => {
                 return Err(Error::InvalidPath {
                     path: link_path.to_path_buf(),
@@ -561,7 +568,8 @@ pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Resul
             }
         }
     }
-    Ok(normalized.to_string_lossy().replace('\\', "/"))
+    // Join structurally: on Unix a backslash stays part of its filename.
+    Ok(normalized.join("/"))
 }
 #[cfg(test)]
 mod link_target_tests {
@@ -575,6 +583,14 @@ mod link_target_tests {
         assert!(normalize_link_target("link", Path::new("../outside")).is_err());
         assert!(normalize_link_target("bin/link", Path::new("../../outside")).is_err());
         assert!(normalize_link_target("bin/link", &std::env::current_dir().unwrap()).is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn keeps_unix_backslashes_inside_target_names() {
+        assert_eq!(
+            normalize_link_target("bin/link", Path::new("a\\b")).unwrap(),
+            "bin/a\\b"
+        );
     }
 }
 #[cfg(test)]
@@ -616,6 +632,12 @@ mod limit_tests {
             );
         }
         assert!(validate_destination_paths(temp.path(), ["dir/a", "DIR/b"].into_iter()).is_err());
+    }
+    #[test]
+    fn distinct_parents_do_not_make_equal_children_aliases() {
+        // Uppercasing folds sharp-s to SS, but common filesystems keep them distinct.
+        let temp = tempfile::tempdir().unwrap();
+        validate_destination_paths(temp.path(), ["ß/x", "SS/x", "ß/y"].into_iter()).unwrap();
     }
     #[cfg(unix)]
     #[test]

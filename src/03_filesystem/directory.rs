@@ -104,6 +104,8 @@ fn replace_directory_with_operations(
             )
         })?;
         rename(destination_dir, &backup_path).map_err(|error| {
+            // Nothing moved, so the marker would only vouch for a future stranger.
+            let _ = fs::remove_file(&owner_path);
             let diagnostic = DirectoryPromotionDiagnostic::capture(
                 PromotionPhase::MoveDestinationToBackup,
                 started,
@@ -138,9 +140,13 @@ fn replace_directory_with_operations(
             &backup_path,
         );
         if let Some(backup) = &backup_dir {
+            let restored = rename(backup, destination_dir);
+            if restored.is_ok() {
+                let _ = fs::remove_file(backup.with_extension("owner"));
+            }
             diagnostic.recovery.push(PromotionRecoveryAttempt::capture(
                 PromotionRecoveryOperation::RestoreBackup,
-                rename(backup, destination_dir),
+                restored,
             ));
         }
         diagnostic.recovery.push(PromotionRecoveryAttempt::capture(
@@ -313,7 +319,15 @@ pub(crate) fn is_owned_promotion_backup(path: &Path) -> bool {
 /// Existing destination means promotion completed; absence means restore the backup.
 pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Error> {
     let backup = promotion_backup_path(destination)?;
+    let owner_path = backup.with_extension("owner");
     if !backup.exists() {
+        // An orphaned marker would make a later unowned backup look owned.
+        // Only a marker file is Gutch's; anything else is left for the owner write to report.
+        if fs::symlink_metadata(&owner_path).is_ok_and(|metadata| metadata.is_file()) {
+            fs::remove_file(&owner_path).map_err(|error| {
+                Error::io_context("removing orphaned promotion marker", &owner_path, error)
+            })?;
+        }
         return Ok(());
     }
     // A missing marker means Gutch did not create this backup; report it as unowned.
@@ -459,6 +473,20 @@ mod diagnostic_tests {
         assert_eq!(details["recovery"][1]["operation"], "remove_staging");
         assert_eq!(details["recovery"][1]["succeeded"], false);
         assert!(details["observed_at"].as_str().unwrap().ends_with('Z'));
+        let backup = promotion_backup_path(&destination).unwrap();
+        assert!(!backup.with_extension("owner").exists());
+    }
+
+    #[test]
+    fn recovery_removes_an_orphaned_owner_marker() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("destination");
+        let owner = promotion_backup_path(&destination)
+            .unwrap()
+            .with_extension("owner");
+        std::fs::write(&owner, b"GUTCH_PROMOTION_V1").unwrap();
+        recover_directory_promotion(&destination).unwrap();
+        assert!(!owner.exists());
     }
 
     #[test]

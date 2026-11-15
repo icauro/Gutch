@@ -58,6 +58,9 @@ where
     temporary_file
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
+    // The rename is durable only once the directory entry reaches disk.
+    #[cfg(unix)]
+    File::open(&parent)?.sync_all()?;
     Ok(())
 }
 
