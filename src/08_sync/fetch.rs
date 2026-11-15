@@ -109,7 +109,7 @@ pub fn fetch_snapshot_for_artifact_ids(
             &transfer_progress,
             &pending_artifact_downloads,
         )?;
-        publish_fetched_snapshot(&prepared)?;
+        publish_fetched_snapshot(&prepared, &request.control)?;
         let transfer_stats = transfer_progress.stats(request.transfer_policy);
         let required_bundle_count = required_artifacts
             .iter()
@@ -147,11 +147,14 @@ pub fn fetch_snapshot_for_artifact_ids(
     })
 }
 
-pub(crate) fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
+pub(crate) fn publish_fetched_snapshot(
+    prepared: &PreparedSnapshotFetch,
+    control: &OperationControl,
+) -> Result<()> {
     // Immutable downloads finish first; the validated snapshot is the commit marker.
     write_repo_manifest(&prepared.repo_paths, &prepared.repo_manifest)?;
     write_chunk_index(&prepared.repo_paths, &prepared.chunk_index)?;
-    write_snapshot_manifest_artifacts(&prepared.repo_paths, &prepared.snapshot_manifest)?;
+    write_snapshot_manifest_artifacts(&prepared.repo_paths, &prepared.snapshot_manifest, control)?;
     Ok(())
 }
 

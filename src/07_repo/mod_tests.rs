@@ -86,7 +86,12 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
             }],
         });
         manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
-        write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
+        write_snapshot_manifest_artifacts(
+            &paths,
+            &manifest,
+            &crate::progress::OperationControl::default(),
+        )
+        .unwrap();
         index_manifest(&paths, &manifest);
     }
 
@@ -116,7 +121,12 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
             chunks: Vec::new(),
         });
         snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
-        write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+        write_snapshot_manifest_artifacts(
+            &paths,
+            &snapshot,
+            &crate::progress::OperationControl::default(),
+        )
+        .unwrap();
         snapshot_ids.push(snapshot.snapshot_id);
     }
 
@@ -341,7 +351,12 @@ fn check_gutch_repo_reports_snapshots() {
 
     manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
 
-    write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &repo_paths,
+        &manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
     index_manifest(&repo_paths, &manifest);
     let bundle_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let bundle_path = bundle_path(&repo_paths, bundle_id).unwrap();
@@ -417,7 +432,12 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         }],
     });
     snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
-    write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+    write_snapshot_manifest_artifacts(
+        &paths,
+        &snapshot,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
 
     let index = ChunkIndex {
         format_version: FORMAT_VERSION.to_string(),
@@ -604,7 +624,12 @@ fn inspect_repo_shows_snapshot_tags() {
         }],
     });
     manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
-    write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &paths,
+        &manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
     index_manifest(&paths, &manifest);
 
     let status = read_repo_status(&root).unwrap();
@@ -649,7 +674,12 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
 
     manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
 
-    write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &paths,
+        &manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
     index_manifest(&paths, &manifest);
     let local_json =
         fs::read_to_string(snapshot_metadata_path(&paths, &manifest.snapshot_id).unwrap()).unwrap();

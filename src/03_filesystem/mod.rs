@@ -169,7 +169,12 @@ mod tests {
         std::fs::write(destination.join("old"), b"old").unwrap();
         std::fs::write(staging.join("new"), b"new").unwrap();
 
-        replace_directory(&staging, &destination).unwrap();
+        replace_directory(
+            &staging,
+            &destination,
+            &crate::progress::OperationControl::default(),
+        )
+        .unwrap();
 
         assert!(!destination.join("old").exists());
         assert_eq!(std::fs::read(destination.join("new")).unwrap(), b"new");

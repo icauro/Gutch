@@ -76,7 +76,12 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
         SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
     old_manifest.source_modified_at = source_modified_at_from_directory(&new_source).unwrap();
     old_manifest.set_files(old_files);
-    write_snapshot_manifest_artifacts(&repo_paths, &old_manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &repo_paths,
+        &old_manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
 
     fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
@@ -397,7 +402,13 @@ fn explicit_retag_reports_previous_and_new_tags() {
         "os=windows".to_string(),
     ])
     .unwrap();
-    let retagged = retag_snapshot_by_id(&repo_root, &first.snapshot_id, new_tags.clone()).unwrap();
+    let retagged = retag_snapshot_by_id(
+        &repo_root,
+        &first.snapshot_id,
+        new_tags.clone(),
+        &OperationControl::default(),
+    )
+    .unwrap();
     assert_eq!(retagged.snapshot_id, first.snapshot_id);
     assert_eq!(retagged.previous_tags, test_tags());
     assert_eq!(retagged.new_tags, new_tags);
@@ -425,7 +436,12 @@ fn tampered_blueprint_returns_integrity_conflict() {
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
             .unwrap();
     stored.entries.clear();
-    write_snapshot_manifest_artifacts(&repo_paths, &stored).unwrap();
+    write_snapshot_manifest_artifacts(
+        &repo_paths,
+        &stored,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
 
     let reader_error = crate::repo::read::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
         .expect_err("stored blueprint identity must be checked by repository readers");

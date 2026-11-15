@@ -3,6 +3,7 @@ use super::{create_dir_all, read, write};
 use crate::Error;
 use crate::error::promotion_diagnostics::{DirectoryPromotionDiagnostic, PromotionRecoveryAttempt};
 use crate::progress::OperationControl;
+use crate::progress::OperationWarning;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -12,8 +13,14 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> Result<(), Error> {
-    replace_directory_with_cleanup(staging_dir, destination_dir, |backup| {
+/// Publishes `staging_dir` as `destination_dir`. A cleanup failure after the
+/// switch commits is reported to `control` as a warning, not as an error.
+pub(crate) fn replace_directory(
+    staging_dir: &Path,
+    destination_dir: &Path,
+    control: &OperationControl,
+) -> Result<(), Error> {
+    replace_directory_with_cleanup(staging_dir, destination_dir, control, |backup| {
         fs::remove_dir_all(backup)
     })
 }
@@ -22,6 +29,7 @@ pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> R
 fn replace_directory_with_cleanup(
     staging_dir: &Path,
     destination_dir: &Path,
+    control: &OperationControl,
     remove_backup: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> Result<(), Error> {
     let warning = replace_directory_with_operations(
@@ -31,8 +39,10 @@ fn replace_directory_with_cleanup(
         |staging| fs::remove_dir_all(staging),
         remove_backup,
     )?;
-    if let Some(warning) = warning {
-        warning.warn_committed_cleanup();
+    if let Some(diagnostic) = warning {
+        control.warn(OperationWarning::DirectoryCleanupFailed(Box::new(
+            diagnostic,
+        )));
     }
     Ok(())
 }
@@ -329,6 +339,18 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    use crate::progress::WarningSink;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    #[derive(Debug, Default)]
+    struct RecordedWarnings(Mutex<Vec<String>>);
+
+    impl WarningSink for RecordedWarnings {
+        fn warn(&self, warning: OperationWarning) {
+            self.0.lock().unwrap().push(warning.to_string());
+        }
+    }
 
     #[test]
     fn committed_replacement_survives_backup_cleanup_failure_and_retries_cleanup() {
@@ -345,7 +367,9 @@ mod tests {
         std::fs::write(destination.join("snapshot_metadata.json"), b"{}").unwrap();
         std::fs::write(staging.join("snapshot_metadata.json"), b"{}").unwrap();
 
-        let result = replace_directory_with_cleanup(&staging, &destination, |backup| {
+        let warnings = Arc::new(RecordedWarnings::default());
+        let control = OperationControl::default().with_warnings(warnings.clone());
+        let result = replace_directory_with_cleanup(&staging, &destination, &control, |backup| {
             let _lock = std::fs::OpenOptions::new()
                 .read(true)
                 .share_mode(1 | 2)
@@ -356,6 +380,10 @@ mod tests {
         });
         let backup = promotion_backup_path(&destination).unwrap();
         result.unwrap();
+        assert_eq!(
+            *warnings.0.lock().unwrap(),
+            ["directory promotion committed; cleanup failed"]
+        );
         assert_eq!(
             std::fs::read(destination.join("new")).unwrap(),
             b"new installation"
@@ -387,7 +415,8 @@ mod diagnostic_tests {
         std::fs::write(destination.join("old"), b"original").unwrap();
         let backup = promotion_backup_path(&destination).unwrap();
         std::fs::create_dir(backup.with_extension("owner")).unwrap();
-        let error = replace_directory(&staging, &destination).unwrap_err();
+        let error =
+            replace_directory(&staging, &destination, &OperationControl::default()).unwrap_err();
         let report = error.diagnostic_report();
         assert_eq!(report["code"], "directory_promotion_failed");
         assert_eq!(report["details"]["phase"], "write_backup_owner");
@@ -404,7 +433,8 @@ mod diagnostic_tests {
         std::fs::create_dir(&destination).unwrap();
         std::fs::write(destination.join("old"), b"original").unwrap();
         let staging = root.path().join("missing-staging");
-        let error = replace_directory(&staging, &destination).unwrap_err();
+        let error =
+            replace_directory(&staging, &destination, &OperationControl::default()).unwrap_err();
         let message = error.to_string();
         assert!(message.contains("promoting staging directory"));
         assert!(message.contains(&staging.display().to_string()));

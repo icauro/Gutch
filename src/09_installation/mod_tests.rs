@@ -66,7 +66,12 @@ fn test_hash(label: &str) -> String {
 fn write_repair_test_repo(root: &Path, manifest: &SnapshotManifest) {
     let paths = RepoPaths::from_repo_root(root);
     ensure_gutch_repo_layout(&paths, "test").unwrap();
-    write_snapshot_manifest_artifacts(&paths, manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &paths,
+        manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -161,7 +166,12 @@ fn resolved_snapshot_state_uses_product_runtime() {
         }],
     });
     snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
-    write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+    write_snapshot_manifest_artifacts(
+        &paths,
+        &snapshot,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
 
     snapshot.launch = Some(ResolvedLaunchConfiguration {
         primary: None,
@@ -173,7 +183,12 @@ fn resolved_snapshot_state_uses_product_runtime() {
         }],
     });
     snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
-    write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+    write_snapshot_manifest_artifacts(
+        &paths,
+        &snapshot,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
     let resolved = resolve_snapshot_state(&root, &snapshot.snapshot_id).unwrap();
     assert_eq!(
         resolved.launch.unwrap().actions[0].arguments,
@@ -308,7 +323,12 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
         },
     ]);
     manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
-    write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &paths,
+        &manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
 
     let destination_dir = root.join("destination");
     fs::create_dir_all(&destination_dir).unwrap();

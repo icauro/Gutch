@@ -38,6 +38,8 @@ use crate::filesystem::write_json;
 use crate::profiling::ProfileMode;
 use crate::profiling::Profiler;
 use crate::progress::OperationControl;
+use crate::progress::OperationWarning;
+use crate::progress::WarningSink;
 use crate::sync::remote::RemoteRepositoryCommandProvider;
 use std::ffi::OsString;
 use std::sync::atomic::AtomicBool;
@@ -178,12 +180,27 @@ where
     }
 }
 
+/// Reports engine warnings on stderr with their structured details.
+#[derive(Debug)]
+struct StderrWarnings;
+
+impl WarningSink for StderrWarnings {
+    fn warn(&self, warning: OperationWarning) {
+        use std::io::Write;
+        // A closed stderr must never turn a successful operation into an error.
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "Warning: {warning}");
+        let _ = serde_json::to_writer(&mut stderr, &warning);
+        let _ = writeln!(stderr);
+    }
+}
+
 pub(crate) fn control_with_profile(profile: &Profile) -> OperationControl {
-    profile
-        .as_ref()
-        .map_or_else(OperationControl::default, |profiler| {
-            OperationControl::default().with_profiler(Arc::clone(profiler))
-        })
+    let control = OperationControl::default().with_warnings(Arc::new(StderrWarnings));
+    match profile {
+        Some(profiler) => control.with_profiler(Arc::clone(profiler)),
+        None => control,
+    }
 }
 
 #[cfg(test)]

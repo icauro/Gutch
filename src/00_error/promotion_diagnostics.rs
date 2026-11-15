@@ -115,19 +115,6 @@ impl DirectoryPromotionDiagnostic {
             recovery: Vec::new(),
         }
     }
-
-    pub(crate) fn warn_committed_cleanup(&self) {
-        use std::io::Write;
-        // Reporting must never turn a committed publication into an error, including
-        // when the caller's stderr is closed. Routine successful publication is silent.
-        let mut stderr = io::stderr().lock();
-        let _ = writeln!(
-            stderr,
-            "Warning: directory promotion committed; cleanup failed"
-        );
-        let _ = serde_json::to_writer(&mut stderr, self);
-        let _ = writeln!(stderr);
-    }
 }
 
 #[cfg(test)]

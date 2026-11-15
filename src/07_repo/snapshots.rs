@@ -88,9 +88,10 @@ pub fn retag_snapshot_by_id(
     repo_root: &Path,
     snapshot_id: &str,
     new_tags: SnapshotTagSet,
+    control: &OperationControl,
 ) -> Result<RetagSnapshotResult> {
     let replacements = BTreeMap::from([(snapshot_id.to_owned(), new_tags.normalized()?)]);
-    Ok(retag_snapshots(repo_root, replacements)?.remove(0))
+    Ok(retag_snapshots(repo_root, replacements, control)?.remove(0))
 }
 
 /// Preview complete replacement tag sets for selected snapshots. Untouched
@@ -127,6 +128,7 @@ pub fn plan_snapshot_tag_updates(
 pub fn retag_snapshots(
     repo_root: &Path,
     replacements: BTreeMap<String, SnapshotTagSet>,
+    control: &OperationControl,
 ) -> Result<Vec<RetagSnapshotResult>> {
     coordination::write(repo_root, || {
         let changes = plan_snapshot_tag_updates(repo_root, &replacements)?;
@@ -134,7 +136,7 @@ pub fn retag_snapshots(
         for change in &changes {
             let mut manifest = load_snapshot_manifest(&paths, &change.snapshot_id)?;
             manifest.snapshot_tags = change.new_tags.clone();
-            write_snapshot_manifest_artifacts(&paths, &manifest)?;
+            write_snapshot_manifest_artifacts(&paths, &manifest, control)?;
         }
         Ok(changes)
     })

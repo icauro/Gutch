@@ -199,7 +199,7 @@ pub(super) fn publish_snapshot_artifacts(
     let _manifest_write_span =
         control.profile_span("capture.publish_snapshot.write_snapshot_manifest");
     let (manifest_path, _) =
-        write_snapshot_manifest_artifacts(repo_paths, &result.snapshot_manifest)?;
+        write_snapshot_manifest_artifacts(repo_paths, &result.snapshot_manifest, control)?;
     drop(_manifest_write_span);
     Ok((manifest_path, required_bundle_count))
 }

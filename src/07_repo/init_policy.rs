@@ -331,7 +331,12 @@ mod tests {
         });
         snapshot_manifest.snapshot_id =
             crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot_manifest.entries);
-        write_snapshot_manifest_artifacts(&repo_paths, &snapshot_manifest).unwrap();
+        write_snapshot_manifest_artifacts(
+            &repo_paths,
+            &snapshot_manifest,
+            &crate::progress::OperationControl::default(),
+        )
+        .unwrap();
         crate::test_util::index_manifest(&repo_paths, &snapshot_manifest);
         let bundle_path = crate::repo::paths::bundle_path(&repo_paths, &"a".repeat(64)).unwrap();
         std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();

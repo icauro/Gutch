@@ -103,8 +103,18 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
 
     let repo_paths = RepoPaths::from_repo_root(&repo_dir);
     ensure_gutch_repo_layout(&repo_paths, "test").unwrap();
-    write_snapshot_manifest_artifacts(&repo_paths, &v1.snapshot_manifest).unwrap();
-    write_snapshot_manifest_artifacts(&repo_paths, &v2.snapshot_manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &repo_paths,
+        &v1.snapshot_manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
+    write_snapshot_manifest_artifacts(
+        &repo_paths,
+        &v2.snapshot_manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
     for bundle in &v2.bundles {
         let bundle_path = bundle_path(&repo_paths, &bundle.bundle_id).unwrap();
         fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
@@ -358,7 +368,12 @@ fn test_large_game_build_200mb() {
     let repo_root = test_util::temp_path("gutch_test_200mb_repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_gutch_repo_layout(&repo_paths, "200mb-test").unwrap();
-    write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest).unwrap();
+    write_snapshot_manifest_artifacts(
+        &repo_paths,
+        &result.snapshot_manifest,
+        &crate::progress::OperationControl::default(),
+    )
+    .unwrap();
     for bundle in &result.bundles {
         let bundle_path = bundle_path(&repo_paths, &bundle.bundle_id).unwrap();
         fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();

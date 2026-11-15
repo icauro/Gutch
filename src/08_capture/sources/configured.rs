@@ -346,7 +346,12 @@ mod tests {
         }]);
         manifest.snapshot_id =
             crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
-        write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
+        write_snapshot_manifest_artifacts(
+            &repo_paths,
+            &manifest,
+            &crate::progress::OperationControl::default(),
+        )
+        .unwrap();
         crate::test_util::index_manifest(&repo_paths, &manifest);
 
         std::thread::sleep(Duration::from_millis(1100));

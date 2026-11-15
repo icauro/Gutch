@@ -20,9 +20,11 @@ pub use crate::profiling::{ProfileMode, ProfileSpanSummary, ProfileSummary, Prof
 pub use crate::progress::CancellationHook;
 pub use crate::progress::OperationControl;
 pub use crate::progress::OperationKind;
+pub use crate::progress::OperationWarning;
 pub use crate::progress::ProgressEvent;
 pub use crate::progress::ProgressPhase;
 pub use crate::progress::ProgressSink;
+pub use crate::progress::WarningSink;
 pub use crate::progress::{LiveFeedback, Throughput};
 pub use crate::runtime::RuntimeResourceHints;
 

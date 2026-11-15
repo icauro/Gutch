@@ -255,8 +255,12 @@ mod tests {
         });
         manifest.snapshot_id =
             crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
-        crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(paths, &manifest)
-            .unwrap();
+        crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
+            paths,
+            &manifest,
+            &crate::progress::OperationControl::default(),
+        )
+        .unwrap();
         manifest
     }
 
@@ -323,8 +327,12 @@ mod tests {
             panic!("expected the fixture's file entry");
         };
         file.full_file_hash = blake3::hash(b"different content").to_hex().to_string();
-        crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, &invalid)
-            .unwrap();
+        crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
+            &paths,
+            &invalid,
+            &crate::progress::OperationControl::default(),
+        )
+        .unwrap();
         let error = verify_gutch_repo_artifacts(
             root.path(),
             Some(&selected.snapshot_id),

@@ -198,7 +198,7 @@ fn replace_with_staging(
     {
         let _span = control.profile_span("installation.reconstruct.finalize.promote");
         control.checkpoint()?;
-        replace_directory(staging_dir, request.destination_dir)?;
+        replace_directory(staging_dir, request.destination_dir, control)?;
     }
     timings.promote_wall = started.elapsed();
     Ok(())

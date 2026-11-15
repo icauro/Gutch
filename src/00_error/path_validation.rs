@@ -47,7 +47,7 @@ impl Display for PathValidationFailure {
         if self.violations.len() > 10 {
             writeln!(
                 f,
-                "{} more; use --error-json-out for full details.",
+                "{} more violation(s); the structured error details list all of them.",
                 self.violations.len() - 10
             )?;
         }

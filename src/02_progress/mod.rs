@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::Result;
+use crate::error::promotion_diagnostics::DirectoryPromotionDiagnostic;
 use crate::profiling::ProfileSpan;
 use crate::profiling::Profiler;
 use std::collections::BTreeMap;
@@ -122,6 +123,29 @@ pub trait ProgressSink: Send + Sync + Debug {
     fn emit(&self, event: ProgressEvent);
 }
 
+/// Non-fatal condition reported while an operation still succeeds.
+#[derive(Debug, Serialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum OperationWarning {
+    /// The new directory is published, but the previous one could not be removed.
+    DirectoryCleanupFailed(Box<DirectoryPromotionDiagnostic>),
+}
+
+impl std::fmt::Display for OperationWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OperationWarning::DirectoryCleanupFailed(_) => {
+                f.write_str("directory promotion committed; cleanup failed")
+            }
+        }
+    }
+}
+
+/// Receives non-fatal warnings. Without a sink, warnings are dropped.
+pub trait WarningSink: Send + Sync + Debug {
+    fn warn(&self, warning: OperationWarning);
+}
+
 /// Read-only cancellation boundary implemented by the calling application.
 ///
 /// Gutch deliberately does not own the mutable signal or depend on an async runtime. Long-running
@@ -137,6 +161,7 @@ pub struct OperationControl {
     cancellation: Option<Arc<dyn CancellationHook>>,
     profiler: Option<Arc<Profiler>>,
     feedback: Option<Arc<feedback::LiveProgress>>,
+    warnings: Option<Arc<dyn WarningSink>>,
 }
 
 impl OperationControl {
@@ -183,6 +208,17 @@ impl OperationControl {
         self
     }
 
+    pub fn with_warnings(mut self, warnings: Arc<dyn WarningSink>) -> Self {
+        self.warnings = Some(warnings);
+        self
+    }
+
+    pub(crate) fn warn(&self, warning: OperationWarning) {
+        if let Some(warnings) = &self.warnings {
+            warnings.warn(warning);
+        }
+    }
+
     pub fn with_profiler(mut self, profiler: Arc<Profiler>) -> Self {
         if let Some(feedback) = &self.feedback {
             feedback.with_profiler(profiler.clone());
@@ -191,13 +227,14 @@ impl OperationControl {
         self
     }
 
-    /// Replaces only the progress adapter while retaining the operation's cancellation hook.
+    /// Replaces only the progress adapter while retaining every other control.
     pub(crate) fn with_replaced_progress(&self, progress: Arc<dyn ProgressSink>) -> Self {
         Self {
             progress: Some(progress),
             cancellation: self.cancellation.clone(),
             profiler: self.profiler.clone(),
             feedback: self.feedback.clone(),
+            warnings: self.warnings.clone(),
         }
     }
 

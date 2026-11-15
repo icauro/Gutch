@@ -118,7 +118,14 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
                     tags_file,
                     yes,
                 },
-        } => replace_tags(&repo, snapshot_id, &tags, tags_file.as_deref(), yes),
+        } => replace_tags(
+            &repo,
+            snapshot_id,
+            &tags,
+            tags_file.as_deref(),
+            yes,
+            profile,
+        ),
         SnapshotCommands::Fetch {
             repo,
             snapshot_id,
@@ -349,6 +356,7 @@ fn replace_tags(
     tags: &[String],
     tags_file: Option<&Path>,
     yes: bool,
+    profile: &Profile,
 ) -> crate::Result<()> {
     let single_snapshot = snapshot_id.is_some();
     let replacements = if let Some(path) = tags_file {
@@ -378,7 +386,7 @@ fn replace_tags(
     if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
         return Err(crate::Error::manifest("snapshot tag replacement cancelled"));
     }
-    let results = retag_snapshots(repo, replacements)?;
+    let results = retag_snapshots(repo, replacements, &control_with_profile(profile))?;
     if single_snapshot {
         output::record(&results[0])
     } else {

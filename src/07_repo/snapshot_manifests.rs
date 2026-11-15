@@ -249,6 +249,7 @@ pub fn validate_snapshot_product_metadata_for_snapshots(
 pub(crate) fn write_snapshot_manifest_artifacts(
     paths: &RepoPaths,
     snapshot_manifest: &SnapshotManifest,
+    control: &OperationControl,
 ) -> Result<(PathBuf, u64)> {
     snapshot_manifest.snapshot_tags.normalized()?;
     validate_snapshot_entries(&snapshot_manifest.entries)?;
@@ -299,7 +300,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     )?;
     let staging_path = staging_dir.keep();
     let snapshot_dir = paths.snapshots_root.join(snapshot_id);
-    filesystem::directory::replace_directory(&staging_path, &snapshot_dir)?;
+    filesystem::directory::replace_directory(&staging_path, &snapshot_dir, control)?;
 
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
     let metadata_size = fs::metadata(&metadata_path)?.len();

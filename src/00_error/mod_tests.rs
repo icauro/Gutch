@@ -101,7 +101,7 @@ fn contextual_io_preserves_native_error_and_typed_failures() {
         .unwrap();
     assert_eq!(source.raw_os_error(), Some(5));
     assert_eq!(source.kind(), expected_kind);
-    assert!(error.is_retryable_download());
+    assert!(!error.is_retryable_download());
     assert!(matches!(
         Error::Cancelled.with_io_context("writing", Path::new("x")),
         Error::Cancelled

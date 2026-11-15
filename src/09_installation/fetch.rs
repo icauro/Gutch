@@ -121,7 +121,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 },
                 reconstruction.plan,
             )?;
-            publish_fetched_snapshot(&prepared)?;
+            publish_fetched_snapshot(&prepared, &request.fetch_request.control)?;
             let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);
             let fetch_result = build_fetch_result(
                 &request.fetch_request,

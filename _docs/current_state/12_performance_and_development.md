@@ -531,7 +531,8 @@ context. CLI text and JSON error strings display this context.
 
 The original `std::io::Error` remains the error source, preserving its native OS
 code and kind. Adding context does not reclassify cancellation, integrity failures
-or already-contextual errors, and preserves existing I/O retry classification.
+or already-contextual errors. Only download errors the transfer layer marks
+retryable are retried; local I/O errors are not.
 This improves future diagnosis; it does not establish or fix the cause of the
 previous baseline Windows error 5. Cleanup and rollback behavior is unchanged.
 

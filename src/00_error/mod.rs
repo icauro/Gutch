@@ -157,12 +157,16 @@ impl Error {
         }
     }
 
+    /// True only for download failures the transfer layer marked retryable.
+    /// Local I/O failures are never retried.
     pub fn is_retryable_download(&self) -> bool {
-        match self {
-            Error::Download { retryable, .. } => *retryable,
-            Error::Io(_) | Error::IoContext { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Error::Download {
+                retryable: true,
+                ..
+            }
+        )
     }
 
     pub fn verify(msg: impl Into<String>) -> Self {

@@ -281,12 +281,13 @@ fn write_remote_snapshot_artifacts(
     metadata: &SnapshotManifest,
     product_metadata: Option<&SnapshotProductMetadata>,
     blueprint_bytes: &[u8],
+    control: &OperationControl,
 ) -> Result<()> {
     let mut metadata = metadata.clone();
     metadata.snapshot_id = snapshot_id.to_string();
     let manifest =
         snapshot_manifest_from_parts(metadata, product_metadata.cloned(), blueprint_bytes)?;
-    write_snapshot_manifest_artifacts(repo_paths, &manifest)?;
+    write_snapshot_manifest_artifacts(repo_paths, &manifest, control)?;
     Ok(())
 }
 
@@ -486,6 +487,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
             &metadata,
             product_metadata.as_ref(),
             &blueprint_bytes,
+            self.control,
         )
     }
 
@@ -735,8 +737,15 @@ mod constraint_tests {
         )
         .unwrap();
         let bytes = std::fs::read(blueprint_path).unwrap();
-        let error =
-            write_remote_snapshot_artifacts(&paths, &id, &manifest, None, &bytes).unwrap_err();
+        let error = write_remote_snapshot_artifacts(
+            &paths,
+            &id,
+            &manifest,
+            None,
+            &bytes,
+            &OperationControl::default(),
+        )
+        .unwrap_err();
         assert!(matches!(error, Error::PathValidation(_)));
         assert!(!paths.snapshots_root.join(id).exists());
     }
