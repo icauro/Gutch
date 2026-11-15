@@ -138,16 +138,8 @@ fn create_snapshot_directories(
             let resolved_path = path_resolver.resolve(path)?;
             create_snapshot_directory(&resolved_path)
         };
-        if directories.len() >= 2 {
-            if let Some(reconstruct_pool) = reconstruct_pool {
-                reconstruct_pool
-                    .install(|| directories.par_iter().try_for_each(create_directory))?;
-            } else {
-                directories.iter().try_for_each(create_directory)?;
-            }
-        } else {
-            directories.iter().try_for_each(create_directory)?;
-        }
+        let pool = reconstruct_pool.filter(|_| directories.len() >= 2);
+        try_for_each_in(pool, directories, create_directory)?;
     }
     Ok(())
 }
@@ -393,12 +385,9 @@ where
     T: Sync,
     F: Fn(&T) -> Result<()> + Send + Sync,
 {
-    if !should_parallelize_finalize(entries.len(), worker_count) || reconstruct_pool.is_none() {
-        return entries.iter().try_for_each(&work);
-    }
-    reconstruct_pool
-        .expect("parallel finalization pool should exist")
-        .install(|| entries.par_iter().try_for_each(work))
+    let pool =
+        reconstruct_pool.filter(|_| should_parallelize_finalize(entries.len(), worker_count));
+    try_for_each_in(pool, entries, work)
 }
 
 fn run_finalize_directory_levels<F>(
@@ -411,21 +400,23 @@ where
     F: Fn(&DirectoryManifest) -> Result<()> + Send + Sync,
 {
     for directories in levels.values().rev() {
-        if should_parallelize_finalize(directories.len(), worker_count)
-            && let Some(reconstruct_pool) = reconstruct_pool
-        {
-            reconstruct_pool.install(|| {
-                directories
-                    .par_iter()
-                    .try_for_each(|directory| work(directory))
-            })?;
-        } else {
-            directories
-                .iter()
-                .try_for_each(|directory| work(directory))?;
-        }
+        let pool = reconstruct_pool
+            .filter(|_| should_parallelize_finalize(directories.len(), worker_count));
+        try_for_each_in(pool, directories, |directory| work(directory))?;
     }
     Ok(())
+}
+
+/// Run `work` over `items` on `pool`, or in order on this thread without one.
+fn try_for_each_in<T, F>(pool: Option<&ThreadPool>, items: &[T], work: F) -> Result<()>
+where
+    T: Sync,
+    F: Fn(&T) -> Result<()> + Send + Sync,
+{
+    match pool {
+        Some(pool) => pool.install(|| items.par_iter().try_for_each(work)),
+        None => items.iter().try_for_each(work),
+    }
 }
 
 fn should_parallelize_finalize(entry_count: usize, worker_count: usize) -> bool {
