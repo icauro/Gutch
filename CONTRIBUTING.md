@@ -50,3 +50,12 @@ not a recorded operating-system schedule.
 
 Generated files belong under `.artifacts/tests/`; compiler outputs belong under
 `.builds/`. Do not update frozen expectations merely to make a failing test pass.
+
+## Rust unit test layout
+
+Each source file has at most one test module, named `tests`. Keep it inline
+while it stays under about 100 lines; beyond that, move it beside the source as
+`<stem>_tests.rs` and declare it with `#[cfg(test)] #[path = "<stem>_tests.rs"] mod tests;`.
+Name tests after the behavior they check, without a `test_` prefix. Shared
+fixtures such as temporary directories, hashes, cancellation and progress sinks
+live in `src/test_util/`; give each test its own `tempfile::tempdir()`.
