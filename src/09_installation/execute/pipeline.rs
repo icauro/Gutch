@@ -98,7 +98,7 @@ pub(crate) fn run_reconstruction_jobs(
     };
     let verify_timings = VerifyTimings {
         verify_mode: VerifyMode::Fast,
-        runtime_plan: Some(plan_runtime(runtime_hints)),
+        runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };
 
