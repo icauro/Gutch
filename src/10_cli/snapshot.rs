@@ -338,7 +338,7 @@ fn replace_tags(
 ) -> crate::Result<()> {
     let single_snapshot = snapshot_id.is_some();
     let replacements = if let Some(path) = tags_file {
-        serde_json::from_str(&filesystem::read_to_string(path)?)?
+        filesystem::read_json(path)?
     } else {
         BTreeMap::from([(
             snapshot_id

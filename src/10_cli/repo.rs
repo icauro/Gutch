@@ -308,7 +308,7 @@ fn read_constraint_input(
     targets: Vec<FilesystemTarget>,
 ) -> crate::Result<RepositoryConstraints> {
     let constraints = if let Some(path) = path {
-        serde_json::from_str(&filesystem::read_to_string(path)?)?
+        filesystem::read_json(path)?
     } else {
         RepositoryConstraints {
             targets,

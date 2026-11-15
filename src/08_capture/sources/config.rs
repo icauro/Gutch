@@ -27,7 +27,6 @@ use serde::Serialize;
 use crate::Error;
 use crate::Result;
 use crate::filesystem;
-use crate::filesystem::from_json_str;
 use crate::manifest::SnapshotTagSet;
 use std::fs;
 
@@ -98,9 +97,7 @@ impl SourceConfig {
         if !path.is_file() {
             return Ok(None);
         }
-        let text = filesystem::read_to_string(&path)?;
-        let config: Self = from_json_str(&text)?;
-        Ok(Some(config))
+        Ok(Some(filesystem::read_json(&path)?))
     }
 
     /// Load the config or fall back to the default `auto` skeleton without

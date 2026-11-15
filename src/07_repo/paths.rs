@@ -10,7 +10,6 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::filesystem;
-use crate::filesystem::from_json_str;
 use crate::filesystem::write_json;
 use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::repo_manifest::RepoManifest;
@@ -93,8 +92,7 @@ pub(crate) fn ensure_gutch_repo_layout(paths: &RepoPaths, name: &str) -> Result<
     filesystem::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_metadata_path.exists() {
-        let repo_manifest_json = filesystem::read_to_string(&paths.repo_metadata_path)?;
-        let mut manifest: RepoManifest = from_json_str(&repo_manifest_json)?;
+        let mut manifest: RepoManifest = filesystem::read_json(&paths.repo_metadata_path)?;
         apply_local_repo_config(paths, &mut manifest)?;
         manifest
     } else {
@@ -114,8 +112,7 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoMani
             paths.repo_metadata_path.display()
         )));
     }
-    let repo_manifest_json = filesystem::read_to_string(&paths.repo_metadata_path)?;
-    let mut repo_manifest: RepoManifest = from_json_str(&repo_manifest_json)?;
+    let mut repo_manifest: RepoManifest = filesystem::read_json(&paths.repo_metadata_path)?;
     if let Some(constraints) = &repo_manifest.constraints {
         constraints.validate_definition()?;
     }
@@ -154,8 +151,7 @@ fn apply_local_repo_config(paths: &RepoPaths, manifest: &mut RepoManifest) -> Re
     if !paths.local_repo_config_path.exists() {
         return Ok(());
     }
-    let config: LocalRepoConfig =
-        from_json_str(&filesystem::read_to_string(&paths.local_repo_config_path)?)?;
+    let config: LocalRepoConfig = filesystem::read_json(&paths.local_repo_config_path)?;
     let remote_repo_id = config.remote_repo_id.trim();
     if remote_repo_id.is_empty() {
         return Err(Error::repository(format!(

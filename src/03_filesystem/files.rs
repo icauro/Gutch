@@ -129,9 +129,9 @@ pub(crate) fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<
     write(path, serde_json::to_string_pretty(value)?)
 }
 
-/// Parse JSON from string.
-pub(crate) fn from_json_str<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, Error> {
-    Ok(serde_json::from_str(json)?)
+/// Read a file and parse it as JSON.
+pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Error> {
+    Ok(serde_json::from_str(&read_to_string(path)?)?)
 }
 
 /// Parse JSON from bytes.
