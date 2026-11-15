@@ -33,7 +33,9 @@ notices. Builds run on code pushes to `main` or manually. See
 
 Install Python 3.12 or newer, uv, and a Rust toolchain supporting edition 2024.
 The standalone CI currently uses Rust 1.97.1. On Windows, Rust also needs the
-MSVC C++ build tools. Run these commands from this directory:
+MSVC C++ build tools, and the test corpus needs long paths: clone with
+`git clone -c core.longpaths=true` (or run `git config core.longpaths true`
+before checking out). Run these commands from this directory:
 
 ```sh
 python gutch.py setup
