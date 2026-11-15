@@ -30,6 +30,45 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
 }
 
 #[test]
+fn command_line_usage_errors_keep_the_parser_message_and_exit_code() {
+    let error = gutch::api::run_from_args(["gutch", "--bogus"]).unwrap_err();
+    assert!(matches!(error, Error::Usage(_)), "{error:?}");
+    assert_eq!(error.exit_code(), 2);
+    let message = error.to_string();
+    assert!(
+        message.starts_with("error: unexpected argument"),
+        "{message}"
+    );
+    assert!(!message.contains("Invalid input"), "{message}");
+}
+
+#[test]
+fn structured_output_requires_yes_instead_of_prompting_without_the_plan() {
+    use gutch::api::*;
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    let source = root.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("content"), b"content").unwrap();
+    initialize_repo(&repo, RepoInitOptions::default()).unwrap();
+    let error = run_from_args([
+        "gutch",
+        "--json",
+        "snapshot",
+        "capture",
+        "--repo",
+        repo.to_str().unwrap(),
+        "--source",
+        source.to_str().unwrap(),
+        "--tag",
+        "version=1.0.0",
+    ])
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("--yes"), "{message}");
+}
+
+#[test]
 fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     use gutch::api::Chunker;
     for (chunker, cli_name, persisted_name) in [

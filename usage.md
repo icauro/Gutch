@@ -38,8 +38,10 @@ See the [provider integration contract](_docs/current_state/10_cli_and_app_integ
 `repo rename` changes the local `repository_name` in `repo_metadata.json`; it
 does not rename the filesystem directory or a linked remote repo.
 
-Automation and CI: pass `--yes` to skip supported confirmations. Use
-`--dry-run` for previews, including `snapshot capture --discover-from PATH`.
+Automation and CI: pass `--yes` to skip supported confirmations; `--json` and
+`--json-lines` require it for commands that would prompt. Use `--dry-run` for
+previews, including `snapshot capture --discover-from PATH`. Declined
+confirmations exit with status 1 and usage errors with status 2.
 
 ## Chunker selection
 

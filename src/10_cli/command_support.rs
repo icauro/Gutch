@@ -227,6 +227,12 @@ pub(crate) fn parse_artifact_downloads(
 }
 
 pub(crate) fn prompt_yes_no(prompt: &str, default_yes: bool) -> crate::Result<bool> {
+    // Structured output holds the plan back, so a prompt would ask blindly.
+    if super::output::structured() {
+        return Err(crate::Error::invalid_input(
+            "confirmation prompts are unavailable with --json or --json-lines; review the plan with --dry-run and confirm with --yes",
+        ));
+    }
     loop {
         let suffix = if default_yes { "[Y/n]" } else { "[y/N]" };
         eprint!("{} {}: ", prompt, suffix);

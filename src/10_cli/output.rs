@@ -41,6 +41,15 @@ pub(crate) fn begin(cli: &super::Cli) -> crate::Result<()> {
     Ok(())
 }
 
+/// True when stdout carries `--json` or `--json-lines` output, which holds
+/// human messages back until the command finishes.
+pub(crate) fn structured() -> bool {
+    OUTPUT.with(|state| {
+        let state = state.borrow();
+        state.json || state.json_lines
+    })
+}
+
 pub(crate) fn dry_run() -> bool {
     OUTPUT.with(|state| state.borrow().dry_run)
 }

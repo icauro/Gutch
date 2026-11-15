@@ -23,6 +23,7 @@ use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch::fetch_snapshot;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::transfer::http::read_bounded_response;
+use crate::transfer::http::request_error;
 use crate::transfer::types::ArtifactDownload;
 use crate::transfer::types::ArtifactUrlProvider;
 use crate::transfer::types::TransferConcurrencyPolicy;
@@ -278,12 +279,17 @@ fn resolve_artifact_urls(
     }
     let response = request
         .send()
-        .map_err(|err| crate::Error::invalid_input(format!("bundle URL request failed: {err}")))?;
-    if !response.status().is_success() {
-        return Err(crate::Error::invalid_input(format!(
-            "bundle URL request failed with status {}",
-            response.status()
-        )));
+        .map_err(|err| request_error("bundle URL request failed", err))?;
+    let status = response.status();
+    if !status.is_success() {
+        // Server faults, throttling and timeouts may clear on a later attempt.
+        let retryable = status.is_server_error()
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || status == reqwest::StatusCode::REQUEST_TIMEOUT;
+        return Err(crate::Error::download(
+            format!("bundle URL request failed with status {status}"),
+            retryable,
+        ));
     }
     let bytes = read_bounded_response(response, MAX_BUNDLE_URL_RESPONSE_BYTES, || {
         control.checkpoint()

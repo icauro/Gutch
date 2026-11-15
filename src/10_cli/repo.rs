@@ -272,7 +272,7 @@ pub(crate) fn init_repo(
     let mut proceed_force = force;
     if assessment.requires_confirmation && !proceed_force {
         if !confirm_repo_init_stdio(&assessment)? {
-            return Err(crate::Error::invalid_input("repo creation cancelled"));
+            return Err(crate::Error::Cancelled);
         }
         proceed_force = true;
     }

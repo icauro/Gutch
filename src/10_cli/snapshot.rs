@@ -228,7 +228,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
             output::line(format_args!("  {}", describe_snapshot_capture_plan(&plan)));
         }
         if !prompt_yes_no("Proceed?", false)? {
-            return Err(crate::Error::invalid_input("snapshot capture cancelled"));
+            return Err(crate::Error::Cancelled);
         }
     }
     let results = capture_snapshots(requests)?;
@@ -339,7 +339,7 @@ fn delete(repo: &Path, snapshot_id: &str, yes: bool, profile: &Profile) -> crate
             false,
         )?
     {
-        return Err(crate::Error::invalid_input("snapshot deletion cancelled"));
+        return Err(crate::Error::Cancelled);
     }
 
     let control = control_with_profile(profile).with_progress(CliProgressSink::new());
@@ -385,9 +385,7 @@ fn replace_tags(
         return Ok(());
     }
     if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
-        return Err(crate::Error::invalid_input(
-            "snapshot tag replacement cancelled",
-        ));
+        return Err(crate::Error::Cancelled);
     }
     let results = retag_snapshots(repo, replacements, &control_with_profile(profile))?;
     if single_snapshot {

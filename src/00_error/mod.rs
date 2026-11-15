@@ -35,6 +35,11 @@ pub enum Error {
     #[error("Walkdir error: {0}")]
     Walkdir(#[from] walkdir::Error),
 
+    /// The command line did not parse; the text is the parser's complete,
+    /// already formatted message including usage hints.
+    #[error("{}", .0.trim_end())]
+    Usage(String),
+
     /// Caller-supplied arguments, configuration or source selection is unusable.
     #[error("Invalid input: {0}")]
     InvalidInput(String),
@@ -117,6 +122,15 @@ impl Error {
 
     pub fn is_cancelled(&self) -> bool {
         matches!(self, Self::Cancelled)
+    }
+
+    /// The conventional process exit code: 2 for command-line usage errors,
+    /// 1 for everything else.
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Self::Usage(_) => 2,
+            _ => 1,
+        }
     }
 
     pub(crate) fn diagnostic_report(&self) -> serde_json::Value {

@@ -51,8 +51,10 @@ It is not an atomic multi-snapshot transaction.
 
 `run_from_args` returns failures to its embedding host. Failed path comparison
 and repository verification write their requested reports and then return an
-error; the executable maps that error to a nonzero exit status. Command handlers
-do not terminate the host process.
+error; the executable maps that error to exit status 1, or 2 for command-line
+usage errors. Declining a confirmation returns `Cancelled`, so a cancelled
+command never exits successfully. Command handlers do not terminate the host
+process.
 
 Capture reports `required_bundle_count` as the number of distinct bundled
 artifacts selected by the published chunk index for that snapshot. It includes
@@ -219,8 +221,10 @@ Every command supports readable output (default), `--json`, or `--json-lines`,
 and `--output FILE` redirects the selected format. Progress and prompts use
 stderr. JSON Lines ends with a `kind: summary` record; installation previews stream
 entry events before that record. Single JSON collects preview events beside its
-summary. Failures after dispatch return structured error information and a
-nonzero status; parser failures use Clap diagnostics.
+summary. Structured output holds readable plans back, so a command that would
+prompt fails instead and asks for `--yes`; review the plan with `--dry-run`
+first. Failures after dispatch return structured error information and a
+nonzero status; parser failures print Clap diagnostics and exit with status 2.
 
 `--dry-run` supports repository init, rename, constraints, index rebuild, push
 and pull; snapshot capture, delete and tag replacement; installation preview,

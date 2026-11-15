@@ -119,19 +119,17 @@ where
     let command = Cli::command().bin_name(bin_name);
     let cli = match command.try_get_matches_from(args) {
         Ok(matches) => Cli::from_arg_matches(&matches)
-            .map_err(|error| crate::Error::invalid_input(error.to_string()))?,
+            .map_err(|error| crate::Error::Usage(error.render().to_string()))?,
         Err(error)
             if matches!(
                 error.kind(),
                 clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
             ) =>
         {
-            error
-                .print()
-                .map_err(|err| crate::Error::invalid_input(err.to_string()))?;
+            error.print()?;
             return Ok(());
         }
-        Err(error) => return Err(crate::Error::invalid_input(error.to_string())),
+        Err(error) => return Err(crate::Error::Usage(error.render().to_string())),
     };
     set_verbose_output_enabled(cli.verbose);
     let profile_out = cli.profile_out.clone();
@@ -145,13 +143,13 @@ where
     }
     let mode = cli.profile;
     let profiler = (mode != ProfileMode::Off).then(|| Arc::new(Profiler::new(mode)));
-    output::begin(&cli)?;
-    let command_result = {
+    // Begin inside the exported result so its failure still reaches --error-json-out.
+    let command_result = output::begin(&cli).and_then(|()| {
         let _command_span = profiler
             .as_ref()
             .map(|profiler| profiler.span("cli.command"));
         dispatch::run(cli, remote_provider, &profiler)
-    };
+    });
     let output_result = output::finish(&command_result);
     let command_result = command_result.and(output_result);
     if let (Err(error), Some(path)) = (&command_result, error_json_out) {

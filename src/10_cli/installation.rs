@@ -110,7 +110,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         );
     }
     if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
-        return Err(crate::Error::invalid_input("installation repair cancelled"));
+        return Err(crate::Error::Cancelled);
     }
     let started_at = ProfileInstant::start(profile.as_deref());
     let execution = repair_installation(InstallationRepairRequest {
@@ -181,9 +181,7 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &Profile) -> crate::Resu
         })?;
     // Parse the plan first so the user never confirms a plan that cannot run.
     if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
-        return Err(crate::Error::invalid_input(
-            "installation corruption cancelled",
-        ));
+        return Err(crate::Error::Cancelled);
     }
     let started_at = ProfileInstant::start(profile.as_deref());
     let result = corrupt_installation(InstallationCorruptionRequest {

@@ -61,8 +61,7 @@ pub(crate) fn push(
         return Ok(());
     }
     if !yes && !prompt_yes_no("Proceed?", true)? {
-        output::line(format_args!("push cancelled"));
-        return Ok(());
+        return Err(crate::Error::Cancelled);
     }
 
     provider.prepare_repository_push(&repo)?;
@@ -116,8 +115,7 @@ pub(crate) fn pull(
         return Ok(());
     }
     if !yes && !prompt_yes_no("Proceed?", true)? {
-        output::line(format_args!("pull cancelled"));
-        return Ok(());
+        return Err(crate::Error::Cancelled);
     }
 
     let progress = Arc::new(CliProgressSink);
