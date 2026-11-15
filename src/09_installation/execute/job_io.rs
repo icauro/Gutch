@@ -27,7 +27,7 @@ use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
-use crate::filesystem::paths::resolve_manifest_relative_path;
+use crate::filesystem::paths::ManifestPathResolver;
 use crate::installation::contracts::ReconstructTimings;
 use crate::manifest::typed::typed_file_manifest;
 use crate::profiling::file_trace_args;
@@ -580,13 +580,11 @@ pub(crate) fn build_source_chunk_locations(
     required_chunks: Option<&HashSet<ChunkHash>>,
 ) -> Result<HashMap<ChunkHash, SourceChunkLocation>> {
     let mut chunk_locations = HashMap::new();
+    let source_paths = ManifestPathResolver::new(source.destination_dir)?;
     for file_manifest in source.snapshot_manifest.files() {
         let typed_file = typed_file_manifest(file_manifest)?;
         // One immutable path per file is shared by its locations and source jobs.
-        let source_path = Arc::new(resolve_manifest_relative_path(
-            source.destination_dir,
-            &file_manifest.path,
-        )?);
+        let source_path = Arc::new(source_paths.resolve(&file_manifest.path)?);
         let mut offset = 0u64;
         for chunk_ref in typed_file.chunks {
             let raw_size = u64::from(chunk_ref.raw_size);

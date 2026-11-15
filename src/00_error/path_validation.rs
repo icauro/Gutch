@@ -4,13 +4,30 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+/// Why a path is incompatible with a target.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ViolationCode {
+    /// The whole path exceeds the target's length limit.
+    PathTooLong,
+    /// One path component exceeds the target's name limit.
+    NameTooLong,
+    /// The name uses characters or a reserved name the target forbids.
+    UnsupportedName,
+    /// Two distinct paths would name the same entry on the target.
+    NameCollision,
+    /// The actual destination volume cannot hold the path.
+    DestinationIncompatible,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PathViolation {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conflicting_path: Option<String>,
+    /// The filesystem target name, or `actual-destination` for a real volume.
     pub target: String,
-    pub code: String,
+    pub code: ViolationCode,
     pub reason: String,
 }
 

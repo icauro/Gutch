@@ -6,7 +6,6 @@ use crate::artifact::hash::ChunkHash;
 use crate::artifact::integrity::verify_full_file_integrity;
 use crate::artifact::reference::ArtifactRef;
 use crate::filesystem::paths::ManifestPathResolver;
-use crate::filesystem::paths::resolve_manifest_relative_path;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::installation::execute::job_io::build_source_chunk_locations;
 use crate::installation::execute::jobs::{
@@ -125,11 +124,16 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         })
         .unwrap_or_default();
     let mut source_chunk_locations = None;
+    let source_paths = verified_source
+        .map(|source| ManifestPathResolver::new(source.destination_dir))
+        .transpose()?;
 
     for file_manifest in snapshot_manifest.files() {
         if can_copy_source_file(file_manifest, &source_files_by_path) {
-            let source = verified_source.expect("source files map only exists with source");
-            builder.add_source_file_copy(file_manifest, source.destination_dir)?;
+            let source_paths = source_paths
+                .as_ref()
+                .expect("source files map only exists with source");
+            builder.add_source_file_copy(file_manifest, source_paths)?;
             continue;
         }
         // Whole-file copies need no chunk-location index. A partial reuse still
@@ -211,10 +215,10 @@ impl<'a> PipelinePlanBuilder<'a> {
     fn add_source_file_copy(
         &mut self,
         file_manifest: &FileManifest,
-        source_dir: &Path,
+        source_paths: &ManifestPathResolver,
     ) -> Result<()> {
         let file_index = self.files.len();
-        let source_path = resolve_manifest_relative_path(source_dir, &file_manifest.path)?;
+        let source_path = source_paths.resolve(&file_manifest.path)?;
         self.push_file(file_manifest)?;
         self.jobs.push(ReconstructJob::CopySourceFile {
             file_index,

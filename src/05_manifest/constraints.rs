@@ -222,3 +222,28 @@ mod tag_rule_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn targets_compare_as_sets_and_unknown_targets_fail_closed() {
+        let a = RepositoryConstraints {
+            targets: vec![FilesystemTarget::LinuxExt4, FilesystemTarget::WindowsNtfs],
+            ..Default::default()
+        };
+        let b = RepositoryConstraints {
+            targets: vec![
+                FilesystemTarget::WindowsNtfs,
+                FilesystemTarget::LinuxExt4,
+                FilesystemTarget::LinuxExt4,
+            ],
+            ..Default::default()
+        };
+        assert_eq!(a, b);
+        assert!(
+            serde_json::from_str::<RepositoryConstraints>(r#"{"targets":["windwos"]}"#).is_err()
+        );
+    }
+}

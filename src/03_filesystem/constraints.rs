@@ -1,10 +1,25 @@
 //! Portable filename policies. These deliberately do not emulate volume-specific
 //! Unicode tables; destination validation remains authoritative for a real volume.
-use crate::error::path_validation::{PathValidationFailure, PathViolation};
+use crate::error::path_validation::{PathValidationFailure, PathViolation, ViolationCode};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use unicode_normalization::UnicodeNormalization;
+
+/// Longest Windows path in UTF-16 code units, without the `\\?\` prefix.
+pub(crate) const WINDOWS_MAX_PATH_UNITS: usize = 32766;
+/// Longest Apple (APFS) path in bytes.
+pub(crate) const APPLE_MAX_PATH_BYTES: usize = 1023;
+/// Longest Linux and Android path in bytes.
+pub(crate) const UNIX_MAX_PATH_BYTES: usize = 4095;
+/// Longest single name: UTF-16 units on Windows, bytes elsewhere.
+pub(crate) const MAX_NAME_LENGTH: usize = 255;
+
+/// Conservative case folding: full uppercase after lowercase may join more
+/// names than a particular volume's folding table does. Never rewrites names.
+pub(crate) fn fold_case(key: &str) -> String {
+    key.to_lowercase().to_uppercase()
+}
 
 pub(crate) fn windows_name_reason(name: &str) -> Option<&'static str> {
     if name.ends_with([' ', '.']) {
@@ -36,9 +51,9 @@ pub(crate) fn windows_name_reason(name: &str) -> Option<&'static str> {
 }
 
 /// Destination filesystem whose naming rules a repository may opt into.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum,
-)]
+///
+/// `as_str` is the one spelling: serde and the CLI both use it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum FilesystemTarget {
     WindowsNtfs,
@@ -54,6 +69,19 @@ pub enum FilesystemTarget {
 }
 
 impl FilesystemTarget {
+    pub const ALL: [Self; 10] = [
+        Self::WindowsNtfs,
+        Self::WindowsExfat,
+        Self::LinuxExt4,
+        Self::LinuxExt4Casefold,
+        Self::LinuxBtrfs,
+        Self::MacosApfs,
+        Self::MacosApfsCaseSensitive,
+        Self::IosApfs,
+        Self::AndroidExt4,
+        Self::AndroidF2fs,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WindowsNtfs => "windows-ntfs",
@@ -110,12 +138,12 @@ pub(crate) fn validate_paths<'a>(
         let mut validated_path_prefixes = BTreeSet::new();
         for path in &paths {
             let mut record_violation =
-                |path: &str, conflicting_path: Option<String>, code: &str, reason: &str| {
+                |path: &str, conflicting_path: Option<String>, code, reason: &str| {
                     violations.push(PathViolation {
                         path: path.into(),
                         conflicting_path,
                         target: target.as_str().into(),
-                        code: code.into(),
+                        code,
                         reason: reason.into(),
                     });
                 };
@@ -125,17 +153,17 @@ pub(crate) fn validate_paths<'a>(
                 path.len()
             };
             let path_length_limit = if uses_windows_naming {
-                32766
+                WINDOWS_MAX_PATH_UNITS
             } else if uses_apple_naming {
-                1023
+                APPLE_MAX_PATH_BYTES
             } else {
-                4095
+                UNIX_MAX_PATH_BYTES
             };
             if path_length > path_length_limit {
                 record_violation(
                     path,
                     None,
-                    "path_too_long",
+                    ViolationCode::PathTooLong,
                     &format!(
                         "relative path exceeds {path_length_limit} {}",
                         if uses_windows_naming {
@@ -160,13 +188,13 @@ pub(crate) fn validate_paths<'a>(
                 } else {
                     part.len()
                 };
-                if length > 255 {
+                if length > MAX_NAME_LENGTH {
                     record_violation(
                         &prefix,
                         None,
-                        "name_too_long",
+                        ViolationCode::NameTooLong,
                         &format!(
-                            "filename exceeds 255 {}",
+                            "filename exceeds {MAX_NAME_LENGTH} {}",
                             if uses_windows_naming {
                                 "UTF-16 units"
                             } else {
@@ -176,17 +204,15 @@ pub(crate) fn validate_paths<'a>(
                     );
                 }
                 if uses_windows_naming && let Some(reason) = windows_name_reason(part) {
-                    record_violation(&prefix, None, "unsupported_name", reason);
+                    record_violation(&prefix, None, ViolationCode::UnsupportedName, reason);
                 }
                 let comparison_key = if normalize_unicode_for_comparison {
                     prefix.nfd().collect::<String>()
                 } else {
                     prefix.clone()
                 };
-                // Conservative policy: full uppercase may reject more names than a
-                // particular volume's simple folding table. Never rewrite names.
                 let comparison_key = if fold_case_for_comparison {
-                    comparison_key.to_lowercase().to_uppercase()
+                    fold_case(&comparison_key)
                 } else {
                     comparison_key
                 };
@@ -197,7 +223,7 @@ pub(crate) fn validate_paths<'a>(
                         record_violation(
                             &prefix,
                             Some(conflicting_path.clone()),
-                            "name_collision",
+                            ViolationCode::NameCollision,
                             "distinct paths collide under the target's conservative naming rules",
                         );
                     }
@@ -221,7 +247,6 @@ pub(crate) fn validate_paths<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::constraints::RepositoryConstraints;
     fn check(target: FilesystemTarget, paths: &[&str]) -> Result<()> {
         validate_paths(&[target], paths.iter().copied(), "capture", None)
     }
@@ -259,25 +284,17 @@ mod tests {
         assert!(check(FilesystemTarget::IosApfs, &["A", "a"]).is_ok());
     }
     #[test]
-    fn empty_policy_keeps_safety_and_unknown_targets_fail_closed() {
-        let a = RepositoryConstraints {
-            targets: vec![FilesystemTarget::LinuxExt4, FilesystemTarget::WindowsNtfs],
-            ..Default::default()
-        };
-        let b = RepositoryConstraints {
-            targets: vec![
-                FilesystemTarget::WindowsNtfs,
-                FilesystemTarget::LinuxExt4,
-                FilesystemTarget::LinuxExt4,
-            ],
-            ..Default::default()
-        };
-        assert_eq!(a, b);
-
+    fn empty_policy_keeps_mandatory_path_safety() {
         assert!(validate_paths(&[], ["NUL.txt"].into_iter(), "capture", None).is_ok());
         assert!(validate_paths(&[], ["../bad"].into_iter(), "capture", None).is_err());
-        assert!(
-            serde_json::from_str::<RepositoryConstraints>(r#"{"targets":["windwos"]}"#).is_err()
-        );
+    }
+    #[test]
+    fn serde_uses_the_as_str_spelling() {
+        for target in FilesystemTarget::ALL {
+            assert_eq!(
+                serde_json::to_value(target).unwrap(),
+                serde_json::Value::from(target.as_str())
+            );
+        }
     }
 }

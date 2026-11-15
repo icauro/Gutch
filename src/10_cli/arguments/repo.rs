@@ -164,3 +164,14 @@ pub(crate) enum RepoTagsCommands {
         json_out: Option<PathBuf>,
     },
 }
+
+/// The CLI spells filesystem targets the way repository files store them.
+impl clap::ValueEnum for FilesystemTarget {
+    fn value_variants<'a>() -> &'a [Self] {
+        &Self::ALL
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        Some(clap::builder::PossibleValue::new(self.as_str()))
+    }
+}

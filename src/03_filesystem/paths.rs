@@ -4,6 +4,9 @@ use crate::Error;
 use crate::Result;
 use crate::error::path_validation::PathValidationFailure;
 use crate::error::path_validation::PathViolation;
+use crate::error::path_validation::ViolationCode;
+use crate::filesystem::constraints::MAX_NAME_LENGTH;
+use crate::filesystem::constraints::fold_case;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
@@ -13,6 +16,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::PoisonError;
 use unicode_normalization::UnicodeNormalization;
 pub(crate) const MAX_MANIFEST_PATH_BYTES: usize = 128 * 1024;
 pub(crate) const MAX_MANIFEST_PATH_COMPONENTS: usize = 256;
@@ -47,7 +51,7 @@ pub(crate) fn validate_destination_paths<'a>(
                 path: path.trim_prefix(root).to_string_lossy().into_owned(),
                 conflicting_path: None,
                 target: "actual-destination".into(),
-                code: "destination_incompatible".into(),
+                code: ViolationCode::DestinationIncompatible,
                 reason,
             }],
         }),
@@ -69,7 +73,7 @@ fn validate_paths_on_destination_volume<'a>(
         .tempdir_in(parent)?;
     fs::write(probe.path().join("Case"), b"")?;
     fs::write(probe.path().join("é"), b"")?;
-    let fold_case = probe.path().join("case").exists();
+    let fold_case_names = probe.path().join("case").exists();
     let fold_normalization = probe.path().join("e\u{301}").exists();
     let mut spellings = HashMap::<String, Vec<String>>::new();
     for relative in paths {
@@ -86,7 +90,11 @@ fn validate_paths_on_destination_volume<'a>(
             } else {
                 prefix.clone()
             };
-            let key = if fold_case { key.to_uppercase() } else { key };
+            let key = if fold_case_names {
+                fold_case(&key)
+            } else {
+                key
+            };
             let parent = &prefix[..prefix.len() - part.len()];
             let previous_names = spellings.entry(key).or_default();
             // Spellings under a different parent were settled one level up: those
@@ -124,9 +132,12 @@ fn validate_destination_length(path: &Path) -> Result<()> {
     };
     #[cfg(windows)]
     {
+        use crate::filesystem::constraints::WINDOWS_MAX_PATH_UNITS;
         use std::os::windows::ffi::OsStrExt;
-        if path.as_os_str().encode_wide().count() > 32766 {
-            return Err(fail("destination path exceeds 32766 UTF-16 code units"));
+        if path.as_os_str().encode_wide().count() > WINDOWS_MAX_PATH_UNITS {
+            return Err(fail(&format!(
+                "destination path exceeds {WINDOWS_MAX_PATH_UNITS} UTF-16 code units"
+            )));
         }
         for part in path.components().filter_map(|c| {
             if let Component::Normal(n) = c {
@@ -135,8 +146,10 @@ fn validate_destination_length(path: &Path) -> Result<()> {
                 None
             }
         }) {
-            if part.encode_wide().count() > 255 {
-                return Err(fail("destination component exceeds 255 UTF-16 code units"));
+            if part.encode_wide().count() > MAX_NAME_LENGTH {
+                return Err(fail(&format!(
+                    "destination component exceeds {MAX_NAME_LENGTH} UTF-16 code units"
+                )));
             }
             let name = part
                 .to_str()
@@ -148,11 +161,12 @@ fn validate_destination_length(path: &Path) -> Result<()> {
     }
     #[cfg(unix)]
     {
+        use crate::filesystem::constraints::{APPLE_MAX_PATH_BYTES, UNIX_MAX_PATH_BYTES};
         use std::os::unix::ffi::OsStrExt;
         let max_path = if cfg!(target_os = "macos") {
-            1023
+            APPLE_MAX_PATH_BYTES
         } else {
-            4095
+            UNIX_MAX_PATH_BYTES
         };
         if path.as_os_str().as_bytes().len() > max_path {
             return Err(fail("destination path exceeds platform path budget"));
@@ -164,8 +178,10 @@ fn validate_destination_length(path: &Path) -> Result<()> {
                 None
             }
         }) {
-            if part.as_bytes().len() > 255 {
-                return Err(fail("destination component exceeds 255 bytes"));
+            if part.as_bytes().len() > MAX_NAME_LENGTH {
+                return Err(fail(&format!(
+                    "destination component exceeds {MAX_NAME_LENGTH} bytes"
+                )));
             }
         }
     }
@@ -216,10 +232,22 @@ pub enum ExistingDestinationPathKind {
     Directory,
     FileOrDirectory,
 }
+impl ExistingDestinationPathKind {
+    fn description(self) -> &'static str {
+        match self {
+            Self::File => "a file",
+            Self::Directory => "a directory",
+            Self::FileOrDirectory => "a file or directory",
+        }
+    }
+}
 /// Resolves manifest paths beneath one root while reusing the root's canonical path.
 ///
 /// The per-component checks are intentionally retained: an existing symlinked
 /// ancestor must still be rejected even when several paths share the same root.
+/// Parents that passed once stay trusted for the resolver's life, so build a
+/// new resolver after something else may have replaced them. A root missing
+/// at construction is never containment-checked.
 #[derive(Debug, Clone)]
 pub(crate) struct ManifestPathResolver {
     root: PathBuf,
@@ -280,7 +308,10 @@ pub(crate) fn validate_manifest_relative_path(relative: &str, allow_root: bool) 
     {
         return Err(Error::InvalidPath {
             path: PathBuf::from(relative),
-            reason: "manifest path exceeds 128 KiB or 256 components".into(),
+            reason: format!(
+                "manifest path exceeds {} KiB or {MAX_MANIFEST_PATH_COMPONENTS} components",
+                MAX_MANIFEST_PATH_BYTES / 1024
+            ),
         });
     }
     let relative_path = Path::new(relative);
@@ -353,12 +384,10 @@ fn ensure_existing_ancestors_stay_within_root(
         // Successful components already passed containment validation for this
         // resolver. Consult that cache before issuing another filesystem query.
         // Missing components are never cached, so later creations are checked.
+        // A set cannot be left half-updated, so a poisoned cache is still sound.
         let already_validated = validated_ancestors
             .lock()
-            .map_err(|_| Error::InvalidPath {
-                path: current.clone(),
-                reason: "path validation cache is poisoned".to_string(),
-            })?
+            .unwrap_or_else(PoisonError::into_inner)
             .contains(&current);
         if already_validated {
             continue;
@@ -368,7 +397,9 @@ fn ensure_existing_ancestors_stay_within_root(
         match fs::symlink_metadata(&current) {
             Ok(_) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => break,
-            Err(error) => return Err(error.into()),
+            Err(error) => {
+                return Err(Error::io_context("inspecting path", &current, error));
+            }
         }
         let canonical_current = current.canonicalize().map_err(|error| Error::InvalidPath {
             path: current.clone(),
@@ -382,10 +413,7 @@ fn ensure_existing_ancestors_stay_within_root(
         }
         validated_ancestors
             .lock()
-            .map_err(|_| Error::InvalidPath {
-                path: current.clone(),
-                reason: "path validation cache is poisoned".to_string(),
-            })?
+            .unwrap_or_else(PoisonError::into_inner)
             .insert(current.clone());
     }
     Ok(())
@@ -412,7 +440,11 @@ pub fn resolve_existing_destination_path(
         .canonicalize()
         .map_err(|error| Error::InvalidPath {
             path: candidate.clone(),
-            reason: format!("declared installation path does not exist: {error}"),
+            reason: if error.kind() == ErrorKind::NotFound {
+                "declared installation path does not exist".into()
+            } else {
+                format!("failed to resolve declared installation path: {error}")
+            },
         })?;
     if !canonical_candidate.starts_with(&canonical_root) {
         return Err(Error::InvalidPath {
@@ -430,112 +462,13 @@ pub fn resolve_existing_destination_path(
     if !valid_kind {
         return Err(Error::InvalidPath {
             path: canonical_candidate,
-            reason: format!("declared installation path is not a {:?}", expected_kind),
+            reason: format!(
+                "declared installation path is not {}",
+                expected_kind.description()
+            ),
         });
     }
     Ok(canonical_candidate)
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    #[test]
-    fn rejects_cross_platform_escape_forms() {
-        for path in [
-            "../outside",
-            "bin/../outside",
-            "C:/outside",
-            "\\\\server\\share",
-            "/outside",
-        ] {
-            assert!(
-                validate_manifest_relative_path(path, false).is_err(),
-                "accepted {path}"
-            );
-        }
-    }
-    #[test]
-    fn allows_install_root_only_when_requested() {
-        assert!(validate_manifest_relative_path(".", false).is_err());
-        assert!(validate_manifest_relative_path(".", true).is_ok());
-    }
-    #[test]
-    fn entry_resolution_accepts_a_missing_leaf() {
-        let base = crate::test_util::temp_path("gutch_entry_path_resolution");
-        let _ = std::fs::remove_dir_all(&base);
-        let root = base.join("root");
-        std::fs::create_dir_all(&root).unwrap();
-        let resolver = ManifestPathResolver::new(&root).unwrap();
-        assert_eq!(
-            resolver.resolve_entry("missing.txt").unwrap(),
-            root.join("missing.txt")
-        );
-        let _ = std::fs::remove_dir_all(base);
-    }
-    #[cfg(any(unix, windows))]
-    #[test]
-    fn resolver_checks_new_links_beneath_a_cached_parent() {
-        let base = tempfile::tempdir().unwrap();
-        let root = base.path().join("root");
-        let parent = root.join("parent");
-        let outside = base.path().join("outside");
-        fs::create_dir_all(&parent).unwrap();
-        fs::create_dir(&outside).unwrap();
-        let resolver = ManifestPathResolver::new(&root).unwrap();
-        // Cache the existing parent, but never the missing child.
-        assert!(resolver.resolve("parent/child/file").is_ok());
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&outside, parent.join("child")).unwrap();
-        #[cfg(windows)]
-        if std::os::windows::fs::symlink_dir(&outside, parent.join("child")).is_err() {
-            return; // Windows may lack the privilege to create symbolic links.
-        }
-        assert!(resolver.resolve("parent/child/file").is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn rejects_symlinked_parent_that_escapes_root() {
-        use std::os::unix::fs::symlink;
-        let base = std::env::temp_dir().join(format!("gutch-path-guard-{}", std::process::id()));
-        let root = base.join("root");
-        let outside = base.join("outside");
-        fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        symlink(&outside, root.join("escape")).unwrap();
-        assert!(resolve_manifest_relative_path(&root, "escape/game").is_err());
-        let _ = fs::remove_dir_all(base);
-    }
-    #[cfg(windows)]
-    #[test]
-    fn rejects_directory_link_that_escapes_root_when_links_are_available() {
-        use std::os::windows::fs::symlink_dir;
-        let base = std::env::temp_dir().join(format!("gutch-path-guard-{}", std::process::id()));
-        let root = base.join("root");
-        let outside = base.join("outside");
-        fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        if symlink_dir(&outside, root.join("escape")).is_ok() {
-            assert!(resolve_manifest_relative_path(&root, "escape/game").is_err());
-        }
-        let _ = fs::remove_dir_all(base);
-    }
-
-    #[test]
-    fn rejects_dangling_link_that_would_create_outside_root() {
-        let base = tempfile::tempdir().unwrap();
-        let root = base.path().join("root");
-        fs::create_dir_all(&root).unwrap();
-        let missing_outside = base.path().join("missing");
-        #[cfg(unix)]
-        let linked = std::os::unix::fs::symlink(&missing_outside, root.join("leaf")).is_ok();
-        #[cfg(windows)]
-        let linked =
-            std::os::windows::fs::symlink_file(&missing_outside, root.join("leaf")).is_ok();
-        if linked {
-            assert!(resolve_manifest_relative_path(&root, "leaf").is_err());
-        }
-    }
 }
 pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Result<String> {
     let link_path = Path::new(relative_path);
@@ -570,6 +503,116 @@ pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Resul
     }
     // Join structurally: on Unix a backslash stays part of its filename.
     Ok(normalized.join("/"))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    #[test]
+    fn rejects_cross_platform_escape_forms() {
+        for path in [
+            "../outside",
+            "bin/../outside",
+            "C:/outside",
+            "\\\\server\\share",
+            "/outside",
+        ] {
+            assert!(
+                validate_manifest_relative_path(path, false).is_err(),
+                "accepted {path}"
+            );
+        }
+    }
+    #[test]
+    fn disjoint_paths_reject_nesting_in_either_direction() {
+        let base = tempfile::tempdir().unwrap();
+        let parent = base.path().join("parent");
+        let child = parent.join("missing").join("child");
+        let sibling = base.path().join("sibling");
+        assert!(require_disjoint_paths(&parent, &child).is_err());
+        assert!(require_disjoint_paths(&child, &parent).is_err());
+        assert!(require_disjoint_paths(&parent, &parent.join(".")).is_err());
+        assert!(require_disjoint_paths(&parent, &sibling).is_ok());
+        assert!(require_disjoint_paths(&child, &sibling.join("..").join("parent")).is_err());
+    }
+    #[test]
+    fn allows_install_root_only_when_requested() {
+        assert!(validate_manifest_relative_path(".", false).is_err());
+        assert!(validate_manifest_relative_path(".", true).is_ok());
+    }
+    #[test]
+    fn entry_resolution_accepts_a_missing_leaf() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let resolver = ManifestPathResolver::new(&root).unwrap();
+        assert_eq!(
+            resolver.resolve_entry("missing.txt").unwrap(),
+            root.join("missing.txt")
+        );
+    }
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn resolver_checks_new_links_beneath_a_cached_parent() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("root");
+        let parent = root.join("parent");
+        let outside = base.path().join("outside");
+        fs::create_dir_all(&parent).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let resolver = ManifestPathResolver::new(&root).unwrap();
+        // Cache the existing parent, but never the missing child.
+        assert!(resolver.resolve("parent/child/file").is_ok());
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, parent.join("child")).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&outside, parent.join("child")).is_err() {
+            return; // Windows may lack the privilege to create symbolic links.
+        }
+        assert!(resolver.resolve("parent/child/file").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_parent_that_escapes_root() {
+        use std::os::unix::fs::symlink;
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("root");
+        let outside = base.path().join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("escape")).unwrap();
+        assert!(resolve_manifest_relative_path(&root, "escape/game").is_err());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn rejects_directory_link_that_escapes_root_when_links_are_available() {
+        use std::os::windows::fs::symlink_dir;
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("root");
+        let outside = base.path().join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        if symlink_dir(&outside, root.join("escape")).is_ok() {
+            assert!(resolve_manifest_relative_path(&root, "escape/game").is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_dangling_link_that_would_create_outside_root() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("root");
+        fs::create_dir_all(&root).unwrap();
+        let missing_outside = base.path().join("missing");
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&missing_outside, root.join("leaf")).is_ok();
+        #[cfg(windows)]
+        let linked =
+            std::os::windows::fs::symlink_file(&missing_outside, root.join("leaf")).is_ok();
+        if linked {
+            assert!(resolve_manifest_relative_path(&root, "leaf").is_err());
+        }
+    }
 }
 #[cfg(test)]
 mod link_target_tests {

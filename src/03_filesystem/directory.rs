@@ -16,6 +16,22 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+
+/// Marks a promotion backup as Gutch's own.
+const BACKUP_OWNER_MARKER: &[u8] = b"GUTCH_PROMOTION_V1";
+/// How often a blocked promotion lock checks for cancellation.
+const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+fn invalid_path(path: &Path, reason: &str) -> Error {
+    Error::InvalidPath {
+        path: path.to_path_buf(),
+        reason: reason.to_owned(),
+    }
+}
+
+fn is_owner_marker(owner_path: &Path) -> bool {
+    read(owner_path).is_ok_and(|owner| owner == BACKUP_OWNER_MARKER)
+}
 /// Publishes `staging_dir` as `destination_dir`. A cleanup failure after the
 /// switch commits is reported to `control` as a warning, not as an error.
 pub(crate) fn replace_directory(
@@ -89,10 +105,14 @@ fn replace_directory_with_operations(
     })?;
     let backup_dir = if destination_dir.exists() {
         if backup_path.exists() {
-            return Err(Error::repository("unowned promotion backup exists"));
+            // Recovery just cleared it, so another process is promoting here.
+            return Err(invalid_path(
+                &backup_path,
+                "a promotion backup appeared during promotion; another process may be writing this destination",
+            ));
         }
         let owner_path = backup_path.with_extension("owner");
-        write(&owner_path, b"GUTCH_PROMOTION_V1").map_err(|error| {
+        write(&owner_path, BACKUP_OWNER_MARKER).map_err(|error| {
             attach_promotion_diagnostic(
                 error,
                 &owner_path,
@@ -251,10 +271,11 @@ pub(crate) fn lock_directory_promotion(
     let backup = promotion_backup_path(destination)?;
     let lock_path = backup.with_extension("lock");
     if let Some(parent) = lock_path.parent() {
-        fs::create_dir_all(parent)?;
+        create_dir_all(parent)?;
     }
     if fs::symlink_metadata(&lock_path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err(Error::repository(
+        return Err(invalid_path(
+            &lock_path,
             "promotion lock must not be a symbolic link",
         ));
     }
@@ -265,12 +286,11 @@ pub(crate) fn lock_directory_promotion(
         .truncate(false)
         .open(&lock_path)
         .map_err(|e| Error::io_context("opening promotion lock", &lock_path, e))?;
-    control.checkpoint()?;
     loop {
         control.checkpoint()?;
         match file.try_lock() {
             Ok(()) => break,
-            Err(TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(25)),
+            Err(TryLockError::WouldBlock) => thread::sleep(LOCK_POLL_INTERVAL),
             Err(TryLockError::Error(error)) => {
                 return Err(Error::io_context(
                     "locking directory promotion",
@@ -286,10 +306,10 @@ pub(crate) fn lock_directory_promotion(
 fn promotion_backup_path(destination: &Path) -> Result<PathBuf, Error> {
     let parent = destination
         .parent()
-        .ok_or_else(|| Error::repository("destination has no parent"))?;
+        .ok_or_else(|| invalid_path(destination, "destination has no parent directory"))?;
     let name = destination
         .file_name()
-        .ok_or_else(|| Error::repository("destination has no filename"))?;
+        .ok_or_else(|| invalid_path(destination, "destination has no file name"))?;
     #[cfg(windows)]
     let name = name.to_string_lossy().to_lowercase();
     #[cfg(windows)]
@@ -312,7 +332,7 @@ pub(crate) fn is_owned_promotion_backup(path: &Path) -> bool {
         && hash
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        && read(&path.with_extension("owner")).is_ok_and(|owner| owner == b"GUTCH_PROMOTION_V1")
+        && is_owner_marker(&path.with_extension("owner"))
 }
 
 /// A deterministic same-parent backup makes an interrupted promotion recoverable.
@@ -331,11 +351,17 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
         return Ok(());
     }
     // A missing marker means Gutch did not create this backup; report it as unowned.
-    if !read(&backup.with_extension("owner")).is_ok_and(|owner| owner == b"GUTCH_PROMOTION_V1") {
-        return Err(Error::repository("unowned promotion backup exists"));
+    if !is_owner_marker(&owner_path) {
+        return Err(invalid_path(
+            &backup,
+            "a promotion backup exists that Gutch did not create; move or remove it",
+        ));
     }
-    if fs::symlink_metadata(&backup)?.file_type().is_symlink() {
-        return Err(Error::repository(
+    let metadata = fs::symlink_metadata(&backup)
+        .map_err(|error| Error::io_context("inspecting promotion backup", &backup, error))?;
+    if metadata.file_type().is_symlink() {
+        return Err(invalid_path(
+            &backup,
             "promotion backup must not be a symbolic link",
         ));
     }
@@ -351,7 +377,8 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
             )
         })?;
     }
-    fs::remove_file(backup.with_extension("owner"))?;
+    fs::remove_file(&owner_path)
+        .map_err(|error| Error::io_context("removing promotion marker", &owner_path, error))?;
     Ok(())
 }
 
@@ -424,6 +451,33 @@ mod tests {
 mod diagnostic_tests {
     use super::*;
     use crate::error::promotion_diagnostics::PromotionPathState;
+
+    #[test]
+    fn directory_replacement_promotes_staged_contents_and_removes_backup() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("destination");
+        let staging = directory.path().join("staging");
+        std::fs::create_dir_all(&destination).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(destination.join("old"), b"old").unwrap();
+        std::fs::write(staging.join("new"), b"new").unwrap();
+
+        replace_directory(&staging, &destination, &OperationControl::default()).unwrap();
+
+        assert!(!destination.join("old").exists());
+        assert_eq!(std::fs::read(destination.join("new")).unwrap(), b"new");
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".gutch-backup-"))
+                .count(),
+            0
+        );
+    }
 
     #[test]
     fn backup_owner_write_failure_keeps_the_destination_and_reports_its_phase() {
