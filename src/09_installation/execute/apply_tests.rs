@@ -591,7 +591,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     assert!(matches!(
         &plan.jobs[0],
         ReconstructJob::Artifact(job)
-            if matches!(job.artifact, ArtifactRef::Bundle { .. })
+            if job.artifact.is_bundle()
                 && job.chunks.len() == 3
     ));
 

@@ -1,6 +1,5 @@
 //! Publish verified staged bundles and loose chunks.
 use crate::Result;
-use crate::artifact::reference::ArtifactRef;
 use crate::capture::build::types::BuildResult;
 use crate::capture::build::types::BuiltBundle;
 use crate::capture::build::types::BuiltLooseChunk;
@@ -178,7 +177,7 @@ pub(super) fn publish_snapshot_artifacts(
                 artifact.id()
             )));
         }
-        if matches!(&artifact, ArtifactRef::Bundle { .. }) {
+        if artifact.is_bundle() {
             required_bundle_count += 1;
         }
     }

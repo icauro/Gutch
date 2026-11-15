@@ -23,4 +23,7 @@ impl ArtifactRef {
             Self::LooseChunk { hash } => Cow::Owned(hash.to_hex()),
         }
     }
+    pub(crate) fn is_bundle(&self) -> bool {
+        matches!(self, Self::Bundle { .. })
+    }
 }

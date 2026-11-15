@@ -111,7 +111,7 @@ pub(crate) fn scan_artifact_inventory(paths: &RepoPaths) -> Result<ArtifactInven
     let mut inventory = ArtifactInventory::default();
     visit_repo_artifacts(paths, |artifact, entry| {
         let bytes = entry.metadata()?.len();
-        if matches!(artifact, ArtifactRef::Bundle { .. }) {
+        if artifact.is_bundle() {
             inventory.bundle_count += 1;
             inventory.bundle_bytes += bytes;
         }

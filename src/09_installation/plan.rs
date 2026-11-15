@@ -414,7 +414,7 @@ impl<'a> PipelinePlanBuilder<'a> {
         let required_artifacts: HashSet<_> = self.artifact_job_indices.into_keys().collect();
         let required_bundle_count = required_artifacts
             .iter()
-            .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
+            .filter(|artifact| artifact.is_bundle())
             .count();
         ReconstructPipelinePlan {
             files: self.files,

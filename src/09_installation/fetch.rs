@@ -1,6 +1,5 @@
 //! Combined download and reconstruction, preserving one repository lock and pipeline.
 use crate::Result;
-use crate::artifact::reference::ArtifactRef;
 use crate::installation::contracts::InstallationReconstructResult;
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
@@ -120,7 +119,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 pending_artifact_downloads.len(),
                 pending_artifact_downloads
                     .iter()
-                    .filter(|download| matches!(download.artifact, ArtifactRef::Bundle { .. }))
+                    .filter(|download| download.artifact.is_bundle())
                     .count(),
                 transfer_stats,
             );

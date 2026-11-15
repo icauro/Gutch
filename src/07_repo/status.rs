@@ -183,11 +183,11 @@ fn check_snapshot_manifests(
         } = classify_required_artifacts(&manifest, &chunk_index)?;
         let required_bundle_count = required_artifacts
             .iter()
-            .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
+            .filter(|artifact| artifact.is_bundle())
             .count();
         let missing_bundle_count = required_artifacts
             .iter()
-            .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
+            .filter(|artifact| artifact.is_bundle())
             .filter(|artifact| !available_artifacts.contains(*artifact))
             .count();
         // An unindexed chunk has no known artifact, so it is missing content.

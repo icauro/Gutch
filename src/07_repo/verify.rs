@@ -140,7 +140,7 @@ pub(crate) fn verify_snapshot_artifacts(
     } = classify_required_artifacts(snapshot_manifest, chunk_index)?;
     let required_bundle_count = required_artifacts
         .iter()
-        .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
+        .filter(|artifact| artifact.is_bundle())
         .count();
 
     let mut missing_bundles = Vec::new();

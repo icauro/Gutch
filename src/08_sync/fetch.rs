@@ -109,11 +109,11 @@ pub fn fetch_snapshot_for_artifact_ids(
         let transfer_stats = transfer_progress.stats(request.transfer_policy);
         let required_bundle_count = required_artifacts
             .iter()
-            .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
+            .filter(|artifact| artifact.is_bundle())
             .count();
         let downloaded_bundle_count = pending_artifact_downloads
             .iter()
-            .filter(|download| matches!(download.artifact, ArtifactRef::Bundle { .. }))
+            .filter(|download| download.artifact.is_bundle())
             .count();
 
         emit_progress(
