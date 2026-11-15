@@ -8,6 +8,17 @@ use std::fmt::Formatter;
 pub struct ChunkHash([u8; 32]);
 
 impl ChunkHash {
+    /// Fails with `HashMismatch` unless this computed hash is `expected`.
+    pub(crate) fn verify(self, expected: ChunkHash) -> Result<()> {
+        if self != expected {
+            return Err(crate::Error::HashMismatch {
+                expected: expected.to_hex(),
+                actual: self.to_hex(),
+            });
+        }
+        Ok(())
+    }
+
     pub fn from_blake3(hash: blake3::Hash) -> Self {
         Self(*hash.as_bytes())
     }

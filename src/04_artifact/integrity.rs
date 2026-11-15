@@ -7,7 +7,6 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::progress::OperationControl;
@@ -119,12 +118,7 @@ pub(crate) fn verify_full_file_integrity(
         }
     };
 
-    if actual_hash != expected_hash {
-        return Err(Error::HashMismatch {
-            expected: expected_hash.to_hex(),
-            actual: actual_hash.to_hex(),
-        });
-    }
+    actual_hash.verify(expected_hash)?;
 
     Ok(FullFileIntegrityResult {
         read_elapsed,
@@ -136,6 +130,7 @@ pub(crate) fn verify_full_file_integrity(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Error;
 
     #[test]
     fn streaming_hash_handles_empty_files_and_buffer_boundaries() {

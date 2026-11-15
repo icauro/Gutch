@@ -147,12 +147,7 @@ fn reconstruct_artifact_job(
                     timings.chunk_verify_bytes = timings
                         .chunk_verify_bytes
                         .saturating_add(bytes.len() as u64);
-                    if actual_hash != chunk.chunk_hash {
-                        return Err(Error::HashMismatch {
-                            expected: chunk.chunk_hash.to_hex(),
-                            actual: actual_hash.to_string(),
-                        });
-                    }
+                    actual_hash.verify(chunk.chunk_hash)?;
                     write_reconstruct_targets(
                         chunk,
                         &job.targets[chunk.target_range.clone()],
@@ -335,12 +330,7 @@ fn verify_and_write_source_chunk(
     let hash_started_at = ProfileInstant::detailed(control.profiler());
     let actual_hash = ChunkHash::of(bytes);
     let hash_elapsed = hash_started_at.elapsed();
-    if actual_hash != job.chunk_hash {
-        return Err(Error::HashMismatch {
-            expected: job.chunk_hash.to_hex(),
-            actual: actual_hash.to_hex(),
-        });
-    }
+    actual_hash.verify(job.chunk_hash)?;
 
     let mut timings = ReconstructTimings {
         artifact_read: read_elapsed,
@@ -453,12 +443,7 @@ fn copy_source_file_job(
         )));
     }
     let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
-    if actual_hash != file_plan.full_file_hash {
-        return Err(Error::HashMismatch {
-            expected: file_plan.full_file_hash.to_hex(),
-            actual: actual_hash.to_hex(),
-        });
-    }
+    actual_hash.verify(file_plan.full_file_hash)?;
     Ok(timings)
 }
 

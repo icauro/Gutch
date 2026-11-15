@@ -644,14 +644,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let hashes: Vec<_> = self.entries.iter().map(|entry| entry.chunk_hash).collect();
         let required = vec![true; hashes.len()];
         self.stream_chunks(None, &required, true, |index, bytes| {
-            let actual = ChunkHash::of(bytes);
-            if actual != hashes[index] {
-                return Err(crate::Error::HashMismatch {
-                    expected: hashes[index].to_hex(),
-                    actual: actual.to_hex(),
-                });
-            }
-            Ok(())
+            ChunkHash::of(bytes).verify(hashes[index])
         })?;
         Ok(())
     }
@@ -717,12 +710,7 @@ fn check_bundle_identity(
     content_hash: ChunkHash,
     trailing: &[u8],
 ) -> Result<()> {
-    if content_hash != expected_hash {
-        return Err(Error::HashMismatch {
-            expected: expected_hash.to_hex(),
-            actual: content_hash.to_hex(),
-        });
-    }
+    content_hash.verify(expected_hash)?;
     if trailing != expected_hash.as_bytes() {
         return Err(Error::Artifact(format!(
             "bundle '{bundle_id}' has an inconsistent trailing content hash"

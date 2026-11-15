@@ -81,12 +81,7 @@ pub(crate) fn read_loose_chunk(
         let started_at = ProfileInstant::detailed(profiler);
 
         let actual_hash = ChunkHash::of(&bytes);
-        if actual_hash != chunk_hash {
-            return Err(Error::HashMismatch {
-                expected: chunk_hash.to_hex(),
-                actual: actual_hash.to_hex(),
-            });
-        }
+        actual_hash.verify(chunk_hash)?;
         metrics.hash_verify = started_at.elapsed();
     }
     Ok((bytes, metrics))
