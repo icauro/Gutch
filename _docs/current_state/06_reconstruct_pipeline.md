@@ -240,9 +240,11 @@ download, decode, hash, and output writes to overlap.
 Artifact URLs must be absolute `http` or `https` URLs. Each artifact body is
 limited to 256 MiB, and a body that stalls for 60 seconds fails. Download
 errors never include the URL, which may carry an access token. Connection,
-body and retryable status failures are retried; malformed requests, redirect
-policy failures and oversized bodies are not. When one worker fails, its error
-is reported before sibling workers are cancelled.
+body and retryable status failures (408, 429, 5xx) are retried up to three
+times for artifacts and snapshot metadata alike; malformed requests, redirect
+policy failures and oversized bodies are not. A failed attempt's bytes are
+withdrawn from the transfer totals, so retries do not inflate them. When one
+worker fails, its error is reported before sibling workers are cancelled.
 
 The provider supplies artifact locations; it does not move authority into
 Gutch. Backend authorization, session context, and entitlement decisions stay

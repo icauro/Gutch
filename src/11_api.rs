@@ -192,7 +192,6 @@ pub use crate::sync::remote::push_repo;
 pub use crate::sync::remote::unbind_remote_repo;
 
 // Artifact transfer
-pub use crate::transfer::http::read_bounded_response;
 pub use crate::transfer::types::ArtifactDownload;
 pub use crate::transfer::types::ArtifactUrlProvider;
 pub use crate::transfer::types::TransferConcurrencyPolicy;

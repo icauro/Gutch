@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_TRANSFER_CONCURRENCY: usize = 4;
 pub const DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM: usize = 16;
+pub const MAX_TRANSFER_CONCURRENCY: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferConcurrencyPolicy {
@@ -39,6 +40,17 @@ impl TransferConcurrencyPolicy {
             Self::Fixed(concurrency) => concurrency,
             Self::Adaptive { maximum, .. } => maximum,
         }
+    }
+
+    /// Requires 1..=`MAX_TRANSFER_CONCURRENCY` workers with initial <= maximum.
+    pub fn validate(self) -> crate::Result<()> {
+        let (initial, maximum) = (self.initial(), self.maximum());
+        if initial == 0 || initial > maximum || maximum > MAX_TRANSFER_CONCURRENCY {
+            return Err(crate::Error::invalid_input(format!(
+                "transfer concurrency must be between 1 and {MAX_TRANSFER_CONCURRENCY}, with initial no greater than maximum"
+            )));
+        }
+        Ok(())
     }
 
     pub const fn name(self) -> &'static str {

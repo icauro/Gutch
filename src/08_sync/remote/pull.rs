@@ -242,7 +242,7 @@ fn write_source(
             client,
             url,
             control,
-            Some(maximum_bytes),
+            maximum_bytes,
             |_| Ok(()),
             |chunk| {
                 output.write_all(chunk)?;

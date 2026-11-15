@@ -8,6 +8,13 @@ use crate::Error;
 use crate::Result;
 use crate::progress::OperationControl;
 
+/// Error responses contribute at most this much body text to a one-line message.
+const MAX_ERROR_DETAIL_BYTES: usize = 512;
+/// Body bytes are handed on in slices this large so cancellation stays responsive.
+const STREAM_SLICE_BYTES: usize = 64 * 1024;
+/// How often a pending request polls the host's synchronous cancellation hook.
+const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
 /// One operation-owned network runtime, shared by its synchronous download workers.
 /// Dropping a cancelled request drops its I/O future; no detached blocking reader remains.
 #[derive(Clone)]
@@ -45,11 +52,22 @@ pub(crate) fn request_error(context: &str, error: reqwest::Error) -> Error {
     Error::download(format!("{context}: {}", error.without_url()), retryable)
 }
 
+/// Server faults, throttling and timeouts may clear on a later attempt.
+pub(crate) fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    status.is_server_error()
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+}
+
+fn size_limit_error() -> Error {
+    Error::download("response exceeded the allowed size", false)
+}
+
 pub(crate) fn download_url_streaming<F, C>(
     client: &DownloadClient,
     url: &str,
     control: &OperationControl,
-    maximum_bytes: Option<u64>,
+    maximum_bytes: u64,
     mut on_content_length: C,
     mut on_chunk: F,
 ) -> Result<()>
@@ -69,25 +87,22 @@ where
             if !response.status().is_success() {
                 let status = response.status();
                 let mut body = Vec::new();
-                while body.len() < 16 * 1024 {
+                while body.len() < MAX_ERROR_DETAIL_BYTES {
                     control.checkpoint()?;
                     let Ok(Some(chunk)) = response.chunk().await else {
                         break;
                     };
-                    let length = chunk.len().min(16 * 1024 - body.len());
+                    let length = chunk.len().min(MAX_ERROR_DETAIL_BYTES - body.len());
                     body.extend_from_slice(&chunk[..length]);
                 }
                 return Err(Error::download(
                     format_http_failure(status, &String::from_utf8_lossy(&body)),
-                    status.is_server_error()
-                        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
-                        || status == reqwest::StatusCode::REQUEST_TIMEOUT,
+                    is_retryable_status(status),
                 ));
             }
             let total_bytes = response.content_length();
-            if maximum_bytes.is_some_and(|maximum| total_bytes.is_some_and(|total| total > maximum))
-            {
-                return Err(Error::download("download exceeded the allowed size", false));
+            if total_bytes.is_some_and(|total| total > maximum_bytes) {
+                return Err(size_limit_error());
             }
             on_content_length(total_bytes)?;
             let mut transferred_bytes = 0_u64;
@@ -97,10 +112,10 @@ where
                 .map_err(|error| request_error("download body failed", error))?
             {
                 transferred_bytes = transferred_bytes.saturating_add(chunk.len() as u64);
-                if maximum_bytes.is_some_and(|maximum| transferred_bytes > maximum) {
-                    return Err(Error::download("response exceeded the allowed size", false));
+                if transferred_bytes > maximum_bytes {
+                    return Err(size_limit_error());
                 }
-                for bytes in chunk.chunks(64 * 1024) {
+                for bytes in chunk.chunks(STREAM_SLICE_BYTES) {
                     control.checkpoint()?;
                     on_chunk(bytes)?;
                 }
@@ -117,7 +132,7 @@ where
                     if let Err(error) = control.checkpoint() {
                         return error;
                     }
-                    tokio::time::sleep(Duration::from_millis(25)).await;
+                    tokio::time::sleep(CANCELLATION_POLL_INTERVAL).await;
                 }
             } => Err(error),
             result = transfer => result,
@@ -135,37 +150,8 @@ fn format_http_failure(status: reqwest::StatusCode, body: &str) -> String {
     format!("download request failed with status {status}{detail}")
 }
 
-pub(crate) fn read_bounded_chunks<R, F, C>(
-    mut reader: R,
-    maximum_bytes: Option<u64>,
-    mut checkpoint: C,
-    mut on_chunk: F,
-) -> Result<u64>
-where
-    R: Read,
-    F: FnMut(&[u8]) -> Result<()>,
-    C: FnMut() -> Result<()>,
-{
-    checkpoint()?;
-    let mut buffer = [0_u8; 64 * 1024];
-    let mut transferred_bytes = 0_u64;
-    loop {
-        checkpoint()?;
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        transferred_bytes = transferred_bytes.saturating_add(read as u64);
-        if maximum_bytes.is_some_and(|maximum| transferred_bytes > maximum) {
-            return Err(Error::download("response exceeded the allowed size", false));
-        }
-        on_chunk(&buffer[..read])?;
-    }
-    checkpoint()?;
-    Ok(transferred_bytes)
-}
-
-pub fn read_bounded_response<C>(
+/// Reads a blocking response body, failing once it passes `maximum_bytes`.
+pub(crate) fn read_bounded_response<C>(
     mut response: reqwest::blocking::Response,
     maximum_bytes: u64,
     checkpoint: C,
@@ -177,13 +163,30 @@ where
         .content_length()
         .is_some_and(|length| length > maximum_bytes)
     {
-        return Err(Error::download("response exceeded the allowed size", false));
+        return Err(size_limit_error());
     }
+    read_bounded(&mut response, maximum_bytes, checkpoint)
+}
+
+fn read_bounded<R, C>(mut reader: R, maximum_bytes: u64, mut checkpoint: C) -> Result<Vec<u8>>
+where
+    R: Read,
+    C: FnMut() -> Result<()>,
+{
+    let mut buffer = vec![0_u8; STREAM_SLICE_BYTES];
     let mut bytes = Vec::new();
-    read_bounded_chunks(&mut response, Some(maximum_bytes), checkpoint, |chunk| {
-        bytes.extend_from_slice(chunk);
-        Ok(())
-    })?;
+    loop {
+        checkpoint()?;
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        if (bytes.len() + read) as u64 > maximum_bytes {
+            return Err(size_limit_error());
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+    }
+    checkpoint()?;
     Ok(bytes)
 }
 
@@ -241,7 +244,7 @@ mod tests {
                     &client,
                     &url,
                     &control,
-                    Some(1024),
+                    1024,
                     |_| Ok(()),
                     |chunk| {
                         file.write_all(chunk)?;
@@ -311,12 +314,87 @@ mod tests {
             &client,
             &format!("http://127.0.0.1:{port}/chunk?token=secret-value"),
             &OperationControl::default(),
-            None,
+            1024,
             |_| Ok(()),
             |_| Ok(()),
         )
         .unwrap_err();
         assert!(!error.to_string().contains("secret-value"), "{error}");
         assert!(error.is_retryable_download());
+    }
+
+    #[test]
+    fn only_transient_statuses_are_retryable() {
+        for code in [408, 429, 500, 502, 503] {
+            let status = reqwest::StatusCode::from_u16(code).unwrap();
+            assert!(is_retryable_status(status), "{code}");
+        }
+        for code in [400, 401, 403, 404, 410] {
+            let status = reqwest::StatusCode::from_u16(code).unwrap();
+            assert!(!is_retryable_status(status), "{code}");
+        }
+    }
+
+    /// Serves one canned response and returns the downloaded body.
+    fn download_from(response: Vec<u8>, maximum_bytes: u64) -> Result<Vec<u8>> {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/artifact", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            let _ = socket.write_all(&response);
+        });
+        let client = build_download_client().unwrap();
+        let mut bytes = Vec::new();
+        let result = download_url_streaming(
+            &client,
+            &url,
+            &OperationControl::default(),
+            maximum_bytes,
+            |_| Ok(()),
+            |chunk| {
+                bytes.extend_from_slice(chunk);
+                Ok(())
+            },
+        );
+        server.join().unwrap();
+        result.map(|()| bytes)
+    }
+
+    #[test]
+    fn size_limit_rejects_declared_and_streamed_overflow() {
+        let ok = b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndata";
+        assert_eq!(download_from(ok.to_vec(), 4).unwrap(), b"data");
+        let declared = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nlarge";
+        let streamed =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nlarge\r\n0\r\n\r\n";
+        for response in [&declared[..], &streamed[..]] {
+            let error = download_from(response.to_vec(), 4).unwrap_err();
+            assert!(error.to_string().contains("allowed size"), "{error}");
+            assert!(!error.is_retryable_download());
+        }
+    }
+
+    #[test]
+    fn error_detail_is_truncated() {
+        let mut response = b"HTTP/1.1 503 Unavailable\r\nContent-Length: 2000\r\n\r\n".to_vec();
+        response.extend(std::iter::repeat_n(b'x', 2000));
+        let error = download_from(response, 4096).unwrap_err();
+        assert!(error.is_retryable_download());
+        assert!(
+            error.to_string().len() < MAX_ERROR_DETAIL_BYTES + 100,
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn bounded_reader_stops_past_the_limit() {
+        assert_eq!(read_bounded(&b"data"[..], 4, || Ok(())).unwrap(), b"data");
+        assert!(read_bounded(&b"large"[..], 4, || Ok(())).is_err());
     }
 }

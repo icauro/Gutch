@@ -1,8 +1,9 @@
 //! Shared transfer counters and live feedback.
 use super::types::{TransferConcurrencyPolicy, TransferStats};
 use crate::progress::{
-    OperationControl, OperationKind, ProgressEvent, ProgressPhase, ProgressSink, emit_progress,
+    OperationControl, OperationKind, ProgressEvent, ProgressPhase, emit_progress,
 };
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -40,20 +41,26 @@ impl Default for FetchTransferProgress {
 }
 
 impl FetchTransferProgress {
-    pub(crate) fn add_total_bytes(&self, bytes: u64) -> u64 {
-        self.total_bytes.fetch_add(bytes, AtomicOrdering::Relaxed) + bytes
+    fn add_total_bytes(&self, bytes: u64) {
+        self.total_bytes.fetch_add(bytes, AtomicOrdering::Relaxed);
     }
 
-    pub(crate) fn add_transferred_bytes(&self, bytes: u64) -> u64 {
+    fn add_transferred_bytes(&self, bytes: u64) {
         self.transferred_bytes
-            .fetch_add(bytes, AtomicOrdering::Relaxed)
-            + bytes
+            .fetch_add(bytes, AtomicOrdering::Relaxed);
     }
 
-    pub(crate) fn mark_artifact_completed(&self) -> usize {
+    /// Withdraws the bytes a failed attempt counted, so a retry counts them once.
+    fn remove_attempt_bytes(&self, total_bytes: u64, transferred_bytes: u64) {
+        self.total_bytes
+            .fetch_sub(total_bytes, AtomicOrdering::Relaxed);
+        self.transferred_bytes
+            .fetch_sub(transferred_bytes, AtomicOrdering::Relaxed);
+    }
+
+    pub(crate) fn mark_artifact_completed(&self) {
         self.completed_artifact_count
-            .fetch_add(1, AtomicOrdering::Relaxed)
-            + 1
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     pub(crate) fn completed_artifact_count(&self) -> usize {
@@ -157,6 +164,8 @@ pub(crate) struct TransferPhaseCounters {
     pub total: usize,
 }
 
+/// Reports one download attempt. Dropping it unfinished withdraws the
+/// attempt's bytes from the shared totals.
 pub(super) struct TransferProgressReporter<'a> {
     control: &'a OperationControl,
     transfer_progress: &'a Arc<FetchTransferProgress>,
@@ -164,7 +173,10 @@ pub(super) struct TransferProgressReporter<'a> {
     message: &'a str,
     counters: TransferPhaseCounters,
     detail: Option<&'a str>,
-    emitted_chunk_bytes: AtomicU64,
+    unreported_bytes: Cell<u64>,
+    attempt_total_bytes: Cell<u64>,
+    attempt_transferred_bytes: Cell<u64>,
+    finished: Cell<bool>,
 }
 
 impl<'a> TransferProgressReporter<'a> {
@@ -184,49 +196,54 @@ impl<'a> TransferProgressReporter<'a> {
             message,
             counters,
             detail,
-            emitted_chunk_bytes: AtomicU64::new(0),
+            unreported_bytes: Cell::new(0),
+            attempt_total_bytes: Cell::new(0),
+            attempt_transferred_bytes: Cell::new(0),
+            finished: Cell::new(false),
         }
     }
 
     pub(super) fn record_content_length(&self, content_length: Option<u64>) {
         if let Some(content_length) = content_length {
             self.transfer_progress.add_total_bytes(content_length);
+            self.attempt_total_bytes
+                .set(self.attempt_total_bytes.get() + content_length);
         }
     }
 
     pub(super) fn record_chunk(&self, byte_count: u64) {
         self.transfer_progress.add_transferred_bytes(byte_count);
+        self.attempt_transferred_bytes
+            .set(self.attempt_transferred_bytes.get() + byte_count);
         self.control.downloaded(byte_count);
-        let emitted_chunk_bytes = self
-            .emitted_chunk_bytes
-            .fetch_add(byte_count, AtomicOrdering::Relaxed)
-            + byte_count;
-        if emitted_chunk_bytes >= DOWNLOAD_PROGRESS_EMIT_BYTES {
-            emit_transfer_progress(
-                self.control.progress(),
-                self.transfer_progress,
-                self.phase,
-                self.message,
-                self.counters,
-                self.detail,
-                false,
-            );
-            self.emitted_chunk_bytes.store(0, AtomicOrdering::Relaxed);
+        let unreported_bytes = self.unreported_bytes.get() + byte_count;
+        if unreported_bytes >= DOWNLOAD_PROGRESS_EMIT_BYTES {
+            self.emit(self.counters.current);
+            self.unreported_bytes.set(0);
+        } else {
+            self.unreported_bytes.set(unreported_bytes);
         }
     }
 
-    pub(super) fn finish(&self) {
+    /// Keeps the attempt's bytes and reports this item as complete.
+    pub(super) fn finish(self) {
+        self.finished.set(true);
+        self.emit(
+            self.counters
+                .total
+                .min(self.counters.current.saturating_add(1)),
+        );
+    }
+
+    fn emit(&self, current: usize) {
         emit_progress(
             self.control.progress(),
             ProgressEvent {
                 feedback: None,
                 operation: OperationKind::Fetch,
                 phase: self.phase,
-                message: "Downloaded snapshot artifacts".to_string(),
-                current: self
-                    .counters
-                    .total
-                    .min(self.counters.current.saturating_add(1)),
+                message: self.message.to_string(),
+                current,
                 total: self.counters.total.max(1),
                 transferred_bytes: self.transfer_progress.transferred_bytes(),
                 total_bytes: self.transfer_progress.total_bytes(),
@@ -237,30 +254,15 @@ impl<'a> TransferProgressReporter<'a> {
     }
 }
 
-fn emit_transfer_progress(
-    progress: &Option<Arc<dyn ProgressSink>>,
-    transfer_progress: &Arc<FetchTransferProgress>,
-    phase: ProgressPhase,
-    message: &str,
-    counters: TransferPhaseCounters,
-    detail: Option<&str>,
-    done: bool,
-) {
-    emit_progress(
-        progress,
-        ProgressEvent {
-            feedback: None,
-            operation: OperationKind::Fetch,
-            phase,
-            message: message.to_string(),
-            current: counters.current,
-            total: counters.total.max(1),
-            transferred_bytes: transfer_progress.transferred_bytes(),
-            total_bytes: transfer_progress.total_bytes(),
-            detail: detail.map(str::to_string),
-            done,
-        },
-    );
+impl Drop for TransferProgressReporter<'_> {
+    fn drop(&mut self) {
+        if !self.finished.get() {
+            self.transfer_progress.remove_attempt_bytes(
+                self.attempt_total_bytes.get(),
+                self.attempt_transferred_bytes.get(),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -281,7 +283,40 @@ mod tests {
 
         assert_eq!(stats.transferred_bytes, 4 * 1024 * 1024);
         assert_eq!(stats.total_bytes, 8 * 1024 * 1024);
-        assert!(stats.elapsed_seconds >= 0.0);
-        assert!(stats.mib_per_second > 0.0);
+        assert!(stats.elapsed_seconds >= 1.0);
+        assert!(stats.mib_per_second > 0.0 && stats.mib_per_second <= 4.0);
+    }
+
+    #[test]
+    fn failed_attempts_do_not_count_toward_transfer_bytes() {
+        let control = OperationControl::default();
+        let progress = Arc::new(FetchTransferProgress::default());
+        let counters = TransferPhaseCounters {
+            current: 0,
+            total: 1,
+        };
+        let attempt = || {
+            let reporter = TransferProgressReporter::new(
+                &control,
+                &progress,
+                ProgressPhase::Artifact,
+                "Downloading",
+                counters,
+                None,
+            );
+            reporter.record_content_length(Some(10));
+            reporter.record_chunk(6);
+            reporter
+        };
+        drop(attempt());
+        assert_eq!(
+            (progress.total_bytes(), progress.transferred_bytes()),
+            (0, 0)
+        );
+        attempt().finish();
+        assert_eq!(
+            (progress.total_bytes(), progress.transferred_bytes()),
+            (10, 6)
+        );
     }
 }

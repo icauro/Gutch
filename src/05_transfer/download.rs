@@ -1,6 +1,6 @@
 //! Artifact download queue: priorities, scheduling, adaptive concurrency and readiness events.
 
-use super::adaptive::{AdaptiveTransferState, TransferObservation};
+use super::adaptive::{ADAPTIVE_SAMPLE_INTERVAL, AdaptiveTransferState, TransferObservation};
 use super::artifact_download::download_pending_artifact;
 use super::progress::FetchTransferProgress;
 use std::cmp::Ordering;
@@ -28,7 +28,8 @@ use crate::transfer::http::DownloadClient;
 use crate::transfer::types::TransferConcurrencyPolicy;
 use std::collections::BTreeMap;
 
-const MAX_TRANSFER_CONCURRENCY: usize = 16;
+/// How often the adaptive controller checks for a stop request between samples.
+const CONTROLLER_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Clone)]
 pub(crate) struct PendingArtifactDownload {
@@ -40,24 +41,15 @@ pub(crate) struct PendingArtifactDownload {
     pub missing_artifact_count: usize,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Download order for the max-heap, compared field by field: artifacts that
+/// can finish the most file bytes now, then those closest to making more files
+/// ready, then the broadest reuse. `near_ready_score` sums file bytes divided by
+/// missing artifacts for files needing more than one artifact.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct ArtifactPriority {
     pub ready_file_bytes: u64,
     pub near_ready_score: u64,
     pub dependent_file_count: usize,
-}
-
-impl ArtifactPriority {
-    // The max-heap favors artifacts that can finish the most file bytes now,
-    // then those closest to making more files ready, then the broadest reuse.
-    // near_ready_score sums file bytes / missing artifacts for files needing more
-    // than one artifact. Larger values win at every comparison level.
-    fn compare(self, other: Self) -> Ordering {
-        self.ready_file_bytes
-            .cmp(&other.ready_file_bytes)
-            .then(self.near_ready_score.cmp(&other.near_ready_score))
-            .then(self.dependent_file_count.cmp(&other.dependent_file_count))
-    }
 }
 
 pub(crate) enum ArtifactDownloadEvent {
@@ -79,7 +71,7 @@ struct QueuedArtifact {
 
 impl PartialEq for QueuedArtifact {
     fn eq(&self, other: &Self) -> bool {
-        self.pending.artifact_id == other.pending.artifact_id
+        self.cmp(other) == Ordering::Equal
     }
 }
 
@@ -88,7 +80,7 @@ impl Eq for QueuedArtifact {}
 impl Ord for QueuedArtifact {
     fn cmp(&self, other: &Self) -> Ordering {
         self.priority
-            .compare(other.priority)
+            .cmp(&other.priority)
             .then_with(|| self.pending.artifact_id.cmp(&other.pending.artifact_id))
     }
 }
@@ -259,19 +251,11 @@ fn resolve_transfer_worker_limits(
     policy: TransferConcurrencyPolicy,
     pending_count: usize,
 ) -> Result<(usize, usize)> {
-    let (initial, maximum) = match policy {
-        TransferConcurrencyPolicy::Fixed(concurrency) => (concurrency, concurrency),
-        TransferConcurrencyPolicy::Adaptive { initial, maximum } => (initial, maximum),
-    };
-    if initial == 0 || maximum == 0 || initial > maximum || maximum > MAX_TRANSFER_CONCURRENCY {
-        return Err(Error::invalid_input(format!(
-            "transfer concurrency must be between 1 and {MAX_TRANSFER_CONCURRENCY}, with initial no greater than maximum"
-        )));
-    }
-    if pending_count == 0 {
-        return Ok((0, 0));
-    }
-    Ok((initial.min(pending_count), maximum.min(pending_count)))
+    policy.validate()?;
+    Ok((
+        policy.initial().min(pending_count),
+        policy.maximum().min(pending_count),
+    ))
 }
 
 fn next_artifact(shared: &ArtifactDownloadQueueShared) -> Option<PendingArtifactDownload> {
@@ -319,7 +303,7 @@ fn artifact_download_worker(
             shared.wake.notify_all();
         }
         match result {
-            Ok(_) => {
+            Ok(()) => {
                 if event_tx
                     .send(ArtifactDownloadEvent::Ready(artifact_download.artifact))
                     .is_err()
@@ -352,15 +336,17 @@ fn run_adaptive_transfer_controller(
     // Metadata may already have been fetched through these counters. Only bytes
     // arriving during the controller's observation belong in its first rate.
     controller.previous_bytes = transfer_progress.transferred_bytes();
-    while !controller_stop.load(AtomicOrdering::Acquire) {
-        for _ in 0..20 {
+    loop {
+        let sample_at = Instant::now() + ADAPTIVE_SAMPLE_INTERVAL;
+        loop {
             if controller_stop.load(AtomicOrdering::Acquire) {
                 return;
             }
-            thread::sleep(Duration::from_millis(100));
-        }
-        if controller_stop.load(AtomicOrdering::Acquire) {
-            return;
+            let remaining = sample_at.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            thread::sleep(remaining.min(CONTROLLER_STOP_POLL_INTERVAL));
         }
         let (has_queued_work, active_workers) = shared
             .state
@@ -411,9 +397,7 @@ impl PendingArtifactDownload {
 
 #[cfg(test)]
 mod tests {
-    use super::ArtifactPriority;
-    use super::resolve_transfer_worker_limits;
-    use crate::transfer::types::TransferConcurrencyPolicy;
+    use super::*;
 
     #[test]
     fn transfer_worker_limits_clamp_to_pending_artifacts() {
@@ -443,6 +427,34 @@ mod tests {
             near_ready_score: 100,
             dependent_file_count: 4,
         };
-        assert!(ready.compare(near_ready).is_gt());
+        assert!(ready > near_ready);
+    }
+
+    fn queued(artifact_id: &str, ready_file_bytes: u64) -> QueuedArtifact {
+        QueuedArtifact {
+            pending: PendingArtifactDownload {
+                artifact: ArtifactRef::Bundle {
+                    id: artifact_id.into(),
+                },
+                artifact_id: artifact_id.to_string(),
+                url: String::new(),
+                artifact_path: PathBuf::new(),
+                ordinal: 0,
+                missing_artifact_count: 1,
+            },
+            priority: ArtifactPriority {
+                ready_file_bytes,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn queue_pops_highest_priority_then_highest_id_and_eq_matches_ord() {
+        let mut heap = BinaryHeap::from([queued("a", 1), queued("c", 1), queued("b", 9)]);
+        let order = std::iter::from_fn(|| heap.pop().map(|item| item.pending.artifact_id))
+            .collect::<Vec<_>>();
+        assert_eq!(order, ["b", "c", "a"]);
+        assert!(queued("a", 1) != queued("a", 2));
     }
 }
