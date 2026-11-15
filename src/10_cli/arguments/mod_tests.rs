@@ -293,7 +293,7 @@ fn parses_installation_destination_commands() {
         cli.command,
         Commands::Installation {
             command: InstallationCommands::Repair {
-                remove_added_files: true,
+                remove_extra_files: true,
                 yes: true,
                 ..
             }

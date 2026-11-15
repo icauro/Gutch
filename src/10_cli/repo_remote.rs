@@ -9,7 +9,6 @@ use crate::cli::output;
 use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::prompt_yes_no;
-use crate::cli::reporting::write_json_file;
 use crate::repo::read::load_gutch_repo_manifest;
 use crate::sync::remote::PullConflictPolicy;
 use crate::sync::remote::RemoteRepositoryCommandProvider;
@@ -80,14 +79,13 @@ pub(crate) fn push(
 pub(crate) fn pull(
     repo: PathBuf,
     remote: Option<String>,
-    on_conflict: String,
+    policy: PullConflictPolicy,
     prune: bool,
     yes: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
     profile: &Profile,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
-    let policy = PullConflictPolicy::parse(&on_conflict)?;
     let repository_provider = provider.repository_provider();
     let plan = plan_pull_with_provider(&repo, repository_provider, remote.as_deref(), policy)?;
     print_pull_plan(&plan);
@@ -212,12 +210,11 @@ pub(crate) fn unbind(
 
 pub(crate) fn tag_references(
     repo: PathBuf,
-    json_out: Option<PathBuf>,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let result: RemoteTagReferencesResult = inspect_repo_tag_references(&repo, provider)?;
-    write_json_file(json_out.as_deref(), &result)?;
+    output::record(&result)?;
 
     output::line(format_args!("repo: {}", result.repo_root));
     output::line(format_args!("remote_repo_id: {}", result.remote_repo_id));

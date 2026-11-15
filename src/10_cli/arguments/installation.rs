@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 use super::{RuntimeArgs, TransferArgs, parse_cli_path};
 
@@ -53,8 +53,15 @@ pub(crate) struct ReconstructArgs {
     pub(crate) artifact_url_manifest: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) transfer: TransferArgs,
-    #[arg(skip)]
-    pub(crate) stats_json_out: Option<PathBuf>,
+}
+
+/// How a previewed installation would be published.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum PreviewPublication {
+    /// Replace only missing or damaged entries, as repair does.
+    Selective,
+    /// Rebuild in staging and replace the whole destination, as reconstruct does.
+    ReplaceDirectory,
 }
 
 #[derive(Args)]
@@ -67,11 +74,11 @@ pub(crate) struct PreviewArgs {
     pub(crate) destination: PathBuf,
     #[arg(long = "staging-dir", value_parser = parse_cli_path)]
     pub(crate) staging_dir: Option<PathBuf>,
-    #[arg(long = "mode", value_parser = ["selective", "replace-directory"], default_value = "selective")]
-    pub(crate) publication: String,
-    /// Remove entries absent from the target snapshot. Repair preserves them by default.
+    #[arg(long = "mode", value_enum, default_value = "selective")]
+    pub(crate) publication: PreviewPublication,
+    /// Remove entries absent from the target snapshot; they are kept by default.
     #[arg(long = "remove-extra-files")]
-    pub(crate) remove_added_files: bool,
+    pub(crate) remove_extra_files: bool,
     #[arg(long)]
     pub(crate) metadata_only: bool,
     #[arg(long = "reuse-snapshot")]
@@ -103,8 +110,6 @@ pub(crate) enum InstallationCommands {
         strict: bool,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(skip)]
-        stats_json_out: Option<PathBuf>,
     },
     /// Repair missing or corrupt content, preserving extra files unless removal is requested.
     Repair {
@@ -118,11 +123,9 @@ pub(crate) enum InstallationCommands {
         staging_dir: Option<PathBuf>,
         /// Remove entries absent from the target snapshot. Repair preserves them by default.
         #[arg(long = "remove-extra-files")]
-        remove_added_files: bool,
+        remove_extra_files: bool,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(skip)]
-        stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
     },

@@ -6,6 +6,7 @@ use clap::Subcommand;
 
 use super::parse_cli_path;
 use crate::manifest::constraints::FilesystemTarget;
+use crate::sync::remote::PullConflictPolicy;
 
 #[derive(Subcommand)]
 pub(crate) enum RepoCommands {
@@ -43,8 +44,8 @@ pub(crate) enum RepoCommands {
         repo: PathBuf,
         #[arg(long = "remote")]
         remote: Option<String>,
-        #[arg(long = "on-conflict", default_value = "keep-newer")]
-        on_conflict: String,
+        #[arg(long = "on-conflict", value_enum, default_value = "keep-newer")]
+        on_conflict: PullConflictPolicy,
         #[arg(long = "prune")]
         prune: bool,
         #[arg(long = "yes")]
@@ -70,8 +71,6 @@ pub(crate) enum RepoCommands {
     Status {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(skip)]
-        json_out: Option<PathBuf>,
     },
     /// Verify stored repository metadata and artifacts.
     Verify {
@@ -82,8 +81,6 @@ pub(crate) enum RepoCommands {
         /// Use strict artifact verification.
         #[arg(long = "strict")]
         strict: bool,
-        #[arg(skip)]
-        json_out: Option<PathBuf>,
     },
 }
 
@@ -96,8 +93,6 @@ pub(crate) enum RepoIndexCommands {
         /// Replace the local chunk index after a complete, successful rebuild.
         #[arg(long)]
         apply: bool,
-        #[arg(skip)]
-        json_out: Option<PathBuf>,
     },
 }
 
@@ -160,8 +155,6 @@ pub(crate) enum RepoTagsCommands {
     References {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(skip)]
-        json_out: Option<PathBuf>,
     },
 }
 

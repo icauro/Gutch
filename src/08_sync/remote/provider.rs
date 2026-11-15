@@ -6,7 +6,6 @@
 
 use serde::Serialize;
 
-use crate::Error;
 use crate::Result;
 use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
@@ -225,25 +224,12 @@ pub trait RemoteRepositoryCommandProvider {
     -> Result<Vec<TagReference>>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which copy pull keeps when a local file differs from the remote one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum PullConflictPolicy {
     KeepLocal,
     KeepRemote,
     KeepNewer,
-}
-
-impl PullConflictPolicy {
-    pub fn parse(value: &str) -> Result<Self> {
-        match value.trim() {
-            "keep-local" => Ok(Self::KeepLocal),
-            "keep-remote" => Ok(Self::KeepRemote),
-            "keep-newer" => Ok(Self::KeepNewer),
-            other => Err(Error::invalid_input(format!(
-                "invalid --on-conflict value '{}' (expected keep-local, keep-remote, or keep-newer)",
-                other
-            ))),
-        }
-    }
 }
 
 #[derive(Debug, Serialize)]

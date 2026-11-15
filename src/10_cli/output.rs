@@ -121,6 +121,9 @@ pub(crate) fn finish(result: &crate::Result<()>) -> crate::Result<()> {
                 value["ok"] = serde_json::json!(false);
                 value["error"] = serde_json::json!(error.to_string());
                 value["error_details"] = error.diagnostic_report();
+            } else if let Some(object) = value.as_object_mut() {
+                // Some results carry their own `ok` (a verification verdict).
+                object.entry("ok").or_insert(serde_json::Value::Bool(true));
             }
             if !state.events.is_empty() {
                 value = serde_json::json!({"summary": value, "events": state.events});

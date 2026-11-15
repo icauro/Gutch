@@ -216,7 +216,7 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
-        remove_added_files: false,
+        remove_extra_files: false,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
@@ -246,7 +246,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
-        remove_added_files: true,
+        remove_extra_files: true,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
@@ -367,7 +367,7 @@ fn repair_restores_manifest_file_attributes() {
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
         staging_dir: None,
-        remove_added_files: true,
+        remove_extra_files: true,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
@@ -433,7 +433,7 @@ fn repair_restores_files_inside_read_only_directories() {
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
         staging_dir: None,
-        remove_added_files: true,
+        remove_extra_files: true,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
@@ -447,13 +447,13 @@ fn repair_restores_files_inside_read_only_directories() {
     fs::set_permissions(&data_directory, permissions).unwrap();
 }
 
-fn repair(root: &Path, manifest: &SnapshotManifest, remove_added_files: bool) -> crate::Result<()> {
+fn repair(root: &Path, manifest: &SnapshotManifest, remove_extra_files: bool) -> crate::Result<()> {
     repair_installation(InstallationRepairRequest {
         repo_path: root.to_path_buf(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: root.join("destination"),
         staging_dir: None,
-        remove_added_files,
+        remove_extra_files,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })

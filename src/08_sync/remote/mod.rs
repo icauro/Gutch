@@ -347,20 +347,13 @@ mod tests {
     }
 
     #[test]
-    fn conflict_policy_parser_is_provider_neutral() {
-        assert_eq!(
-            PullConflictPolicy::parse("keep-local").unwrap(),
-            PullConflictPolicy::KeepLocal
-        );
-        assert_eq!(
-            PullConflictPolicy::parse("keep-remote").unwrap(),
-            PullConflictPolicy::KeepRemote
-        );
-        assert_eq!(
-            PullConflictPolicy::parse("keep-newer").unwrap(),
-            PullConflictPolicy::KeepNewer
-        );
-        assert!(PullConflictPolicy::parse("overwrite").is_err());
+    fn conflict_policy_values_match_the_cli_spelling() {
+        use clap::ValueEnum;
+        let parse = |value| PullConflictPolicy::from_str(value, false);
+        assert_eq!(parse("keep-local"), Ok(PullConflictPolicy::KeepLocal));
+        assert_eq!(parse("keep-remote"), Ok(PullConflictPolicy::KeepRemote));
+        assert_eq!(parse("keep-newer"), Ok(PullConflictPolicy::KeepNewer));
+        assert!(parse("overwrite").is_err());
     }
 
     #[test]

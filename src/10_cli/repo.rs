@@ -12,8 +12,6 @@ use crate::cli::output;
 use crate::cli::output::dry_run;
 use crate::cli::repo_remote;
 use crate::cli::repo_remote::tag_references;
-use crate::cli::reporting::ensure_parent_directory;
-use crate::cli::reporting::write_json_file;
 use crate::filesystem;
 use crate::manifest::constraints::FilesystemTarget;
 use crate::manifest::constraints::RepositoryConstraints;
@@ -42,13 +40,8 @@ pub(crate) fn run(
     match command {
         RepoCommands::Constraints { command } => constraints(command),
         RepoCommands::Index {
-            command:
-                RepoIndexCommands::Rebuild {
-                    repo,
-                    apply,
-                    json_out,
-                },
-        } => rebuild_chunk_index(&repo, apply, json_out.as_deref()),
+            command: RepoIndexCommands::Rebuild { repo, apply },
+        } => rebuild_chunk_index(&repo, apply),
         RepoCommands::Init {
             path,
             force,
@@ -100,15 +93,14 @@ pub(crate) fn run(
             }
         }
         RepoCommands::Tags {
-            command: RepoTagsCommands::References { repo, json_out },
-        } => tag_references(repo, json_out, remote_provider),
-        RepoCommands::Status { repo, json_out } => status(&repo, json_out.as_deref(), profile),
+            command: RepoTagsCommands::References { repo },
+        } => tag_references(repo, remote_provider),
+        RepoCommands::Status { repo } => status(&repo, profile),
         RepoCommands::Verify {
             repo,
             snapshot_id,
             strict,
-            json_out,
-        } => verify(&repo, snapshot_id.as_deref(), strict, json_out.as_deref()),
+        } => verify(&repo, snapshot_id.as_deref(), strict),
     }
 }
 
@@ -144,28 +136,22 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
     Ok(())
 }
 
-fn rebuild_chunk_index(repo: &Path, apply: bool, json_out: Option<&Path>) -> crate::Result<()> {
+fn rebuild_chunk_index(repo: &Path, apply: bool) -> crate::Result<()> {
     let result = rebuild_index(repo, apply && !dry_run(), &OperationControl::default())?;
     output::record(&result)?;
-    let json = serde_json::to_vec_pretty(&result)?;
-    if let Some(path) = json_out {
-        ensure_parent_directory(path)?;
-        filesystem::write(path, &json)?;
-    }
-    output::line(format_args!("{}", String::from_utf8_lossy(&json)));
+    output::line(format_args!("{}", serde_json::to_string_pretty(&result)?));
     if !result.complete {
-        return Err(crate::Error::invalid_input(
+        return Err(crate::Error::repository(
             "chunk index rebuild is incomplete; the index was not replaced",
         ));
     }
     Ok(())
 }
 
-fn status(repo: &Path, json_out: Option<&Path>, profile: &Profile) -> crate::Result<()> {
+fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
     let _status_span = profile.as_ref().and_then(|p| p.span("repo.status"));
     let status = read_repo_status(repo)?;
     output::record(&status)?;
-    write_json_file(json_out, &status)?;
 
     if !status.is_repo {
         match status.error.as_deref() {
@@ -204,12 +190,7 @@ fn status(repo: &Path, json_out: Option<&Path>, profile: &Profile) -> crate::Res
     Ok(())
 }
 
-fn verify(
-    repo: &Path,
-    snapshot_id: Option<&str>,
-    strict: bool,
-    json_out: Option<&Path>,
-) -> crate::Result<()> {
+fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result<()> {
     let mode = if strict {
         RepoArtifactVerification::Strict
     } else {
@@ -217,7 +198,6 @@ fn verify(
     };
     let result = verify_gutch_repo_artifacts(repo, snapshot_id, mode)?;
     output::record(&result)?;
-    write_json_file(json_out, &result)?;
 
     output::line(format_args!("{SECTION_SEPARATOR}"));
     output::line(format_args!("Verify ({})", result.mode.as_str()));
@@ -252,7 +232,6 @@ pub(crate) fn init_repo(
     force: bool,
     constraints: RepositoryConstraints,
 ) -> crate::Result<()> {
-    constraints.validate_definition()?;
     let assessment = assess_repo_init_path(path)?;
     if dry_run() {
         output::record(&assessment)?;
@@ -273,12 +252,7 @@ pub(crate) fn init_repo(
         proceed_force = true;
     }
 
-    let repo_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .filter(|n| !n.is_empty())
-        .unwrap_or("base");
-    initialize_repo(
+    let repository = initialize_repo(
         path,
         RepoInitOptions {
             force: proceed_force,
@@ -288,7 +262,7 @@ pub(crate) fn init_repo(
 
     output::line(format_args!(
         "created gutch repo '{}' at {}",
-        repo_name,
+        repository.name,
         path.display()
     ));
     Ok(())

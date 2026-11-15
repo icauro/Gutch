@@ -47,7 +47,7 @@ pub(crate) struct FinalizeRepairRequest<'a> {
     pub(crate) snapshot_manifest: &'a SnapshotManifest,
     pub(crate) destination_dir: &'a Path,
     pub(crate) staging_dir: &'a Path,
-    pub(crate) remove_added_files: bool,
+    pub(crate) remove_extra_files: bool,
     pub(crate) runtime_hints: &'a RuntimeResourceHints,
     pub(crate) repair_plan: &'a InstallationChanges,
     pub(crate) control: &'a OperationControl,
@@ -61,7 +61,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         snapshot_manifest,
         destination_dir,
         staging_dir,
-        remove_added_files,
+        remove_extra_files,
         runtime_hints,
         repair_plan,
         control,
@@ -83,7 +83,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     publication_manifest
         .entries
         .retain(|entry| changed_paths.contains(entry.path()));
-    if !remove_added_files {
+    if !remove_extra_files {
         refuse_to_replace_non_empty_directories(&publication_manifest, &destination)?;
     }
     // Finish the publication sequence without cancellation between entries.
@@ -97,8 +97,8 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         control,
         operation_pool,
     )?;
-    if remove_added_files {
-        removed_extra_file_count = remove_extra_files(
+    if remove_extra_files {
+        removed_extra_file_count = delete_extra_files(
             destination_dir,
             snapshot_manifest,
             &repair_plan.classification.extra_files,
@@ -141,7 +141,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         })?
         .0
     };
-    if remove_added_files {
+    if remove_extra_files {
         for issue in &repair_plan.classification.extra_files {
             let path = destination.resolve_entry(&issue.path)?;
             if fs::symlink_metadata(path).is_ok() {
@@ -157,7 +157,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     }
     if !final_classification.missing_files.is_empty()
         || !final_classification.corrupt_files.is_empty()
-        || (remove_added_files && !final_classification.extra_files.is_empty())
+        || (remove_extra_files && !final_classification.extra_files.is_empty())
     {
         return Err(Error::verify(format!(
             "repaired destination did not verify: {}",
@@ -335,7 +335,7 @@ fn remove_existing_entry(path: &Path) -> Result<()> {
     }
 }
 
-fn remove_extra_files(
+fn delete_extra_files(
     destination_dir: &Path,
     snapshot_manifest: &SnapshotManifest,
     extra_files: &[RepairIssue],

@@ -3,6 +3,7 @@
 use crate::cli::InstallationCommands;
 use crate::cli::Profile;
 use crate::cli::arguments::PreviewArgs;
+use crate::cli::arguments::PreviewPublication;
 use crate::cli::arguments::ReconstructArgs;
 use crate::cli::arguments::RuntimeArgs;
 use crate::cli::command_support::InstallationVerifyStats;
@@ -16,7 +17,6 @@ use crate::cli::output;
 use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::diagnostic_seconds;
-use crate::cli::reporting::optional_output_paths;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
@@ -53,7 +53,6 @@ pub(crate) struct ReconstructCommand {
     pub(crate) source_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime: RuntimeArgs,
-    pub(crate) stats_json_out: Option<PathBuf>,
 }
 
 pub(crate) fn verify(
@@ -62,7 +61,6 @@ pub(crate) fn verify(
     destination: PathBuf,
     strict: bool,
     runtime: RuntimeArgs,
-    stats_json_out: Option<PathBuf>,
     profile: &Profile,
 ) -> crate::Result<()> {
     crate::cli::installation::verify_snapshot(crate::cli::installation::VerifyCommand {
@@ -75,7 +73,6 @@ pub(crate) fn verify(
             VerifyMode::Fast
         },
         runtime_hints: runtime.hints(),
-        stats_json_out,
         profile: profile.clone(),
     })
 }
@@ -85,9 +82,8 @@ pub(crate) struct RepairCommand {
     pub(crate) snapshot_id: String,
     pub(crate) destination: PathBuf,
     pub(crate) staging_dir: Option<PathBuf>,
-    pub(crate) remove_added_files: bool,
+    pub(crate) remove_extra_files: bool,
     pub(crate) runtime: RuntimeArgs,
-    pub(crate) stats_json_out: Option<PathBuf>,
     pub(crate) yes: bool,
 }
 
@@ -99,8 +95,8 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,
                 staging_dir: command.staging_dir,
-                publication: "selective".into(),
-                remove_added_files: command.remove_added_files,
+                publication: PreviewPublication::Selective,
+                remove_extra_files: command.remove_extra_files,
                 metadata_only: false,
                 source_snapshot: None,
                 source_dir: None,
@@ -118,7 +114,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),
         staging_dir: command.staging_dir,
-        remove_added_files: command.remove_added_files,
+        remove_extra_files: command.remove_extra_files,
         runtime_hints: command.runtime.hints(),
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
     })?;
@@ -128,16 +124,15 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         repo_root: execution.repo_root.display().to_string(),
         snapshot_id: result.snapshot_id.clone(),
         destination_dir: result.destination_dir.display().to_string(),
-        remove_added_files: command.remove_added_files,
+        remove_extra_files: command.remove_extra_files,
         missing_file_count: result.missing_file_count,
         corrupt_file_count: result.corrupt_file_count,
         extra_file_count: result.extra_file_count,
         removed_extra_file_count: result.removed_extra_file_count,
         resolved_bundle_file_count: execution.resolved_bundle_file_count,
         elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
-        outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats, profile.as_deref())?;
+    write_report(&stats, profile.as_deref())?;
 
     output::line(format_args!(
         "repaired installation of snapshot {} at {}",
@@ -161,7 +156,6 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
 pub(crate) struct CorruptCommand {
     pub(crate) destination: PathBuf,
     pub(crate) plan: PathBuf,
-    pub(crate) stats_json_out: Option<PathBuf>,
     pub(crate) yes: bool,
 }
 
@@ -195,9 +189,8 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &Profile) -> crate::Resu
         plan_path: command.plan.display().to_string(),
         applied_operation_count: result.applied_operation_count,
         elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
-        outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats, profile.as_deref())?;
+    write_report(&stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
         output::line(format_args!(
@@ -224,24 +217,14 @@ pub(crate) fn run_installation(
             destination,
             strict,
             runtime,
-            stats_json_out,
-        } => verify(
-            repo,
-            snapshot_id,
-            destination,
-            strict,
-            runtime,
-            stats_json_out,
-            profile,
-        ),
+        } => verify(repo, snapshot_id, destination, strict, runtime, profile),
         InstallationCommands::Repair {
             repo,
             snapshot_id,
             destination,
             staging_dir,
-            remove_added_files,
+            remove_extra_files,
             runtime,
-            stats_json_out,
             yes,
         } => repair(
             RepairCommand {
@@ -249,9 +232,8 @@ pub(crate) fn run_installation(
                 snapshot_id,
                 destination,
                 staging_dir,
-                remove_added_files,
+                remove_extra_files,
                 runtime,
-                stats_json_out,
                 yes,
             },
             profile,
@@ -280,7 +262,6 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
         artifacts,
         artifact_url_manifest,
         transfer,
-        stats_json_out,
     } = arguments;
     if !fetch {
         return reconstruct(
@@ -292,7 +273,6 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
                 source_snapshot_id,
                 source_dir,
                 runtime,
-                stats_json_out,
             },
             profile,
         );
@@ -318,7 +298,6 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
             source_snapshot_id,
             source_dir,
             runtime_hints: runtime.hints(),
-            stats_json_out,
         },
         profile,
     )
@@ -326,9 +305,9 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
 
 /// Prints each planned installation change and a summary line.
 fn preview(arguments: PreviewArgs, profile: &Profile) -> crate::Result<()> {
-    let publication = if arguments.publication == "selective" {
+    let publication = if arguments.publication == PreviewPublication::Selective {
         InstallationPublication::Selective {
-            extra_files: if arguments.remove_added_files {
+            extra_files: if arguments.remove_extra_files {
                 ExtraFilePolicy::Remove
             } else {
                 ExtraFilePolicy::Preserve
@@ -369,7 +348,6 @@ pub(crate) struct VerifyCommand {
     pub(crate) destination: PathBuf,
     pub(crate) verify_mode: VerifyMode,
     pub(crate) runtime_hints: RuntimeResourceHints,
-    pub(crate) stats_json_out: Option<PathBuf>,
     pub(crate) profile: Profile,
 }
 
@@ -381,8 +359,8 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,
                 staging_dir: command.staging_dir,
-                publication: "replace-directory".into(),
-                remove_added_files: true,
+                publication: PreviewPublication::ReplaceDirectory,
+                remove_extra_files: true,
                 metadata_only: false,
                 source_snapshot: command.source_snapshot_id,
                 source_dir: command.source_dir,
@@ -436,9 +414,8 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
             &result.verify_timings,
             profile_mode(profile.as_deref()),
         ),
-        outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats, profile.as_deref())?;
+    write_report(&stats, profile.as_deref())?;
 
     output::line(format_args!(
         "reconstructed snapshot {} to {}",
@@ -489,9 +466,8 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
         verification_passed: errors.is_empty(),
         errors: errors.clone(),
         timings: verify_timings_summary(&timings, profile_mode(command.profile.as_deref())),
-        outputs: optional_output_paths(&command.stats_json_out),
     };
-    write_report(&command.stats_json_out, &stats, command.profile.as_deref())?;
+    write_report(&stats, command.profile.as_deref())?;
 
     if errors.is_empty() {
         output::line(format_args!(
@@ -506,7 +482,12 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
         for err in &errors {
             eprintln!("  - {}", err);
         }
-        return Err(crate::Error::verify(errors.join("; ")));
+        // The list is printed above and recorded in the report; keep the error short.
+        return Err(crate::Error::verify(format!(
+            "{} verification errors in {}",
+            errors.len(),
+            command.destination.display()
+        )));
     }
 
     Ok(())
@@ -520,7 +501,6 @@ mod tests {
         let command = super::CorruptCommand {
             destination: temp.path().join("installation"),
             plan: temp.path().join("missing-plan.json"),
-            stats_json_out: None,
             yes: false,
         };
 

@@ -4,30 +4,21 @@ use std::path::PathBuf;
 
 use crate::cli::command_support::write_report;
 use crate::cli::output;
-use crate::cli::reporting::OptionalOutputPaths;
-use crate::cli::reporting::optional_output_paths;
 use crate::path_compare::PathComparisonResult;
 use crate::path_compare::compare_paths;
 
-pub(crate) fn compare(
-    expected: PathBuf,
-    actual: PathBuf,
-    stats_json_out: Option<PathBuf>,
-) -> crate::Result<()> {
+pub(crate) fn compare(expected: PathBuf, actual: PathBuf) -> crate::Result<()> {
     let stats = compare_paths(&expected, &actual)?;
     #[derive(serde::Serialize)]
     struct Report<'a> {
         command: &'static str,
         #[serde(flatten)]
         result: &'a PathComparisonResult,
-        outputs: OptionalOutputPaths,
     }
     write_report(
-        &stats_json_out,
         &Report {
             command: "tree compare",
             result: &stats,
-            outputs: optional_output_paths(&stats_json_out),
         },
         None,
     )?;

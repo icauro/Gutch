@@ -37,8 +37,6 @@ pub(crate) enum SnapshotCommands {
     List {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(skip)]
-        json_out: Option<PathBuf>,
     },
     /// Measure fresh-capture storage with default packaging presets and no repository reuse.
     Measure {
@@ -112,8 +110,6 @@ pub(crate) struct CaptureArgs {
     pub(crate) build_profile: ArtifactBuildProfileArgs,
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
-    #[arg(skip)]
-    pub(crate) stats_json_out: Option<PathBuf>,
     #[arg(long = "yes")]
     pub(crate) yes: bool,
 }

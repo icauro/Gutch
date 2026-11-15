@@ -60,14 +60,12 @@ pub(crate) fn run(
                 DebugCommands::CorruptInstallation {
                     destination,
                     plan,
-                    stats_json_out,
                     yes,
                 },
         } => installation::corrupt(
             CorruptCommand {
                 destination,
                 plan,
-                stats_json_out,
                 yes,
             },
             profile,
@@ -76,11 +74,7 @@ pub(crate) fn run(
             BundleCommands::Inspect { bundle } => bundle::inspect(bundle),
         },
         Commands::Tree { command } => match command {
-            TreeCommands::Compare {
-                expected,
-                actual,
-                stats_json_out,
-            } => tree::compare(expected, actual, stats_json_out),
+            TreeCommands::Compare { expected, actual } => tree::compare(expected, actual),
         },
     }
 }

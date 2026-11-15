@@ -47,7 +47,11 @@ def run(case):
         output = (
             case.root / "commands" / f"{case.sequence:03d}-snapshot.log"
         ).read_text(encoding="utf-8")
-        return json.loads(output) if json_output and success else output
+        if not (json_output and success):
+            return output
+        result = json.loads(output)
+        assert result.pop("ok") is True
+        return result
 
     expected = [
         ("added-日本語", "added", 5),

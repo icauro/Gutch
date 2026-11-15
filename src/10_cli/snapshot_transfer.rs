@@ -7,7 +7,6 @@ use crate::cli::command_support::write_report;
 use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::progress::CliProgressSink;
-use crate::cli::reporting::optional_output_paths;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::print_transfer_timings;
 use crate::cli::reporting::profile_mode;
@@ -141,7 +140,7 @@ pub(crate) fn fetch(command: FetchCommand, profile: &Profile) -> crate::Result<(
             result.skipped_existing_bundle_count
         ));
         output::line(format_args!(
-            "bundles: required={}, downloaded={}, existing={}",
+            "artifacts: required={}, downloaded={}, existing={}",
             result.required_artifact_count,
             result.downloaded_artifact_count,
             result.skipped_existing_artifact_count
@@ -161,7 +160,6 @@ pub(crate) struct FetchAndReconstructCommand {
     pub(crate) source_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime_hints: RuntimeResourceHints,
-    pub(crate) stats_json_out: Option<PathBuf>,
 }
 
 pub(crate) fn fetch_and_reconstruct(
@@ -175,7 +173,6 @@ pub(crate) fn fetch_and_reconstruct(
         source_snapshot_id,
         source_dir,
         runtime_hints,
-        stats_json_out,
     } = command;
     let progress = CliProgressSink::new();
     let fetch_request =
@@ -238,17 +235,16 @@ pub(crate) fn fetch_and_reconstruct(
             &reconstruct.verify_timings,
             profile_mode(profile.as_deref()),
         ),
-        outputs: optional_output_paths(&stats_json_out),
     };
-    write_report(&stats_json_out, &stats, profile.as_deref())?;
+    write_report(&stats, profile.as_deref())?;
 
+    output::line(format_args!(
+        "downloaded and reconstructed snapshot {} to {}",
+        stats.snapshot_id, stats.destination_dir
+    ));
     if verbose_output_enabled() {
         output::line(format_args!(
-            "downloaded and reconstructed snapshot {} to {}",
-            stats.snapshot_id, stats.destination_dir
-        ));
-        output::line(format_args!(
-            "bundles: required={}, downloaded={}, existing={}",
+            "artifacts: required={}, downloaded={}, existing={}",
             stats.required_artifact_count,
             stats.downloaded_artifact_count,
             stats.skipped_existing_artifact_count

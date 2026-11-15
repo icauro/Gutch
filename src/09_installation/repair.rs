@@ -30,7 +30,7 @@ pub fn repair_installation(request: InstallationRepairRequest) -> Result<Install
             control: request.control,
         },
         InstallationPublication::Selective {
-            extra_files: if request.remove_added_files {
+            extra_files: if request.remove_extra_files {
                 ExtraFilePolicy::Remove
             } else {
                 ExtraFilePolicy::Preserve

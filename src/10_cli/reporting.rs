@@ -1,11 +1,8 @@
 //! Human-readable result tables and metrics.
 
-use std::path::PathBuf;
-
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::capture::build::types::BuildTimings;
 use crate::cli::output;
-use crate::filesystem;
 use crate::installation::ReconstructTimings;
 use crate::installation::inspect::VerifyTimings;
 use crate::profiling::ProfileMode;
@@ -22,8 +19,10 @@ fn secs(d: Duration) -> f64 {
     d.as_secs_f64()
 }
 
-fn mib(bytes: u64) -> f64 {
-    bytes as f64 / (1024.0 * 1024.0)
+pub(crate) const MIB: f64 = 1024.0 * 1024.0;
+
+pub(crate) fn mib(bytes: u64) -> f64 {
+    bytes as f64 / MIB
 }
 
 fn mib_per_s(bytes: u64, d: Duration) -> f64 {
@@ -187,12 +186,6 @@ fn wall_timing_fields(total: Duration, parts: &[Duration]) -> (f64, f64) {
     let unaccounted_seconds = total_seconds - secs(duration_sum(parts));
     debug_assert!(unaccounted_seconds >= -1e-9);
     (total_seconds, unaccounted_seconds)
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct OptionalOutputPaths {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) stats_json_out: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -638,14 +631,6 @@ pub(crate) fn verify_timings_summary(
     }
 }
 
-pub(crate) fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> OptionalOutputPaths {
-    OptionalOutputPaths {
-        stats_json_out: stats_json_out
-            .as_ref()
-            .map(|path| path.display().to_string()),
-    }
-}
-
 pub(crate) fn ensure_parent_directory(path: &Path) -> crate::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -656,30 +641,14 @@ pub(crate) fn ensure_parent_directory(path: &Path) -> crate::Result<()> {
     Ok(())
 }
 
-/// Writes `value` as pretty JSON to `path` when one was requested.
-pub(crate) fn write_json_file(path: Option<&Path>, value: &impl Serialize) -> crate::Result<()> {
-    if let Some(path) = path {
-        ensure_parent_directory(path)?;
-        filesystem::write(path, serde_json::to_vec_pretty(value)?)?;
-    }
-    Ok(())
-}
-
+/// Records a command's stats report, tagged with the profiling mode.
 pub(crate) fn write_stats_json_output<T: Serialize>(
-    stats_json_out: &Option<PathBuf>,
     stats: &T,
     profile: Option<&Profiler>,
 ) -> crate::Result<()> {
     let mut value = serde_json::to_value(stats)?;
-    let mode = profile_mode(profile);
-    value["profiling_mode"] = serde_json::to_value(mode)?;
-    let json = serde_json::to_string_pretty(&value)?;
-    output::record(&value)?;
-    if let Some(stats_json_out) = stats_json_out {
-        ensure_parent_directory(stats_json_out)?;
-        fs::write(stats_json_out, json)?;
-    }
-    Ok(())
+    value["profiling_mode"] = serde_json::to_value(profile_mode(profile))?;
+    output::record(&value)
 }
 
 pub(crate) fn print_transfer_timings(t: &TransferStats) {

@@ -177,7 +177,7 @@ pub struct InstallationRepairRequest {
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
-    pub remove_added_files: bool,
+    pub remove_extra_files: bool,
     pub runtime_hints: RuntimeResourceHints,
     pub control: OperationControl,
 }

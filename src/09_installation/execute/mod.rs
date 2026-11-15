@@ -101,7 +101,7 @@ pub(crate) fn apply_reconstruct_pipeline(
                 snapshot_manifest: target,
                 destination_dir: request.destination_dir,
                 staging_dir: &staging_dir,
-                remove_added_files: *remove_extra_files,
+                remove_extra_files: *remove_extra_files,
                 runtime_hints: request.runtime_hints,
                 repair_plan: changes,
                 control,

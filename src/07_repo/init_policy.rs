@@ -10,6 +10,7 @@ use crate::Error;
 use crate::Result;
 use crate::filesystem;
 use crate::manifest::constraints::RepositoryConstraints;
+use crate::manifest::repo_manifest::RepoManifest;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::paths::write_gutch_repo_manifest;
@@ -178,7 +179,8 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     })
 }
 
-pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()> {
+/// Creates the repository and returns its written manifest.
+pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<RepoManifest> {
     options.constraints.validate_definition()?;
     let assessment = assess_repo_init_path(repo_root)?;
 
@@ -217,8 +219,7 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()>
         repo_manifest.constraints =
             (!options.constraints.is_empty()).then_some(options.constraints);
         write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
-
-        Ok(())
+        Ok(repo_manifest)
     })
 }
 

@@ -5,7 +5,9 @@ mod installation;
 mod repo;
 mod snapshot;
 
-pub(crate) use installation::{InstallationCommands, PreviewArgs, ReconstructArgs};
+pub(crate) use installation::{
+    InstallationCommands, PreviewArgs, PreviewPublication, ReconstructArgs,
+};
 pub(crate) use repo::{
     ConstraintCommands, RemoteCommands, RepoCommands, RepoIndexCommands, RepoTagsCommands,
 };
@@ -136,7 +138,7 @@ pub(crate) struct Cli {
     /// Diagnostic profiling: off, coarse summary, or sampled detailed timelines.
     #[arg(long, global = true, value_enum, default_value_t = crate::profiling::ProfileMode::Off)]
     pub(crate) profile: ProfileMode,
-    /// Absolute report directory; required for detailed, optional for summary.
+    /// Report directory; required for detailed, optional for summary.
     #[arg(long = "profile-dir", global = true, value_parser = parse_cli_path)]
     pub(crate) profile_out: Option<PathBuf>,
 
@@ -195,8 +197,6 @@ pub(crate) enum DebugCommands {
         destination: PathBuf,
         #[arg(long = "plan", value_parser = parse_cli_path)]
         plan: PathBuf,
-        #[arg(skip)]
-        stats_json_out: Option<PathBuf>,
         #[arg(long = "yes")]
         yes: bool,
     },
@@ -217,8 +217,6 @@ pub(crate) enum TreeCommands {
         expected: PathBuf,
         #[arg(long = "actual", value_parser = parse_cli_path)]
         actual: PathBuf,
-        #[arg(skip)]
-        stats_json_out: Option<PathBuf>,
     },
 }
 

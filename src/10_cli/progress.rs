@@ -4,6 +4,8 @@ use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::cli::reporting::MIB;
+use crate::cli::reporting::mib;
 use crate::cli::verbose_output_enabled;
 use crate::progress::LiveFeedback;
 use crate::progress::OperationKind;
@@ -113,7 +115,7 @@ impl Drop for CliProgressSink {
 fn render_feedback(feedback: &LiveFeedback) -> String {
     let rate = |value: Option<f64>| {
         value
-            .map(|n| format!("{:.1}", n / 1048576.0))
+            .map(|n| format!("{:.1}", n / MIB))
             .unwrap_or_else(|| "--".into())
     };
     [
@@ -125,7 +127,7 @@ fn render_feedback(feedback: &LiveFeedback) -> String {
         value.as_ref().map(|v| {
             format!(
                 "{name}: {:.1} MiB, {} MiB/s (avg {})",
-                v.bytes as f64 / 1048576.0,
+                mib(v.bytes),
                 rate(v.recent_bytes_per_second),
                 rate(v.average_bytes_per_second)
             )

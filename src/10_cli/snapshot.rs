@@ -23,16 +23,14 @@ use crate::cli::output;
 use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::build_timings_summary;
-use crate::cli::reporting::optional_output_paths;
+use crate::cli::reporting::mib;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
-use crate::cli::reporting::write_json_file;
 use crate::cli::snapshot_transfer;
 use crate::cli::snapshot_transfer::FetchCommand;
 use crate::cli::tags::parse_cli_tags;
 use crate::filesystem;
-use crate::manifest::SnapshotTagSet;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::ProfileMode;
 use crate::repo::read::load_gutch_repo_manifest;
@@ -51,7 +49,6 @@ fn capture_stats_from_engine_result(
     repo_root: &str,
     input_path: &str,
     repository: &RepoManifest,
-    explicit_tags: &SnapshotTagSet,
     storage_mode_cli: String,
     result: &SnapshotCaptureResult,
     mode: ProfileMode,
@@ -64,9 +61,9 @@ fn capture_stats_from_engine_result(
         manifest_path: result.manifest_path.display().to_string(),
         repo_name: repository.name.clone(),
         remote_repo_id: repository.remote_repo_id.clone(),
-        version_tag: explicit_tags.get("version").unwrap_or_default().to_string(),
-        os: explicit_tags.get("os").unwrap_or_default().to_string(),
-        arch: explicit_tags.get("arch").unwrap_or_default().to_string(),
+        version_tag: result.version_tag.clone(),
+        os: result.os.clone(),
+        arch: result.arch.clone(),
         storage_mode: storage_mode_cli,
         file_count: result.file_count,
         total_logical_size: result.total_logical_size,
@@ -74,9 +71,7 @@ fn capture_stats_from_engine_result(
         required_chunk_count: result.required_chunk_count,
         required_bundle_count: result.required_bundle_count,
         generated_bundle_count: result.generated_bundle_count,
-        generated_bundle_bytes: 0,
         generated_chunk_count: result.generated_chunk_count,
-        generated_chunk_bytes: 0,
         reused_chunk_count: result.reused_chunk_count,
         new_chunk_count: result.new_chunk_count,
         reused_chunk_percent: ratio_pct(
@@ -93,7 +88,6 @@ fn capture_stats_from_engine_result(
             result.required_bundle_count as u64,
         ),
         timings: build_timings_summary(&result.build_timings, mode),
-        outputs: optional_output_paths(&None),
     }
 }
 
@@ -101,7 +95,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
     match command {
         SnapshotCommands::Diff { repo, from, to } => diff(&repo, &from, &to, profile),
         SnapshotCommands::Capture(args) => capture(args, profile),
-        SnapshotCommands::List { repo, json_out } => list(&repo, json_out.as_deref()),
+        SnapshotCommands::List { repo } => list(&repo),
         SnapshotCommands::Delete {
             repo,
             snapshot_id,
@@ -185,7 +179,6 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         tags,
         build_profile,
         runtime,
-        stats_json_out,
         yes,
     } = args;
     let single_report = source_root.is_none();
@@ -236,26 +229,21 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
             &repo.display().to_string(),
             &source.path.display().to_string(),
             &repo_manifest,
-            &source.tags,
             build_profile.storage_mode.stats_name().to_string(),
             result,
             profile_mode(profile.as_deref()),
         ));
     }
     if single_report && snapshot_stats.len() == 1 {
-        let stats = SnapshotCaptureStats {
-            outputs: optional_output_paths(&stats_json_out),
-            ..snapshot_stats.into_iter().next().unwrap()
-        };
-        write_report(&stats_json_out, &stats, profile.as_deref())?;
+        let stats = snapshot_stats.into_iter().next().unwrap();
+        write_report(&stats, profile.as_deref())?;
     } else {
-        let mut aggregate_stats = aggregate_capture_stats(
+        let aggregate_stats = aggregate_capture_stats(
             &repo_paths.repo_root.display().to_string(),
             snapshot_stats,
             profile_mode(profile.as_deref()),
         );
-        aggregate_stats.outputs = optional_output_paths(&stats_json_out);
-        write_report(&stats_json_out, &aggregate_stats, profile.as_deref())?;
+        write_report(&aggregate_stats, profile.as_deref())?;
     }
     print_profile_summary(profile.as_deref());
     Ok(())
@@ -279,23 +267,20 @@ fn aggregate_capture_stats(
             .iter()
             .map(|stats| stats.generated_bundle_count)
             .sum(),
-        generated_bundle_bytes: sum(|stats| stats.generated_bundle_bytes),
         generated_chunk_count: snapshot_stats
             .iter()
             .map(|stats| stats.generated_chunk_count)
             .sum(),
-        generated_chunk_bytes: sum(|stats| stats.generated_chunk_bytes),
         total_build_seconds: snapshot_stats
             .iter()
             .map(|stats| stats.timings.total_seconds)
             .sum::<Option<f64>>()
             .filter(|_| mode == ProfileMode::Detailed),
         snapshots: snapshot_stats,
-        outputs: optional_output_paths(&None),
     }
 }
 
-fn list(repo: &Path, json_out: Option<&Path>) -> crate::Result<()> {
+fn list(repo: &Path) -> crate::Result<()> {
     let status = read_repo_status(repo)?;
     output::record(&status.snapshots)?;
     if !status.is_repo {
@@ -304,7 +289,6 @@ fn list(repo: &Path, json_out: Option<&Path>) -> crate::Result<()> {
             repo.display()
         )));
     }
-    write_json_file(json_out, &status.snapshots)?;
     output::line(format_args!("{SECTION_SEPARATOR}"));
     output::line(format_args!("Snapshots"));
     for snapshot in &status.snapshots {
@@ -390,14 +374,15 @@ fn replace_tags(
 }
 
 fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
-    const MIB: f64 = 1024.0 * 1024.0;
     let result = estimate_snapshot(source_dir, &parse_cli_tags(tags)?)?;
     let estimate = &result.estimate;
     output::record(&serde_json::json!({
         "file_count": result.file_count,
         "logical_bytes": result.total_logical_size,
         "unique_chunks": estimate.unique_chunk_count,
+        "unique_chunk_bytes": estimate.unique_chunk_bytes,
         "encoded_artifact_bytes": estimate.encoded_artifact_bytes,
+        "bundle_count": estimate.bundle_count,
     }))?;
     output::line(format_args!(
         "fresh capture measurement (default packaging presets):"
@@ -405,7 +390,7 @@ fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
     output::line(format_args!("  files: {}", result.file_count));
     output::line(format_args!(
         "  logical size:  {:.2} MiB",
-        result.total_logical_size as f64 / MIB
+        mib(result.total_logical_size)
     ));
     output::line(format_args!(
         "  unique chunks: {}",
@@ -413,12 +398,12 @@ fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
     ));
     output::line(format_args!(
         "  unique chunk bytes: {:.2} MiB",
-        estimate.unique_chunk_bytes as f64 / MIB
+        mib(estimate.unique_chunk_bytes)
     ));
     output::line(format_args!(
         "  encoded artifacts: {:.2} MiB",
-        estimate.encoded_artifact_bytes as f64 / MIB
+        mib(estimate.encoded_artifact_bytes)
     ));
-    output::line(format_args!("  artifacts: {}", estimate.bundle_count));
+    output::line(format_args!("  bundles: {}", estimate.bundle_count));
     Ok(())
 }

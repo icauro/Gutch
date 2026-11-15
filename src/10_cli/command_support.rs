@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::cli::reporting::BuildTimingsSummary;
-use crate::cli::reporting::OptionalOutputPaths;
 use crate::cli::reporting::ReconstructTimingsSummary;
 use crate::cli::reporting::VerifyTimingsSummary;
 use crate::cli::reporting::write_stats_json_output;
@@ -41,16 +40,13 @@ pub(crate) struct SnapshotCaptureStats {
     pub(crate) required_chunk_count: usize,
     pub(crate) required_bundle_count: usize,
     pub(crate) generated_bundle_count: usize,
-    pub(crate) generated_bundle_bytes: u64,
     pub(crate) generated_chunk_count: usize,
-    pub(crate) generated_chunk_bytes: u64,
     pub(crate) reused_chunk_count: usize,
     pub(crate) new_chunk_count: usize,
     pub(crate) reused_chunk_percent: f64,
     pub(crate) reused_bundle_count: usize,
     pub(crate) reused_bundle_percent: f64,
     pub(crate) timings: BuildTimingsSummary,
-    pub(crate) outputs: OptionalOutputPaths,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,12 +57,9 @@ pub(crate) struct SnapshotCaptureManyStats {
     pub(crate) total_logical_size: u64,
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) generated_bundle_count: usize,
-    pub(crate) generated_bundle_bytes: u64,
     pub(crate) generated_chunk_count: usize,
-    pub(crate) generated_chunk_bytes: u64,
     pub(crate) total_build_seconds: Option<f64>,
     pub(crate) snapshots: Vec<SnapshotCaptureStats>,
-    pub(crate) outputs: OptionalOutputPaths,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,7 +76,6 @@ pub(crate) struct InstallationVerifyStats {
     pub(crate) verification_passed: bool,
     pub(crate) errors: Vec<String>,
     pub(crate) timings: VerifyTimingsSummary,
-    pub(crate) outputs: OptionalOutputPaths,
 }
 
 #[derive(Debug, Serialize)]
@@ -92,14 +84,13 @@ pub(crate) struct InstallationRepairStats {
     pub(crate) repo_root: String,
     pub(crate) snapshot_id: String,
     pub(crate) destination_dir: String,
-    pub(crate) remove_added_files: bool,
+    pub(crate) remove_extra_files: bool,
     pub(crate) missing_file_count: usize,
     pub(crate) corrupt_file_count: usize,
     pub(crate) extra_file_count: usize,
     pub(crate) removed_extra_file_count: usize,
     pub(crate) resolved_bundle_file_count: usize,
     pub(crate) elapsed_seconds: Option<f64>,
-    pub(crate) outputs: OptionalOutputPaths,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,7 +100,6 @@ pub(crate) struct InstallationCorruptStats {
     pub(crate) plan_path: String,
     pub(crate) applied_operation_count: usize,
     pub(crate) elapsed_seconds: Option<f64>,
-    pub(crate) outputs: OptionalOutputPaths,
 }
 
 #[derive(Debug, Serialize)]
@@ -133,7 +123,6 @@ pub(crate) struct SnapshotReconstructStats {
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) reconstruct_timings: ReconstructTimingsSummary,
     pub(crate) verify_timings: VerifyTimingsSummary,
-    pub(crate) outputs: OptionalOutputPaths,
 }
 
 #[derive(Debug, Serialize)]
@@ -169,15 +158,13 @@ pub(crate) struct SnapshotFetchReconstructStats {
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) reconstruct_timings: ReconstructTimingsSummary,
     pub(crate) verify_timings: VerifyTimingsSummary,
-    pub(crate) outputs: OptionalOutputPaths,
 }
 
 pub(crate) fn write_report<T: Serialize>(
-    stats_json_out: &Option<PathBuf>,
     stats: &T,
     profile: Option<&Profiler>,
 ) -> crate::Result<()> {
-    write_stats_json_output(stats_json_out, stats, profile)
+    write_stats_json_output(stats, profile)
 }
 
 pub(crate) fn load_snapshot_manifest_from_repo(

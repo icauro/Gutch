@@ -1,6 +1,7 @@
 //! `bundle inspect` command.
 
 use crate::cli::output;
+use crate::cli::reporting::ratio_pct;
 use crate::repo::artifacts::inspect_bundle;
 use std::path::PathBuf;
 
@@ -33,7 +34,7 @@ pub(crate) fn inspect(bundle: PathBuf) -> crate::Result<()> {
     if raw_size > 0 {
         output::line(format_args!(
             "  raw={raw_size} compressed={compressed_size} ratio={:.1}%",
-            100.0 * compressed_size as f64 / raw_size as f64
+            ratio_pct(compressed_size, raw_size)
         ));
     }
     for entry in &entries {
