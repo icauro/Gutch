@@ -90,7 +90,7 @@ impl Drop for MemoryPermit {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct RuntimeResourceHints {
     pub jobs: Option<usize>,
     /// Shared payload/codec admission budget; None selects 25% of usable RAM.

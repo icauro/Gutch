@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::load_capture_reuse_state;
-use crate::capture::scan::SourceInventory;
 use crate::capture::scan::scan_source_inventory;
 use crate::progress;
 use crate::progress::OperationKind;
@@ -23,10 +22,12 @@ use crate::artifact::profiles::validate_packaging_sizes;
 use crate::capture::build::BuiltCapture;
 use crate::capture::build::build_with_stable_source;
 use crate::capture::build::types::BuildConfig;
+use crate::capture::build::types::BuildTimings;
 use crate::capture::plan::plan_snapshot_capture;
 use crate::capture::publish::publish_snapshot_artifacts;
 use crate::capture::scan::validate_source_inventory;
 use crate::manifest::SnapshotManifest;
+use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
 use crate::repo::coordination::write_with_control;
 use crate::repo::index::required_bundle_ids;
@@ -123,44 +124,144 @@ fn execute_repo_snapshot_capture(
     reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<SnapshotCaptureResult> {
-    request.control.checkpoint()?;
-    let _prepare_span = request.control.profile_span("capture.prepare_source");
-    let _repo_state_span = request
-        .control
-        .profile_span("capture.prepare_source.load_repo_state");
-    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&request.repo_root)?;
-    drop(_repo_state_span);
-
-    let _input_span = request
-        .control
-        .profile_span("capture.prepare_source.prepare_input");
-    let prepared_input = prepare_input_path(&request.source_dir)?;
-    drop(_input_span);
-
-    let _source_inventory_span = request
-        .control
-        .profile_span("capture.prepare_source.inventory_source");
+    let control = &request.control;
+    control.checkpoint()?;
+    let prepare_span = control.profile_span("capture.prepare_source");
+    let (repo_paths, repo_manifest) = {
+        let _span = control.profile_span("capture.prepare_source.load_repo_state");
+        load_gutch_repo_manifest(&request.repo_root)?
+    };
+    let prepared_input = {
+        let _span = control.profile_span("capture.prepare_source.prepare_input");
+        prepare_input_path(&request.source_dir)?
+    };
     let runtime_plan = plan_runtime(&request.runtime_hints);
-    let source_inventory: SourceInventory = scan_source_inventory(
-        &prepared_input.dir,
-        &request.control,
-        runtime_plan.worker_count,
-        build_pool,
-    )?;
-    drop(_source_inventory_span);
+    let source_inventory = {
+        let _span = control.profile_span("capture.prepare_source.inventory_source");
+        scan_source_inventory(
+            &prepared_input.dir,
+            control,
+            runtime_plan.worker_count,
+            build_pool,
+        )?
+    };
     let constraints = repo_manifest.constraints.clone().unwrap_or_default();
     validate_source_inventory(&source_inventory, &constraints)?;
+    let snapshot_tags = {
+        let _span = control.profile_span("capture.prepare_source.resolve_tags");
+        let snapshot_tags = request.explicit_tags.normalized()?;
+        constraints
+            .validate_snapshot_tags(&snapshot_tags, &request.source_dir.display().to_string())?;
+        snapshot_tags
+    };
+    let build_config = configure_build(&request, reuse_state, &repo_paths, &snapshot_tags);
+    drop(prepare_span);
 
-    let _identity_span = request
-        .control
-        .profile_span("capture.prepare_source.resolve_tags");
-    let normalized_tags = request.explicit_tags.normalized()?;
-    constraints
-        .validate_snapshot_tags(&normalized_tags, &request.source_dir.display().to_string())?;
-    let tag_value = |key: &str| normalized_tags.get(key).unwrap_or_default().to_string();
-    drop(_identity_span);
+    let BuiltCapture {
+        mut result,
+        timings,
+        source_inventory,
+    } = build_with_stable_source(
+        &prepared_input.dir,
+        &build_config,
+        build_pool,
+        source_inventory,
+        &constraints,
+        runtime_plan.worker_count,
+    )?;
+    let _publish_span = control.profile_span("capture.publish_snapshot");
+    control.checkpoint()?;
+    let snapshot_id = result.snapshot_manifest.snapshot_id.clone();
+    result.snapshot_manifest.source_modified_at =
+        format_system_time_utc(source_inventory.source_modified_at);
+    result.snapshot_manifest.snapshot_tags = snapshot_tags;
 
-    let _config_span =
+    let existing_manifest_path = snapshot_metadata_path(&repo_paths, &snapshot_id)?;
+    let snapshot_already_existed = existing_manifest_path.exists();
+    if snapshot_already_existed {
+        // The content-derived ID already exists. Identical metadata returns
+        // unchanged; differing metadata needs an explicit update.
+        let existing_manifest = load_snapshot_manifest(&repo_paths, &snapshot_id)?;
+        ensure_same_metadata(&existing_manifest, &result.snapshot_manifest)?;
+        let required_chunks = required_chunk_hashes(&existing_manifest);
+        if required_chunks
+            .iter()
+            .all(|hash| reuse_state.available_chunk_sizes.contains_key(hash))
+        {
+            let counts = ArtifactCounts {
+                required_chunks: required_chunks.len(),
+                required_bundles: required_bundle_ids(
+                    &existing_manifest,
+                    &reuse_state.chunk_index,
+                )?
+                .len(),
+                generated_chunks: 0,
+                generated_bundles: 0,
+                reused_chunks: required_chunks.len(),
+            };
+            write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
+            return Ok(capture_result(
+                repo_paths.repo_root,
+                &existing_manifest,
+                existing_manifest_path,
+                SnapshotCaptureOutcome::Unchanged { snapshot_id },
+                counts,
+                timings,
+            ));
+        }
+        // A damaged snapshot may be rebuilt with a different chunk layout. Publish
+        // its new blueprint with its artifacts, retaining descriptive metadata.
+        let rebuilt = mem::replace(&mut result.snapshot_manifest, existing_manifest);
+        result.snapshot_manifest.chunker = request.chunker;
+        result.snapshot_manifest.entries = rebuilt.entries;
+        result.snapshot_manifest.total_compressed_size_estimate =
+            rebuilt.total_compressed_size_estimate;
+    }
+
+    // Publication adds newly built chunks to reuse state. Count against the pre-publication state.
+    let required_chunks = required_chunk_hashes(&result.snapshot_manifest);
+    let required_chunk_count = required_chunks.len();
+    let reused_chunk_count = required_chunks
+        .into_iter()
+        .filter(|chunk_id| reuse_state.available_chunk_sizes.contains_key(chunk_id))
+        .count();
+
+    let (manifest_path, required_bundle_count) =
+        publish_snapshot_artifacts(control, &repo_paths, &result, reuse_state, build_pool)?;
+
+    let outcome = if snapshot_already_existed {
+        SnapshotCaptureOutcome::Unchanged { snapshot_id }
+    } else {
+        SnapshotCaptureOutcome::Created { snapshot_id }
+    };
+    let counts = ArtifactCounts {
+        required_chunks: required_chunk_count,
+        required_bundles: required_bundle_count,
+        generated_chunks: result.loose_chunks.len(),
+        generated_bundles: result.bundles.len(),
+        reused_chunks: reused_chunk_count,
+    };
+    let capture_result = capture_result(
+        repo_paths.repo_root,
+        &result.snapshot_manifest,
+        manifest_path,
+        outcome,
+        counts,
+        timings,
+    );
+    capture_result.emit_done(control.progress());
+    Ok(capture_result)
+}
+
+/// Configures the build to reuse the repository's chunks, bundles and
+/// previous file manifests.
+fn configure_build<'a>(
+    request: &SnapshotCaptureRequest,
+    reuse_state: &'a CaptureReuseState,
+    repo_paths: &RepoPaths,
+    snapshot_tags: &SnapshotTagSet,
+) -> BuildConfig<'a> {
+    let _span =
         request
             .control
             .profile_span_with_args("capture.prepare_source.configure_build", || {
@@ -179,7 +280,7 @@ fn execute_repo_snapshot_capture(
                     ),
                 ])
             });
-    let mut build_config = BuildConfig::for_snapshot(&normalized_tags)
+    let mut build_config = BuildConfig::for_snapshot(snapshot_tags)
         .with_existing_chunks(&reuse_state.available_chunk_sizes)
         .with_existing_bundles(&reuse_state.bundle_ids)
         .with_previous_manifests(&reuse_state.previous_file_manifests)
@@ -191,132 +292,70 @@ fn execute_repo_snapshot_capture(
         .with_runtime_hints(request.runtime_hints)
         .with_artifact_staging_root(repo_paths.bundles_root.clone());
     build_config.control = request.control.clone();
-    drop(_config_span);
+    build_config
+}
 
-    drop(_prepare_span);
-    let BuiltCapture {
-        result,
-        timings,
-        source_inventory,
-    } = build_with_stable_source(
-        &prepared_input.dir,
-        &build_config,
-        build_pool,
-        source_inventory,
-        &constraints,
-        runtime_plan.worker_count,
-    )?;
-    let _publish_span = request.control.profile_span("capture.publish_snapshot");
-    request.control.checkpoint()?;
-    let mut result = result;
-    let snapshot_id = result.snapshot_manifest.snapshot_id.clone();
-    result.snapshot_manifest.source_modified_at =
-        format_system_time_utc(source_inventory.source_modified_at);
-    result.snapshot_manifest.snapshot_tags = normalized_tags.clone();
+/// How a capture used the repository's chunks and bundles.
+struct ArtifactCounts {
+    required_chunks: usize,
+    required_bundles: usize,
+    generated_chunks: usize,
+    generated_bundles: usize,
+    reused_chunks: usize,
+}
 
-    let existing_manifest_path = snapshot_metadata_path(&repo_paths, &snapshot_id)?;
-    let snapshot_already_existed = existing_manifest_path.exists();
-    if snapshot_already_existed {
-        let existing_manifest = load_snapshot_manifest(&repo_paths, &snapshot_id)?;
-
-        // The content-derived ID already exists. Compare metadata without
-        // mutating anything: identical metadata returns unchanged, differing
-        // metadata returns a typed conflict for an explicit update.
-        let differences =
-            capture_metadata_differences(&existing_manifest, &result.snapshot_manifest);
-        if !differences.is_empty() {
-            return Err(crate::Error::SnapshotCaptureConflict {
-                outcome: SnapshotCaptureOutcome::MetadataConflict {
-                    snapshot_id: snapshot_id.clone(),
-                    differences,
-                },
-            });
-        }
-        if required_chunk_hashes(&existing_manifest)
-            .iter()
-            .all(|hash| reuse_state.available_chunk_sizes.contains_key(hash))
-        {
-            let required_chunk_count = required_chunk_hashes(&existing_manifest).len();
-            let required_bundle_count =
-                required_bundle_ids(&existing_manifest, &reuse_state.chunk_index)?.len();
-            write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
-            return Ok(SnapshotCaptureResult {
-                repo_root: repo_paths.repo_root,
-                snapshot_id: existing_manifest.snapshot_id.clone(),
-                outcome: SnapshotCaptureOutcome::Unchanged {
-                    snapshot_id: snapshot_id.clone(),
-                },
-                manifest_path: existing_manifest_path,
-                version_tag: tag_value("version"),
-                os: tag_value("os"),
-                arch: tag_value("arch"),
-                file_count: existing_manifest.file_count(),
-                total_logical_size: existing_manifest.total_logical_size,
-                total_compressed_size_estimate: existing_manifest.total_compressed_size_estimate,
-                required_chunk_count,
-                required_bundle_count,
-                generated_bundle_count: 0,
-                generated_chunk_count: 0,
-                reused_chunk_count: required_chunk_count,
-                new_chunk_count: 0,
-                build_timings: timings,
-            });
-        }
-        // A damaged snapshot may be rebuilt with a different chunk layout. Publish
-        // its new blueprint with its artifacts, retaining descriptive metadata.
-        let rebuilt_entries = mem::take(&mut result.snapshot_manifest.entries);
-        let rebuilt_estimate = result.snapshot_manifest.total_compressed_size_estimate;
-        result.snapshot_manifest = existing_manifest;
-        result.snapshot_manifest.chunker = request.chunker;
-        result.snapshot_manifest.entries = rebuilt_entries;
-        result.snapshot_manifest.total_compressed_size_estimate = rebuilt_estimate;
-    }
-
-    // Publication adds newly built chunks to reuse state. Count against the pre-publication state.
-    let required_chunks = required_chunk_hashes(&result.snapshot_manifest);
-    let required_chunk_count = required_chunks.len();
-    let reused_chunk_count = required_chunks
-        .into_iter()
-        .filter(|chunk_id| reuse_state.available_chunk_sizes.contains_key(chunk_id))
-        .count();
-
-    let (manifest_path, required_bundle_count) = publish_snapshot_artifacts(
-        &request.control,
-        &repo_paths,
-        &result,
-        reuse_state,
-        build_pool,
-    )?;
-
-    let capture_result = SnapshotCaptureResult {
-        repo_root: repo_paths.repo_root,
-        snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
-        outcome: if snapshot_already_existed {
-            SnapshotCaptureOutcome::Unchanged {
-                snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
-            }
-        } else {
-            SnapshotCaptureOutcome::Created {
-                snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
-            }
-        },
+fn capture_result(
+    repo_root: PathBuf,
+    manifest: &SnapshotManifest,
+    manifest_path: PathBuf,
+    outcome: SnapshotCaptureOutcome,
+    counts: ArtifactCounts,
+    build_timings: BuildTimings,
+) -> SnapshotCaptureResult {
+    let tag_value = |key: &str| {
+        manifest
+            .snapshot_tags
+            .get(key)
+            .unwrap_or_default()
+            .to_string()
+    };
+    SnapshotCaptureResult {
+        repo_root,
+        snapshot_id: manifest.snapshot_id.clone(),
+        outcome,
         manifest_path,
         version_tag: tag_value("version"),
         os: tag_value("os"),
         arch: tag_value("arch"),
-        file_count: result.snapshot_manifest.file_count(),
-        total_logical_size: result.snapshot_manifest.total_logical_size,
-        total_compressed_size_estimate: result.snapshot_manifest.total_compressed_size_estimate,
-        required_chunk_count,
-        required_bundle_count,
-        generated_bundle_count: result.bundles.len(),
-        generated_chunk_count: result.loose_chunks.len(),
-        reused_chunk_count,
-        new_chunk_count: required_chunk_count.saturating_sub(reused_chunk_count),
-        build_timings: timings,
-    };
-    capture_result.emit_done(request.control.progress());
-    Ok(capture_result)
+        file_count: manifest.file_count(),
+        total_logical_size: manifest.total_logical_size,
+        total_compressed_size_estimate: manifest.total_compressed_size_estimate,
+        required_chunk_count: counts.required_chunks,
+        required_bundle_count: counts.required_bundles,
+        generated_bundle_count: counts.generated_bundles,
+        generated_chunk_count: counts.generated_chunks,
+        reused_chunk_count: counts.reused_chunks,
+        new_chunk_count: counts.required_chunks.saturating_sub(counts.reused_chunks),
+        build_timings,
+    }
+}
+
+/// Rejects a capture whose descriptive metadata differs from the existing
+/// snapshot with the same content.
+fn ensure_same_metadata(
+    existing_manifest: &SnapshotManifest,
+    requested_manifest: &SnapshotManifest,
+) -> Result<()> {
+    let differences = capture_metadata_differences(existing_manifest, requested_manifest);
+    if differences.is_empty() {
+        return Ok(());
+    }
+    Err(crate::Error::SnapshotCaptureConflict {
+        outcome: SnapshotCaptureOutcome::MetadataConflict {
+            snapshot_id: requested_manifest.snapshot_id.clone(),
+            differences,
+        },
+    })
 }
 
 fn capture_metadata_differences(
