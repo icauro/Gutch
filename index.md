@@ -105,8 +105,10 @@ src/05_manifest/repo_manifest_tests.rs
 src/05_manifest/snapshot.rs
 src/05_manifest/snapshot_tests.rs
 src/05_manifest/tags.rs
-src/05_path_compare.rs
-src/05_path_compare_tests.rs
+src/05_path_compare/
+src/05_path_compare/compare.rs
+src/05_path_compare/compare_tests.rs
+src/05_path_compare/mod.rs
 src/05_transfer/
 src/05_transfer/adaptive.rs
 src/05_transfer/artifact_download.rs

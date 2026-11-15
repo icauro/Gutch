@@ -24,7 +24,7 @@ mod filesystem;
 mod installation;
 #[path = "05_manifest/mod.rs"]
 mod manifest;
-#[path = "05_path_compare.rs"]
+#[path = "05_path_compare/mod.rs"]
 mod path_compare;
 #[path = "01_profiling/mod.rs"]
 mod profiling;

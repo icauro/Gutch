@@ -1,5 +1,3 @@
-//! Compares two physical directory trees by kind, content and link target.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
@@ -228,5 +226,5 @@ fn link_targets_match(
 }
 
 #[cfg(test)]
-#[path = "05_path_compare_tests.rs"]
+#[path = "compare_tests.rs"]
 mod tests;
