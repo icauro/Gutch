@@ -7,12 +7,13 @@ use crate::filesystem::paths::ManifestPathResolver;
 use crate::filesystem::paths::resolve_manifest_relative_path;
 use crate::filesystem::set_read_only;
 use crate::installation::contracts::SnapshotRepairResult;
+use crate::installation::inspect::InspectionSpans;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::RepairIssue;
 use crate::installation::inspect::RepairIssueKind;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
-use crate::installation::inspect::classify_expected_entries_with_marker_namespace_and_pool;
+use crate::installation::inspect::classify_expected_entries;
 use crate::installation::plan::InstallationChanges;
 use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -146,17 +147,15 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     let mut final_classification = if verification_manifest.entries.is_empty() {
         RepairClassification::default()
     } else {
-        classify_expected_entries_with_marker_namespace_and_pool(
-            VerifyRequest {
-                snapshot_manifest: &verification_manifest,
-                dir: destination_dir,
-                mode: VerifyMode::Fast,
-                runtime_hints,
-                control: control.clone(),
-            },
-            "installation.repair.verify.final",
-            operation_pool,
-        )?
+        classify_expected_entries(VerifyRequest {
+            snapshot_manifest: &verification_manifest,
+            dir: destination_dir,
+            mode: VerifyMode::Fast,
+            runtime_hints,
+            control: control.clone(),
+            spans: &InspectionSpans::REPAIR_RESULT,
+            pool: operation_pool,
+        })?
         .0
     };
     if remove_added_files {

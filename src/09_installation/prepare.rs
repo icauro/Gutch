@@ -51,7 +51,7 @@ pub(super) fn load_repo_snapshot_manifest(
 
 /// Shared preparation after each caller has acquired its repository and
 /// destination guards. Remote acquisition/publication remain with transfer.
-pub(crate) struct ReconstructionInputs<'a> {
+pub(crate) struct ReconstructInputs<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub chunk_index: &'a ChunkIndex,
     pub repo_paths: &'a RepoPaths,
@@ -67,7 +67,7 @@ pub(crate) struct PreparedReconstruction {
 }
 
 pub(crate) fn prepare_reconstruction(
-    inputs: ReconstructionInputs<'_>,
+    inputs: ReconstructInputs<'_>,
 ) -> Result<PreparedReconstruction> {
     let source_directory = inputs
         .source

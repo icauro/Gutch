@@ -92,7 +92,7 @@ pub fn rebuild_index(
                                 "loose artifact filename disagrees with header",
                             ));
                         }
-                        read_loose_chunk(&path, hash, u64::from(raw), &profile)?;
+                        read_loose_chunk(&path, hash, u64::from(raw), None)?;
                         Ok(vec![(
                             hash.clone(),
                             ChunkIndexEntry::new(

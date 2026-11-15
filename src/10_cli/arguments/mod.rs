@@ -5,7 +5,7 @@ mod installation;
 mod repo;
 mod snapshot;
 
-pub(crate) use installation::{InstallationCommands, ReconstructionArgs};
+pub(crate) use installation::{InstallationCommands, ReconstructArgs};
 pub(crate) use repo::{
     ConstraintCommands, RemoteCommands, RepoCommands, RepoIndexCommands, RepoTagsCommands,
 };

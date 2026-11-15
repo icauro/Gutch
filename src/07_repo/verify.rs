@@ -182,13 +182,7 @@ fn verify_snapshot_artifacts_cached(
                         ))
                     });
                     entry.and_then(|entry| {
-                        read_loose_chunk(
-                            &path,
-                            hash,
-                            u64::from(entry.raw_size),
-                            compression_profile,
-                        )
-                        .map(|_| ())
+                        read_loose_chunk(&path, hash, u64::from(entry.raw_size), None).map(|_| ())
                     })
                 }
             };

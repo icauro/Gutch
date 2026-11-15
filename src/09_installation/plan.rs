@@ -12,10 +12,11 @@ use crate::installation::execute::jobs::{
     ReconstructArtifactChunk, ReconstructArtifactJob, ReconstructJob, ReconstructPipelineFile,
     ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget, SourceChunkLocation,
 };
+use crate::installation::inspect::InspectionSpans;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
-use crate::installation::inspect::classify_directory_with_marker_namespace_and_pool;
+use crate::installation::inspect::classify_directory;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::manifest::{FileManifest, SnapshotEntry};
 use crate::progress::OperationControl;
@@ -370,17 +371,15 @@ pub(crate) fn inspect_installation_changes(
     control: &OperationControl,
     operation_pool: Option<&ThreadPool>,
 ) -> Result<InstallationChanges> {
-    let (mut classification, _) = classify_directory_with_marker_namespace_and_pool(
-        VerifyRequest {
-            snapshot_manifest,
-            dir: destination_dir,
-            mode: inspection,
-            runtime_hints,
-            control: control.clone(),
-        },
-        "installation.repair.verify",
-        operation_pool,
-    )?;
+    let (mut classification, _) = classify_directory(VerifyRequest {
+        snapshot_manifest,
+        dir: destination_dir,
+        mode: inspection,
+        runtime_hints,
+        control: control.clone(),
+        spans: &InspectionSpans::REPAIR,
+        pool: operation_pool,
+    })?;
     let updates = if inspection == VerifyMode::MetadataOnly {
         Vec::new()
     } else {

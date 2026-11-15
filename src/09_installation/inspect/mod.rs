@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use rayon::ThreadPool;
 use rayon::prelude::*;
 
 use crate::Result;
@@ -34,48 +35,39 @@ mod types;
 
 use crate::filesystem::paths::ManifestPathResolver;
 use std::collections::BTreeMap;
-use std::sync::OnceLock;
 pub use types::RepairClassification;
 pub use types::RepairIssue;
 pub use types::RepairIssueKind;
 pub use types::VerifyMode;
 pub use types::VerifyTimings;
 
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
-
-struct VerifyOptions<'a> {
-    mode: VerifyMode,
-    hints: &'a RuntimeResourceHints,
-    control: &'a OperationControl,
+/// Profile span names for one kind of inspection.
+pub(crate) struct InspectionSpans {
+    operation: &'static str,
+    prepare_paths: &'static str,
+    prepare_inventory: &'static str,
+    files: &'static str,
+    file: &'static str,
+    extra_scan: &'static str,
 }
 
-impl<'a> Default for VerifyOptions<'a> {
-    fn default() -> Self {
-        Self {
-            mode: VerifyMode::Fast,
-            hints: default_runtime_hints(),
-            control: default_control(),
+macro_rules! inspection_spans {
+    ($operation:literal) => {
+        InspectionSpans {
+            operation: $operation,
+            prepare_paths: concat!($operation, ".prepare.paths"),
+            prepare_inventory: concat!($operation, ".prepare.paths.inventory"),
+            files: concat!($operation, ".files"),
+            file: concat!($operation, ".file"),
+            extra_scan: concat!($operation, ".extra_scan"),
         }
-    }
+    };
 }
 
-impl<'a> VerifyOptions<'a> {
-    fn with_mode(mut self, mode: VerifyMode) -> Self {
-        self.mode = mode;
-        self
-    }
-
-    fn with_hints(mut self, hints: &'a RuntimeResourceHints) -> Self {
-        self.hints = hints;
-        self
-    }
-
-    fn with_control(mut self, control: &'a OperationControl) -> Self {
-        self.control = control;
-        self
-    }
+impl InspectionSpans {
+    pub(crate) const VERIFY: Self = inspection_spans!("installation.verify");
+    pub(crate) const REPAIR: Self = inspection_spans!("installation.repair.verify");
+    pub(crate) const REPAIR_RESULT: Self = inspection_spans!("installation.repair.verify.final");
 }
 
 pub(crate) struct VerifyRequest<'a> {
@@ -84,6 +76,9 @@ pub(crate) struct VerifyRequest<'a> {
     pub mode: VerifyMode,
     pub runtime_hints: &'a RuntimeResourceHints,
     pub control: OperationControl,
+    pub spans: &'static InspectionSpans,
+    /// Reuses the caller's worker pool; `None` builds one from `runtime_hints`.
+    pub pool: Option<&'a ThreadPool>,
 }
 
 struct PreparedVerifyFile<'a> {
@@ -97,25 +92,42 @@ enum PreparedFileMetadata {
     ResolveDuringVerification,
 }
 
-// ---------------------------------------------------------------------------
-// Core implementation
-// ---------------------------------------------------------------------------
-
-fn classify_inner(
-    snapshot_manifest: &SnapshotManifest,
-    dir: &Path,
-    opts: &VerifyOptions,
-    scan_extra_files: bool,
-    marker_namespace: &'static str,
-    supplied_pool: Option<&rayon::ThreadPool>,
+/// Classifies every snapshot entry under `request.dir` and reports files the
+/// snapshot does not contain.
+pub(crate) fn classify_directory(
+    request: VerifyRequest<'_>,
 ) -> Result<(RepairClassification, VerifyTimings)> {
-    let total_start = ProfileInstant::start(opts.control.profiler());
-    opts.control.checkpoint()?;
-    let _operation_span = opts.control.profile_span(marker_namespace);
+    classify(request, true)
+}
+
+/// Classifies only the entries the snapshot lists; other files are ignored.
+pub(crate) fn classify_expected_entries(
+    request: VerifyRequest<'_>,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    classify(request, false)
+}
+
+fn classify(
+    request: VerifyRequest<'_>,
+    scan_extra_files: bool,
+) -> Result<(RepairClassification, VerifyTimings)> {
+    let VerifyRequest {
+        snapshot_manifest,
+        dir,
+        mode,
+        runtime_hints,
+        control,
+        spans,
+        pool: supplied_pool,
+    } = request;
+    let control = &control;
+    let total_start = ProfileInstant::start(control.profiler());
+    control.checkpoint()?;
+    let _operation_span = control.profile_span(spans.operation);
     let mut classification = RepairClassification::default();
-    let mut runtime_plan = plan_runtime(opts.hints);
+    let mut runtime_plan = plan_runtime(runtime_hints);
     let mut timings = VerifyTimings {
-        verify_mode: opts.mode,
+        verify_mode: mode,
         runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };
@@ -133,9 +145,37 @@ fn classify_inner(
     runtime_plan.worker_count = verify_pool.current_num_threads().max(1);
     timings.runtime_plan = Some(runtime_plan.clone());
     let (inventory, resolved_paths) = if scan_extra_files {
-        let _resolve_paths_span = opts.control.profile_span_with_args(
-            marker_name(marker_namespace, "prepare.paths"),
-            || {
+        let _resolve_paths_span = control.profile_span_with_args(spans.prepare_paths, || {
+            BTreeMap::from([
+                (
+                    "path_count".to_string(),
+                    serde_json::json!(snapshot_manifest.entries.len()),
+                ),
+                (
+                    "strategy".to_string(),
+                    serde_json::json!("filesystem_inventory"),
+                ),
+            ])
+        });
+        let mut inventory = build_filesystem_inventory(snapshot_manifest, dir, control)?;
+        augment_inventory_for_symlinked_parents(snapshot_manifest, dir, &mut inventory, control)?;
+        control.profile_event_with_args(spans.prepare_inventory, || {
+            BTreeMap::from([
+                (
+                    "inventory_entry_count".to_string(),
+                    serde_json::json!(inventory.entries.len()),
+                ),
+                (
+                    "extra_path_count".to_string(),
+                    serde_json::json!(inventory.extra_paths.len()),
+                ),
+            ])
+        });
+        (Some(inventory), None)
+    } else {
+        let path_resolver = ManifestPathResolver::new(dir)?;
+        let resolved_paths = {
+            let _resolve_paths_span = control.profile_span_with_args(spans.prepare_paths, || {
                 BTreeMap::from([
                     (
                         "path_count".to_string(),
@@ -143,52 +183,10 @@ fn classify_inner(
                     ),
                     (
                         "strategy".to_string(),
-                        serde_json::json!("filesystem_inventory"),
+                        serde_json::json!("targeted_resolver"),
                     ),
                 ])
-            },
-        );
-        let mut inventory = build_filesystem_inventory(snapshot_manifest, dir, opts.control)?;
-        augment_inventory_for_symlinked_parents(
-            snapshot_manifest,
-            dir,
-            &mut inventory,
-            opts.control,
-        )?;
-        opts.control.profile_event_with_args(
-            marker_name(marker_namespace, "prepare.paths.inventory"),
-            || {
-                BTreeMap::from([
-                    (
-                        "inventory_entry_count".to_string(),
-                        serde_json::json!(inventory.entries.len()),
-                    ),
-                    (
-                        "extra_path_count".to_string(),
-                        serde_json::json!(inventory.extra_paths.len()),
-                    ),
-                ])
-            },
-        );
-        (Some(inventory), None)
-    } else {
-        let path_resolver = ManifestPathResolver::new(dir)?;
-        let resolved_paths = {
-            let _resolve_paths_span = opts.control.profile_span_with_args(
-                marker_name(marker_namespace, "prepare.paths"),
-                || {
-                    BTreeMap::from([
-                        (
-                            "path_count".to_string(),
-                            serde_json::json!(snapshot_manifest.entries.len()),
-                        ),
-                        (
-                            "strategy".to_string(),
-                            serde_json::json!("targeted_resolver"),
-                        ),
-                    ])
-                },
-            );
+            });
             verify_pool.install(|| {
                 snapshot_manifest
                     .entries
@@ -252,12 +250,7 @@ fn classify_inner(
             .then_with(|| left.manifest.path.cmp(&right.manifest.path))
     });
     let completed_files = AtomicUsize::new(0);
-    emit_verify_progress(
-        opts.control.progress(),
-        0,
-        snapshot_manifest.file_count(),
-        false,
-    );
+    emit_verify_progress(control.progress(), 0, snapshot_manifest.file_count(), false);
 
     timings.prepare_wall = total_start.elapsed();
     if let Some(inventory) = inventory.as_ref() {
@@ -268,26 +261,24 @@ fn classify_inner(
             .expect("targeted verification paths must be prepared");
         classify_resolved_non_files(snapshot_manifest, resolved_paths, &mut classification)?;
     }
-    let verify_files_start = ProfileInstant::start(opts.control.profiler());
+    let verify_files_start = ProfileInstant::start(control.profiler());
     let per_file_results = {
-        let _file_span =
-            opts.control
-                .profile_span_with_args(marker_name(marker_namespace, "files"), || {
-                    BTreeMap::from([
-                        (
-                            "file_count".to_string(),
-                            serde_json::json!(prepared_files.len()),
-                        ),
-                        (
-                            "scheduling".to_string(),
-                            serde_json::json!("largest_first_work_stealing"),
-                        ),
-                        (
-                            "worker_count".to_string(),
-                            serde_json::json!(runtime_plan.worker_count),
-                        ),
-                    ])
-                });
+        let _file_span = control.profile_span_with_args(spans.files, || {
+            BTreeMap::from([
+                (
+                    "file_count".to_string(),
+                    serde_json::json!(prepared_files.len()),
+                ),
+                (
+                    "scheduling".to_string(),
+                    serde_json::json!("largest_first_work_stealing"),
+                ),
+                (
+                    "worker_count".to_string(),
+                    serde_json::json!(runtime_plan.worker_count),
+                ),
+            ])
+        });
         // Indexed collection preserves size/path order while idle workers steal work.
         verify_pool.install(|| {
             prepared_files
@@ -295,17 +286,17 @@ fn classify_inner(
                 // Let another worker take the next file even when adjacent sizes differ.
                 .with_max_len(1)
                 .map(|prepared_file| {
-                    opts.control.checkpoint()?;
+                    control.checkpoint()?;
                     let result = verify_manifest_file(
                         prepared_file,
-                        opts.mode,
-                        opts.control,
+                        mode,
+                        control,
                         runtime_plan.worker_count.min(prepared_files.len()),
-                        marker_namespace,
+                        spans.file,
                     );
                     let current = completed_files.fetch_add(1, Ordering::Relaxed) + 1;
                     emit_verify_progress(
-                        opts.control.progress(),
+                        control.progress(),
                         current,
                         snapshot_manifest.file_count(),
                         false,
@@ -325,12 +316,10 @@ fn classify_inner(
     timings.verify_files_wall = verify_files_start.elapsed();
 
     if let Some(inventory) = inventory.as_ref() {
-        let extra_file_scan_start = ProfileInstant::start(opts.control.profiler());
-        let _extra_scan_span = opts
-            .control
-            .profile_span(marker_name(marker_namespace, "extra_scan"));
+        let extra_file_scan_start = ProfileInstant::start(control.profiler());
+        let _extra_scan_span = control.profile_span(spans.extra_scan);
         for relative in &inventory.extra_paths {
-            opts.control.checkpoint()?;
+            control.checkpoint()?;
             classification.push(RepairIssue {
                 kind: RepairIssueKind::Extra,
                 path: relative.clone(),
@@ -342,119 +331,12 @@ fn classify_inner(
 
     timings.total = total_start.elapsed();
     emit_verify_progress(
-        opts.control.progress(),
+        control.progress(),
         snapshot_manifest.file_count(),
         snapshot_manifest.file_count(),
         true,
     );
     Ok((classification, timings))
-}
-
-pub(crate) fn classify_directory(
-    request: VerifyRequest<'_>,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_directory_with_marker_namespace(request, "installation.verify")
-}
-
-pub(crate) fn classify_directory_with_marker_namespace(
-    request: VerifyRequest<'_>,
-    marker_namespace: &'static str,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_directory_with_marker_namespace_and_pool(request, marker_namespace, None)
-}
-
-pub(crate) fn classify_directory_with_marker_namespace_and_pool(
-    request: VerifyRequest<'_>,
-    marker_namespace: &'static str,
-    verify_pool: Option<&rayon::ThreadPool>,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_inner(
-        request.snapshot_manifest,
-        request.dir,
-        &VerifyOptions::default()
-            .with_mode(request.mode)
-            .with_hints(request.runtime_hints)
-            .with_control(&request.control),
-        true,
-        marker_namespace,
-        verify_pool,
-    )
-}
-
-#[allow(dead_code)]
-pub(crate) fn classify_expected_entries(
-    request: VerifyRequest<'_>,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_expected_entries_with_marker_namespace(request, "installation.verify")
-}
-
-pub(crate) fn classify_expected_entries_with_marker_namespace(
-    request: VerifyRequest<'_>,
-    marker_namespace: &'static str,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_expected_entries_with_marker_namespace_and_pool(request, marker_namespace, None)
-}
-
-pub(crate) fn classify_expected_entries_with_marker_namespace_and_pool(
-    request: VerifyRequest<'_>,
-    marker_namespace: &'static str,
-    verify_pool: Option<&rayon::ThreadPool>,
-) -> Result<(RepairClassification, VerifyTimings)> {
-    classify_inner(
-        request.snapshot_manifest,
-        request.dir,
-        &VerifyOptions::default()
-            .with_mode(request.mode)
-            .with_hints(request.runtime_hints)
-            .with_control(&request.control),
-        false,
-        marker_namespace,
-        verify_pool,
-    )
-}
-
-fn marker_name(namespace: &'static str, suffix: &str) -> &'static str {
-    match (namespace, suffix) {
-        ("installation.verify", "prepare.paths") => "installation.verify.prepare.paths",
-        ("installation.verify", "prepare.paths.inventory") => {
-            "installation.verify.prepare.paths.inventory"
-        }
-        ("installation.verify", "files") => "installation.verify.files",
-        ("installation.verify", "extra_scan") => "installation.verify.extra_scan",
-        ("installation.verify", "file") => "installation.verify.file",
-        ("installation.repair.verify", "prepare.paths") => {
-            "installation.repair.verify.prepare.paths"
-        }
-        ("installation.repair.verify", "prepare.paths.inventory") => {
-            "installation.repair.verify.prepare.paths.inventory"
-        }
-        ("installation.repair.verify", "files") => "installation.repair.verify.files",
-        ("installation.repair.verify", "extra_scan") => "installation.repair.verify.extra_scan",
-        ("installation.repair.verify", "file") => "installation.repair.verify.file",
-        ("installation.repair.verify.final", "prepare.paths") => {
-            "installation.repair.verify.final.prepare.paths"
-        }
-        ("installation.repair.verify.final", "prepare.paths.inventory") => {
-            "installation.repair.verify.final.prepare.paths.inventory"
-        }
-        ("installation.repair.verify.final", "files") => "installation.repair.verify.final.files",
-        ("installation.repair.verify.final", "extra_scan") => {
-            "installation.repair.verify.final.extra_scan"
-        }
-        ("installation.repair.verify.final", "file") => "installation.repair.verify.final.file",
-        ("installation.reconstruct.inspect", "prepare.paths") => {
-            "installation.reconstruct.inspect.prepare.paths"
-        }
-        ("installation.reconstruct.inspect", "prepare.paths.inventory") => {
-            "installation.reconstruct.inspect.prepare.paths.inventory"
-        }
-        ("installation.reconstruct.inspect", "files") => "installation.reconstruct.inspect.files",
-        ("installation.reconstruct.inspect", "extra_scan") => {
-            "installation.reconstruct.inspect.extra_scan"
-        }
-        ("installation.reconstruct.inspect", "file") => "installation.reconstruct.inspect.file",
-        _ => "installation.inspect",
-    }
 }
 
 fn emit_verify_progress(
@@ -478,16 +360,6 @@ fn emit_verify_progress(
             done,
         },
     );
-}
-
-fn default_control() -> &'static OperationControl {
-    static CONTROL: OnceLock<OperationControl> = OnceLock::new();
-    CONTROL.get_or_init(OperationControl::default)
-}
-
-fn default_runtime_hints() -> &'static RuntimeResourceHints {
-    static DEFAULT_HINTS: OnceLock<RuntimeResourceHints> = OnceLock::new();
-    DEFAULT_HINTS.get_or_init(RuntimeResourceHints::default)
 }
 
 fn accumulate_timings(total: &mut VerifyTimings, add: &VerifyTimings) {

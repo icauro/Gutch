@@ -43,7 +43,6 @@ use crate::capture::scan::SourceInventory;
 use crate::capture::scan::collect_scanned_chunks;
 use crate::capture::scan::scan_source_inventory;
 use crate::manifest;
-use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::progress::ProgressPhase;
@@ -628,50 +627,32 @@ fn build_bundle_compressed_group(
     })
 }
 
-pub fn build_from_directory(dir: &Path, snapshot_tags: &SnapshotTagSet) -> Result<BuildResult> {
-    Ok(build_with_config_timed(dir, &BuildConfig::for_snapshot(snapshot_tags))?.0)
-}
-
-pub(crate) fn build_with_config_timed(
+/// Scans `dir` on a new worker pool and builds its snapshot artifacts.
+pub(crate) fn build_directory(
     dir: &Path,
     config: &BuildConfig<'_>,
 ) -> Result<(BuildResult, BuildTimings)> {
-    let runtime_plan = plan_runtime(&config.runtime_hints);
-    let _pool_span = config
-        .control
-        .profile_span_with_args("capture.create_worker_pool", || {
-            BTreeMap::from([(
-                "worker_count".to_string(),
-                serde_json::json!(runtime_plan.worker_count),
-            )])
-        });
-    let build_pool = build_thread_pool(runtime_plan.worker_count, "Capture worker")?;
-    drop(_pool_span);
-    build_with_config_timed_on_pool(dir, config, &build_pool)
-}
-
-pub(crate) fn build_with_config_timed_on_pool(
-    dir: &Path,
-    config: &BuildConfig<'_>,
-    build_pool: &ThreadPool,
-) -> Result<(BuildResult, BuildTimings)> {
+    let worker_count = plan_runtime(&config.runtime_hints).worker_count;
+    let build_pool = {
+        let _pool_span = config
+            .control
+            .profile_span_with_args("capture.create_worker_pool", || {
+                BTreeMap::from([("worker_count".to_string(), serde_json::json!(worker_count))])
+            });
+        build_thread_pool(worker_count, "Capture worker")?
+    };
     let inventory = {
         let _inventory_span = config.control.profile_span("capture.scan_source.inventory");
-        scan_source_inventory(
-            dir,
-            &config.control,
-            plan_runtime(&config.runtime_hints).worker_count,
-            build_pool,
-        )?
+        scan_source_inventory(dir, &config.control, worker_count, &build_pool)?
     };
-    build_with_config_timed_on_pool_with_inventory(dir, config, build_pool, &inventory)
+    build_from_inventory(&inventory, config, &build_pool)
 }
 
-pub(crate) fn build_with_config_timed_on_pool_with_inventory(
-    _dir: &Path,
+/// Builds snapshot artifacts from an already scanned source inventory.
+pub(crate) fn build_from_inventory(
+    inventory: &SourceInventory,
     config: &BuildConfig<'_>,
     build_pool: &ThreadPool,
-    inventory: &SourceInventory,
 ) -> Result<(BuildResult, BuildTimings)> {
     validate_packaging_sizes(
         &config.chunk_profile,

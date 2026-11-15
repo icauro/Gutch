@@ -23,7 +23,7 @@ use crate::artifact::profiles::validate_packaging_sizes;
 use crate::capture::build::BuiltCapture;
 use crate::capture::build::build_with_stable_source;
 use crate::capture::build::types::BuildConfig;
-use crate::capture::plan::plan_snapshot_capture_with_control;
+use crate::capture::plan::plan_snapshot_capture;
 use crate::capture::publish::publish_snapshot_artifacts;
 use crate::capture::scan::validate_source_inventory;
 use crate::manifest::SnapshotManifest;
@@ -81,18 +81,14 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
             request.storage_mode,
         );
         manifest.artifact_profile.chunker = request.chunker;
-        let result = capture_repo_snapshot_with_existing_reuse_state(
-            request,
-            &mut reuse_state,
-            &build_pool,
-        )?;
+        let result = capture_snapshot_reusing_state(request, &mut reuse_state, &build_pool)?;
         write_gutch_repo_manifest(&repo_paths, &manifest)?;
         Ok(result)
     })
     .map_err(capture_error)
 }
 
-pub(crate) fn capture_repo_snapshot_with_existing_reuse_state(
+pub(crate) fn capture_snapshot_reusing_state(
     request: SnapshotCaptureRequest,
     reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
@@ -100,7 +96,7 @@ pub(crate) fn capture_repo_snapshot_with_existing_reuse_state(
     request.control.checkpoint()?;
     let operation_root = request.repo_root.to_path_buf();
     write_with_control(&operation_root, &request.control.clone(), || {
-        plan_snapshot_capture_with_control(
+        plan_snapshot_capture(
             request.repo_root.as_path(),
             request.source_dir.as_path(),
             &request.explicit_tags,

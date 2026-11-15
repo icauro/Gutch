@@ -290,19 +290,19 @@ pub(crate) struct ReconstructTimingsSummary {
 #[derive(Debug, Serialize)]
 pub(crate) struct ReconstructTimingPhasesSummary {
     pub(crate) prepare: WallTimingPhaseSummary,
-    pub(crate) reconstruct: ReconstructionPhaseSummary,
+    pub(crate) reconstruct: ReconstructPhaseSummary,
     pub(crate) finalize: WallTimingPhaseSummary,
     pub(crate) promote: WallTimingPhaseSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ReconstructionPhaseSummary {
+pub(crate) struct ReconstructPhaseSummary {
     pub(crate) wall_seconds: Option<f64>,
-    pub(crate) details: ReconstructionDetailsSummary,
+    pub(crate) details: ReconstructDetailsSummary,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ReconstructionDetailsSummary {
+pub(crate) struct ReconstructDetailsSummary {
     pub(crate) artifact_read_decode_worker_seconds: Option<f64>,
     pub(crate) artifact_read_compressed_bytes: u64,
     pub(crate) artifact_read_decompressed_bytes: u64,
@@ -530,9 +530,9 @@ pub(crate) fn reconstruct_timings_summary(
             prepare: WallTimingPhaseSummary {
                 wall_seconds: detailed.then_some(secs(timings.prepare_wall)),
             },
-            reconstruct: ReconstructionPhaseSummary {
+            reconstruct: ReconstructPhaseSummary {
                 wall_seconds: detailed.then_some(secs(timings.reconstruct_wall)),
-                details: ReconstructionDetailsSummary {
+                details: ReconstructDetailsSummary {
                     artifact_read_decode_worker_seconds: detailed
                         .then_some(secs(timings.artifact_read)),
                     artifact_read_compressed_bytes: timings.artifact_read_compressed_bytes,

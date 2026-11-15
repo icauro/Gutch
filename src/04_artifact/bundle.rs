@@ -453,12 +453,7 @@ impl<R: Read + Seek> BundleReader<R> {
     /// retains the complete decoded payload for callers such as verification
     /// that need random access to every chunk.
     #[cfg(test)]
-    pub(crate) fn read_bundle_payload(&mut self) -> Result<(Vec<u8>, BundleReadMetrics)> {
-        self.read_bundle_payload_with_profiler(None)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_bundle_payload_with_profiler(
+    pub(crate) fn read_bundle_payload(
         &mut self,
         profiler: Option<&Profiler>,
     ) -> Result<(Vec<u8>, BundleReadMetrics)> {
@@ -472,11 +467,10 @@ impl<R: Read + Seek> BundleReader<R> {
             Error::InvalidBundle("bundle payload is too large for this platform".into())
         })?;
         let mut bytes = Vec::with_capacity(decoded_capacity);
-        let metrics =
-            self.stream_bundle_chunks_with_profiler(profiler, &required, |_, chunk| {
-                bytes.extend_from_slice(chunk);
-                Ok(())
-            })?;
+        let metrics = self.stream_bundle_chunks(profiler, &required, |_, chunk| {
+            bytes.extend_from_slice(chunk);
+            Ok(())
+        })?;
         if bytes.len() as u64 != metrics.raw_bytes {
             return Err(Error::InvalidBundle(format!(
                 "bundle payload has raw size {}, expected {}",
@@ -494,7 +488,7 @@ impl<R: Read + Seek> BundleReader<R> {
     /// callback; unselected chunks are decoded into a reusable discard buffer.
     /// This lets reconstruction verify and fan out a chunk before decoding the
     /// next one without changing the one-frame-per-bundle format.
-    pub(crate) fn stream_bundle_chunks_with_profiler<F>(
+    pub(crate) fn stream_bundle_chunks<F>(
         &mut self,
         profiler: Option<&Profiler>,
         required: &[bool],
@@ -592,7 +586,7 @@ impl<R: Read + Seek> BundleReader<R> {
         let raw_end = raw_offset
             .checked_add(raw_size)
             .ok_or_else(|| Error::InvalidBundle("bundle raw size overflow".into()))?;
-        let (bytes, _) = self.read_bundle_payload()?;
+        let (bytes, _) = self.read_bundle_payload(None)?;
         Ok(bytes[raw_offset..raw_end].to_vec())
     }
 
@@ -621,7 +615,7 @@ impl<R: Read + Seek> BundleReader<R> {
     pub(crate) fn verify(&mut self) -> Result<bool> {
         let hashes: Vec<_> = self.entries.iter().map(|entry| entry.chunk_hash).collect();
         let required = vec![true; hashes.len()];
-        self.stream_bundle_chunks_with_profiler(None, &required, |index, bytes| {
+        self.stream_bundle_chunks(None, &required, |index, bytes| {
             let actual = ChunkHash::of(bytes);
             if actual != hashes[index] {
                 return Err(crate::Error::HashMismatch {

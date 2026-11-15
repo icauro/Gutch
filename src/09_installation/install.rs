@@ -12,7 +12,7 @@ use crate::installation::inspect::VerifyMode;
 use crate::installation::plan::inspect_installation_changes;
 use crate::installation::prepare::LoadedRepoSnapshot;
 use crate::installation::prepare::load_repo_snapshot_manifest;
-use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
+use crate::installation::prepare::{ReconstructInputs, prepare_reconstruction};
 use crate::installation::staging::prepare_installation_destination;
 use crate::repo::artifacts::required_artifacts;
 use crate::repo::coordination::read_with_control;
@@ -117,7 +117,7 @@ pub fn install_snapshot_from_repo(
                     destination_dir: source_destination_dir,
                 },
             );
-        let prepared = prepare_reconstruction(ReconstructionInputs {
+        let prepared = prepare_reconstruction(ReconstructInputs {
             snapshot_manifest: execution_manifest,
             chunk_index: &chunk_index,
             repo_paths: &repo_paths,

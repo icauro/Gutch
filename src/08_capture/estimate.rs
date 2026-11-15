@@ -1,5 +1,6 @@
 //! Fresh reconstruction estimation for directory or single-file inputs.
-use crate::capture::build::pipeline::build_from_directory;
+use crate::capture::build::pipeline::build_directory;
+use crate::capture::build::types::BuildConfig;
 use crate::capture::execute::prepare_input_path;
 use crate::manifest::Estimate;
 use crate::manifest::SnapshotTagSet;
@@ -18,7 +19,7 @@ pub fn estimate_snapshot(
     tags: &SnapshotTagSet,
 ) -> crate::Result<SnapshotEstimateResult> {
     let input = prepare_input_path(source)?;
-    let result = build_from_directory(&input.dir, tags)?;
+    let (result, _) = build_directory(&input.dir, &BuildConfig::for_snapshot(tags))?;
     let mut chunks = HashMap::new();
     for file in result.snapshot_manifest.files() {
         for chunk in &file.chunks {

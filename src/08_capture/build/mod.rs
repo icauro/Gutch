@@ -9,6 +9,7 @@ use crate::capture::scan::validate_source_inventory;
 use crate::capture::scan::verify_source_inventory_stable;
 use crate::capture::scan::{SourceInventory, scan_source_inventory};
 use crate::manifest::constraints::RepositoryConstraints;
+use pipeline::build_from_inventory;
 use std::path::Path;
 use types::{BuildConfig, BuildResult, BuildTimings};
 
@@ -26,12 +27,8 @@ pub(crate) fn build_with_stable_source(
     constraints: &RepositoryConstraints,
     worker_count: usize,
 ) -> Result<BuiltCapture> {
-    let (mut result, mut timings) = self::pipeline::build_with_config_timed_on_pool_with_inventory(
-        source_dir,
-        build_config,
-        build_pool,
-        &source_inventory,
-    )?;
+    let (mut result, mut timings) =
+        build_from_inventory(&source_inventory, build_config, build_pool)?;
     // The source may have changed while its bytes were read. Compare fresh
     // observations against the pre-read inventory, retry once with fresh
     // observations, and fail without publishing anything on a second mismatch.
@@ -48,12 +45,7 @@ pub(crate) fn build_with_stable_source(
             source_inventory =
                 scan_source_inventory(source_dir, &build_config.control, worker_count, build_pool)?;
             validate_source_inventory(&source_inventory, constraints)?;
-            (result, timings) = self::pipeline::build_with_config_timed_on_pool_with_inventory(
-                source_dir,
-                build_config,
-                build_pool,
-                &source_inventory,
-            )?;
+            (result, timings) = build_from_inventory(&source_inventory, build_config, build_pool)?;
             let fresh =
                 scan_source_inventory(source_dir, &build_config.control, worker_count, build_pool)?;
             verify_source_inventory_stable(&source_inventory, &fresh)?;

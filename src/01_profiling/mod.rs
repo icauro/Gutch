@@ -340,13 +340,9 @@ fn overview_marker(name: &str) -> bool {
             | "capture.publish_snapshot"
             | "transfer.prepare"
             | "transfer.download_queue"
-    ) || [
-        "installation.verify.",
-        "installation.repair.verify.",
-        "installation.reconstruct.inspect",
-    ]
-    .iter()
-    .any(|prefix| name.starts_with(prefix) && !name.ends_with(".file"))
+    ) || ["installation.verify.", "installation.repair.verify."]
+        .iter()
+        .any(|prefix| name.starts_with(prefix) && !name.ends_with(".file"))
         || name == "capture.create_worker_pool"
         || name.starts_with("installation.reconstruct.prepare.") && !name.ends_with("directory")
         || name.starts_with("installation.reconstruct.finalize.")

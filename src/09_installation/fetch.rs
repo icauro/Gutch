@@ -5,7 +5,7 @@ use crate::installation::contracts::{InstallationReconstructResult, SnapshotReco
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
 use crate::installation::execute::publish::Publication;
-use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
+use crate::installation::prepare::{ReconstructInputs, prepare_reconstruction};
 use crate::installation::staging::prepare_installation_destination;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::coordination::write_with_control;
@@ -76,7 +76,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 &request.fetch_request.control,
             )?;
             let resolved_source = resolve_snapshot_source(&request, &prepared.repo_paths)?;
-            let reconstruction = prepare_reconstruction(ReconstructionInputs {
+            let reconstruction = prepare_reconstruction(ReconstructInputs {
                 snapshot_manifest: &prepared.snapshot_manifest,
                 chunk_index: &prepared.chunk_index,
                 repo_paths: &prepared.repo_paths,

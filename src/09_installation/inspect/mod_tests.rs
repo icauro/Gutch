@@ -11,6 +11,12 @@ use crate::test_util;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::OnceLock;
+
+fn default_runtime_hints() -> &'static RuntimeResourceHints {
+    static DEFAULT_HINTS: OnceLock<RuntimeResourceHints> = OnceLock::new();
+    DEFAULT_HINTS.get_or_init(RuntimeResourceHints::default)
+}
 
 #[derive(Debug)]
 struct AlwaysCancelled;
@@ -37,6 +43,8 @@ fn verify_with<'a>(
         mode,
         runtime_hints,
         control: OperationControl::default(),
+        spans: &InspectionSpans::VERIFY,
+        pool: None,
     })?;
     Ok((classification.into_messages(), timings))
 }
@@ -63,6 +71,8 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
         control: OperationControl::default().with_cancellation(Arc::new(AlwaysCancelled)),
+        spans: &InspectionSpans::VERIFY,
+        pool: None,
     });
 
     assert!(matches!(result, Err(crate::Error::Cancelled)));
@@ -196,6 +206,8 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
         mode: VerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
         control: OperationControl::default(),
+        spans: &InspectionSpans::VERIFY,
+        pool: None,
     })
     .unwrap();
 
@@ -401,6 +413,8 @@ fn parallel_verification_preserves_issue_order_across_worker_counts() {
                 ..Default::default()
             },
             control: OperationControl::default(),
+            spans: &InspectionSpans::VERIFY,
+            pool: None,
         })
         .unwrap();
         let paths = classification

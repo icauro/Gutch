@@ -6,8 +6,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::discovery::SourceSnapshotOperationCandidate;
-use super::discovery::discover_source_snapshot_operations;
+use super::discovery::SourceSnapshotCandidate;
+use super::discovery::discover_source_snapshots;
 use crate::Result;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::profiles::BundleSizingPreset;
@@ -17,7 +17,7 @@ use crate::artifact::profiles::CompressionKind;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::execute::build_capture_pool;
 use crate::capture::execute::capture_error;
-use crate::capture::execute::capture_repo_snapshot_with_existing_reuse_state;
+use crate::capture::execute::capture_snapshot_reusing_state;
 use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::load_capture_reuse_state;
 use crate::progress;
@@ -49,7 +49,7 @@ pub struct SnapshotSourcesCapturePlan {
     pub candidate_count: usize,
     pub capturable_count: usize,
     #[serde(default)]
-    pub to_capture: Vec<SourceSnapshotOperationCandidate>,
+    pub to_capture: Vec<SourceSnapshotCandidate>,
 }
 
 impl SnapshotSourcesCapturePlan {
@@ -81,7 +81,7 @@ pub fn plan_snapshot_sources_capture(
 pub fn plan_snapshot_sources_capture_with_context(
     repo_root: &Path,
     sources_path: Option<&Path>,
-    candidates: Option<&[SourceSnapshotOperationCandidate]>,
+    candidates: Option<&[SourceSnapshotCandidate]>,
     repo_status: Option<&RepoStatus>,
 ) -> Result<SnapshotSourcesCapturePlan> {
     let Some(sources_path) = normalized_sources_path(sources_path) else {
@@ -95,7 +95,7 @@ pub fn plan_snapshot_sources_capture_with_context(
 
     let candidates = match candidates {
         Some(candidates) => candidates.to_vec(),
-        None => match discover_source_snapshot_operations(repo_root, &sources_path) {
+        None => match discover_source_snapshots(repo_root, &sources_path) {
             Ok(candidates) => candidates,
             Err(_) => return Ok(plan),
         },
@@ -232,7 +232,7 @@ pub fn capture_snapshot_sources(
 
 fn capture_source_snapshot(
     repo_root: &Path,
-    candidate: &SourceSnapshotOperationCandidate,
+    candidate: &SourceSnapshotCandidate,
     control: &OperationControl,
     reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
@@ -245,7 +245,7 @@ fn capture_source_snapshot(
     } else {
         control.clone()
     };
-    capture_repo_snapshot_with_existing_reuse_state(
+    capture_snapshot_reusing_state(
         SnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
             source_dir: PathBuf::from(&candidate.path),
@@ -283,7 +283,7 @@ impl ProgressSink for SnapshotSourcesCandidateProgress {
 
 #[cfg(test)]
 mod tests {
-    use super::super::discovery::discover_source_snapshot_operations;
+    use super::super::discovery::discover_source_snapshots;
     use super::*;
     use crate::manifest;
     use crate::manifest::snapshot::SnapshotManifest;
@@ -324,7 +324,7 @@ mod tests {
         let game_path = source_dir.join("game.exe");
         std::fs::write(&game_path, b"same-content").unwrap();
 
-        let candidate = discover_source_snapshot_operations(&repo_root, &source_root).unwrap();
+        let candidate = discover_source_snapshots(&repo_root, &source_root).unwrap();
         assert_eq!(candidate.len(), 1);
 
         let tags = candidate[0].snapshot_tags.clone();
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn equal_tag_sources_plan_without_removals() {
-        use super::super::discovery::SourceSnapshotOperationDisposition;
+        use super::super::discovery::SourceSnapshotDisposition;
 
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path().join("repo");
@@ -372,7 +372,7 @@ mod tests {
             "os=windows".to_string(),
         ])
         .unwrap();
-        let candidate = |folder: &str| super::super::discovery::SourceSnapshotOperationCandidate {
+        let candidate = |folder: &str| super::super::discovery::SourceSnapshotCandidate {
             path: source_root.join(folder).display().to_string(),
             folder_name: folder.to_string(),
             source_modified_at: String::new(),
@@ -380,7 +380,7 @@ mod tests {
             os: String::from("windows"),
             arch: String::new(),
             snapshot_tags: tags.clone(),
-            disposition: SourceSnapshotOperationDisposition::Unchanged,
+            disposition: SourceSnapshotDisposition::Unchanged,
             error: None,
         };
         let plan = plan_snapshot_sources_capture_with_context(
@@ -399,7 +399,7 @@ mod tests {
     fn pre_scan_contracts_carry_no_snapshot_id() {
         use crate::capture::contracts::SnapshotCapturePlan;
 
-        let candidate = super::super::discovery::SourceSnapshotOperationCandidate {
+        let candidate = super::super::discovery::SourceSnapshotCandidate {
             path: "game-a".to_string(),
             folder_name: String::from("game-a"),
             source_modified_at: String::new(),
@@ -410,7 +410,7 @@ mod tests {
                 "version=1.0.0".to_string()
             ])
             .unwrap(),
-            disposition: super::super::discovery::SourceSnapshotOperationDisposition::Unchanged,
+            disposition: super::super::discovery::SourceSnapshotDisposition::Unchanged,
             error: None,
         };
         let candidate_json = serde_json::to_value(&candidate).unwrap();

@@ -78,7 +78,7 @@ pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-pub fn rebuild_chunk_index_from_bundles_with_pool(
+pub fn rebuild_chunk_index_from_bundles(
     paths: &RepoPaths,
     compression_profile: &CompressionProfile,
     pool: &rayon::ThreadPool,

@@ -1,6 +1,6 @@
 //! Verify file metadata and full-file or chunk content hashes.
 use super::types::{RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings};
-use super::{PreparedFileMetadata, PreparedVerifyFile, marker_name};
+use super::{PreparedFileMetadata, PreparedVerifyFile};
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::integrity::verify_full_file_integrity;
@@ -21,10 +21,10 @@ pub(super) fn verify_manifest_file(
     verify_mode: VerifyMode,
     control: &OperationControl,
     concurrent_file_count: usize,
-    marker_namespace: &'static str,
+    file_span: &'static str,
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
     let file_manifest = prepared_file.manifest;
-    let _file_span = control.profile_span_with_args(marker_name(marker_namespace, "file"), || {
+    let _file_span = control.profile_span_with_args(file_span, || {
         file_trace_args(&file_manifest.path, file_manifest.size)
     });
     control.checkpoint()?;

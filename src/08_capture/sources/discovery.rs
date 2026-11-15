@@ -14,7 +14,7 @@ use crate::snapshot::identity::source_modified_at_from_directory;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SourceSnapshotOperationCandidate {
+pub struct SourceSnapshotCandidate {
     pub path: String,
     pub folder_name: String,
     #[serde(default)]
@@ -25,24 +25,24 @@ pub struct SourceSnapshotOperationCandidate {
     #[serde(rename = "tags")]
     pub snapshot_tags: manifest::SnapshotTagSet,
     #[serde(default)]
-    pub disposition: SourceSnapshotOperationDisposition,
+    pub disposition: SourceSnapshotDisposition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SourceSnapshotOperationDisposition {
+pub enum SourceSnapshotDisposition {
     #[default]
     Unchanged,
     Capture,
     Invalid,
 }
 
-pub fn discover_source_snapshot_operations(
+pub fn discover_source_snapshots(
     repo_root: &Path,
     source_snapshots_root: &Path,
-) -> Result<Vec<SourceSnapshotOperationCandidate>> {
+) -> Result<Vec<SourceSnapshotCandidate>> {
     if !source_snapshots_root.exists() {
         return Err(Error::manifest(format!(
             "source snapshots path does not exist: {}",
@@ -62,7 +62,10 @@ pub fn discover_source_snapshot_operations(
 
     for snapshot in config.discover_snapshot_sources(source_snapshots_root)? {
         let explicit_tags = snapshot.config_tags.clone().unwrap_or_default();
-        match build_source_snapshot_ops_candidate(&snapshot.path, &explicit_tags) {
+        let candidate = source_modified_at_from_directory(&snapshot.path).and_then(|modified_at| {
+            source_snapshot_candidate(&snapshot.path, &explicit_tags, modified_at)
+        });
+        match candidate {
             Ok(candidate) => candidates.push(candidate),
             Err(err) => {
                 let folder_name = snapshot
@@ -72,7 +75,7 @@ pub fn discover_source_snapshot_operations(
                     .unwrap_or("")
                     .to_string();
                 if !folder_name.is_empty() {
-                    candidates.push(SourceSnapshotOperationCandidate {
+                    candidates.push(SourceSnapshotCandidate {
                         path: snapshot.path.display().to_string(),
                         folder_name,
                         source_modified_at: String::new(),
@@ -80,7 +83,7 @@ pub fn discover_source_snapshot_operations(
                         os: String::new(),
                         arch: String::new(),
                         snapshot_tags: manifest::SnapshotTagSet::default(),
-                        disposition: SourceSnapshotOperationDisposition::Invalid,
+                        disposition: SourceSnapshotDisposition::Invalid,
                         error: Some(err.to_string()),
                     });
                 }
@@ -92,19 +95,11 @@ pub fn discover_source_snapshot_operations(
     Ok(candidates)
 }
 
-pub(crate) fn build_source_snapshot_ops_candidate(
-    path: &Path,
-    explicit_tags: &manifest::SnapshotTagSet,
-) -> Result<SourceSnapshotOperationCandidate> {
-    let source_modified_at = source_modified_at_from_directory(path)?;
-    build_source_snapshot_ops_candidate_with_modified_at(path, explicit_tags, source_modified_at)
-}
-
-pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
+pub(crate) fn source_snapshot_candidate(
     path: &Path,
     explicit_tags: &manifest::SnapshotTagSet,
     source_modified_at: String,
-) -> Result<SourceSnapshotOperationCandidate> {
+) -> Result<SourceSnapshotCandidate> {
     let normalized_tags = explicit_tags.normalized()?;
 
     let folder_name = path
@@ -118,7 +113,7 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
 
     let summary = summarize_snapshot_tags(&normalized_tags);
 
-    Ok(SourceSnapshotOperationCandidate {
+    Ok(SourceSnapshotCandidate {
         path: path.display().to_string(),
         folder_name,
         source_modified_at,
@@ -126,7 +121,7 @@ pub(crate) fn build_source_snapshot_ops_candidate_with_modified_at(
         os: summary.os,
         arch: summary.arch,
         snapshot_tags: normalized_tags,
-        disposition: SourceSnapshotOperationDisposition::Unchanged,
+        disposition: SourceSnapshotDisposition::Unchanged,
         error: None,
     })
 }
@@ -136,7 +131,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discover_source_snapshot_operations_returns_matching_subfolders_only() {
+    fn discover_source_snapshots_returns_matching_subfolders_only() {
         let root = std::env::temp_dir().join(format!(
             "gutch_source_discover_test_{}_{}",
             std::process::id(),
@@ -159,7 +154,7 @@ mod tests {
         std::fs::create_dir_all(source_root.join("ae2-v15.4.10-loader-fabric-mc-1.21")).unwrap();
         std::fs::create_dir_all(source_root.join("not-a-snapshot-folder")).unwrap();
 
-        let candidates = discover_source_snapshot_operations(&repo_root, &source_root).unwrap();
+        let candidates = discover_source_snapshots(&repo_root, &source_root).unwrap();
 
         assert_eq!(candidates.len(), 2);
         // Folder names are not interpreted as tags.
@@ -170,13 +165,13 @@ mod tests {
         assert_eq!(candidates[0].version_tag, "");
         assert_eq!(
             candidates[0].disposition,
-            SourceSnapshotOperationDisposition::Unchanged
+            SourceSnapshotDisposition::Unchanged
         );
         // Every discovered directory is a valid tagless source.
         assert_eq!(candidates[1].folder_name, "not-a-snapshot-folder");
         assert_eq!(
             candidates[1].disposition,
-            SourceSnapshotOperationDisposition::Unchanged
+            SourceSnapshotDisposition::Unchanged
         );
         assert!(
             candidates

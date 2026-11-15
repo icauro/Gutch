@@ -32,7 +32,7 @@ use super::jobs::{ReconstructJob, ReconstructPipelineFile, ReconstructPipelinePl
 use crate::installation::plan::build_artifact_priorities;
 
 use super::workers::{
-    ReconstructJobEvent, ReconstructWorkContext, ReconstructWorkItem, ReconstructionWorkQueue,
+    ReconstructJobEvent, ReconstructWorkContext, ReconstructWorkItem, ReconstructWorkQueue,
     dispatch_ready_work,
 };
 use crate::artifact::profiles::CompressionProfile;
@@ -174,7 +174,7 @@ pub(crate) fn run_reconstruction_jobs(
         control: control.clone(),
         reconstruct_worker_count: runtime_plan.worker_count,
     });
-    let mut work_queue = ReconstructionWorkQueue::default();
+    let mut work_queue = ReconstructWorkQueue::default();
     let mut enqueued_job_count = 0usize;
     let mut downloads_done = artifact_scheduler.is_none();
     let mut completed_download_worker_count = 0usize;
@@ -582,7 +582,7 @@ fn start_artifact_downloads(
 
 fn finish_pipeline_workers(
     artifact_scheduler: Option<ArtifactDownloadScheduler>,
-    work_queue: &mut ReconstructionWorkQueue,
+    work_queue: &mut ReconstructWorkQueue,
     event_rx: &mpsc::Receiver<ReconstructJobEvent>,
     control: &OperationControl,
     failed: bool,

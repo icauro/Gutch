@@ -1,6 +1,6 @@
 //! Reads, verifies and writes each reconstruction job's data.
 
-use super::handles::ReconstructionOutputWriter;
+use super::handles::ReconstructOutputWriter;
 use super::handles::{OutputHandleCache, SourceHandleCache, cached_target_handle, write_file_at};
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::profiling::ProfileInstant;
@@ -24,7 +24,7 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::bundle::BundleReader;
 use crate::artifact::hash::ChunkHash;
-use crate::artifact::loose::read_loose_chunk_with_metrics;
+use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::reference::ArtifactRef;
 use crate::filesystem::paths::resolve_manifest_relative_path;
@@ -91,7 +91,7 @@ fn reconstruct_artifact_job(
         .map_err(|e| Error::io_context("reading artifact metadata", &job.artifact_path, e))?
         .len();
     let mut timings = ReconstructTimings::default();
-    let mut output_writer = ReconstructionOutputWriter::new(output_handles, control);
+    let mut output_writer = ReconstructOutputWriter::new(output_handles, control);
 
     match &job.artifact {
         ArtifactRef::Bundle { .. } => {
@@ -127,7 +127,7 @@ fn reconstruct_artifact_job(
             // positional fan-out. The decoder retains one chunk; the output writer
             // may retain one additional bounded range for coalescing.
 
-            let read_metrics = reader.stream_bundle_chunks_with_profiler(
+            let read_metrics = reader.stream_bundle_chunks(
                 profiler,
                 &required,
                 |index, bytes| {
@@ -198,11 +198,10 @@ fn reconstruct_artifact_job(
                     hash, compressed_bytes, job.encoded_size
                 )));
             }
-            let (bytes, read_metrics) = read_loose_chunk_with_metrics(
+            let (bytes, read_metrics) = read_loose_chunk(
                 &job.artifact_path,
                 hash,
                 u64::from(chunk.raw_size),
-                compression_profile,
                 profiler,
             )?;
             timings.artifact_read = read_metrics.read
@@ -305,7 +304,7 @@ pub(crate) fn reconstruct_source_chunk_batch(
     let read_elapsed = read_started_at.elapsed();
     // Charge the shared read once; per-chunk byte and hash counts stay unchanged.
     let mut timings = Vec::with_capacity(chunks.len());
-    let mut output_writer = ReconstructionOutputWriter::new(output_handles, control);
+    let mut output_writer = ReconstructOutputWriter::new(output_handles, control);
     let mut start = 0;
     for (index, chunk) in chunks.iter().enumerate() {
         if index != 0 {
@@ -342,7 +341,7 @@ fn verify_and_write_source_chunk(
     read_elapsed: Duration,
     output_handles: &OutputHandleCache,
     control: &OperationControl,
-    mut output_writer: Option<&mut ReconstructionOutputWriter<'_>>,
+    mut output_writer: Option<&mut ReconstructOutputWriter<'_>>,
 ) -> Result<ReconstructTimings> {
     let hash_started_at = ProfileInstant::detailed(control.profiler());
     let actual_hash = ChunkHash::of(bytes);
@@ -481,7 +480,7 @@ fn write_reconstruct_targets(
     chunk: &ReconstructArtifactChunk,
     targets: &[ReconstructTarget],
     bytes: &[u8],
-    output_writer: &mut ReconstructionOutputWriter<'_>,
+    output_writer: &mut ReconstructOutputWriter<'_>,
     control: &OperationControl,
     timings: &mut ReconstructTimings,
 ) -> Result<()> {

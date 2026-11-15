@@ -13,7 +13,7 @@ use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
 use crate::capture::execute::capture_error;
 use crate::capture::execute::capture_snapshot;
-use crate::capture::plan::plan_snapshot_capture_with_control;
+use crate::capture::plan::plan_snapshot_capture;
 use crate::manifest::SnapshotTagSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -63,7 +63,7 @@ pub fn plan_snapshot_captures(
                 &BundleSizingProfile::for_preset(request.bundle_profile),
                 request.storage_mode,
             )?;
-            plan_snapshot_capture_with_control(
+            plan_snapshot_capture(
                 &request.repo_root,
                 &request.source_dir,
                 &request.explicit_tags,

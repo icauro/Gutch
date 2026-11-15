@@ -1287,7 +1287,7 @@ hash/write timings remain per job. Evidence:
 Contiguous source batches now reuse the existing artifact output-range writer.
 It combines adjacent verified single-destination writes in one 64 KiB buffer;
 fanout writes bypass byte buffering. The same worker-local handle policy serves
-both paths. The type is named `ReconstructionOutputWriter` to reflect these two
+both paths. The type is named `ReconstructOutputWriter` to reflect these two
 users. Single source jobs and gapped groups retain direct writes. Combined input
 and output buffers fit within the existing source-I/O reservation.
 

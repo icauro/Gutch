@@ -7,7 +7,7 @@ use clap::{Args, Subcommand};
 use super::{RuntimeArgs, TransferArgs, parse_cli_path};
 
 #[derive(Args)]
-pub(crate) struct ReconstructionArgs {
+pub(crate) struct ReconstructArgs {
     #[arg(long = "repo", value_parser = parse_cli_path)]
     pub(crate) repo: PathBuf,
     #[arg(long = "snapshot")]
@@ -60,7 +60,7 @@ pub(crate) struct ReconstructionArgs {
 #[derive(Subcommand)]
 pub(crate) enum InstallationCommands {
     /// Reconstruct a verified tree, replacing the entire destination including extra files.
-    Reconstruct(Box<ReconstructionArgs>),
+    Reconstruct(Box<ReconstructArgs>),
 
     /// Preview installation changes without modifying files.
     Preview {

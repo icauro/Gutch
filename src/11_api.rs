@@ -70,7 +70,6 @@ pub use crate::capture::estimate::estimate_snapshot;
 pub use crate::capture::execute::capture_snapshot;
 pub use crate::capture::plan::describe_snapshot_capture_plan;
 pub use crate::capture::plan::plan_snapshot_capture;
-pub use crate::capture::plan::plan_snapshot_capture_with_control;
 pub use crate::capture::sources::ResolvedCaptureSource;
 pub use crate::capture::sources::capture_snapshots;
 pub use crate::capture::sources::config::initialize_source_config;
@@ -123,9 +122,9 @@ pub use crate::installation::resolve_snapshot_state;
 pub use crate::installation::verify_installation;
 
 // Repository operations and remote providers
-pub use crate::capture::sources::discovery::SourceSnapshotOperationCandidate;
-pub use crate::capture::sources::discovery::SourceSnapshotOperationDisposition;
-pub use crate::capture::sources::discovery::discover_source_snapshot_operations;
+pub use crate::capture::sources::discovery::SourceSnapshotCandidate;
+pub use crate::capture::sources::discovery::SourceSnapshotDisposition;
+pub use crate::capture::sources::discovery::discover_source_snapshots;
 pub use crate::repo::artifacts::inspect_bundle;
 pub use crate::repo::init_policy::RepoInitAssessment;
 pub use crate::repo::init_policy::RepoInitOptions;

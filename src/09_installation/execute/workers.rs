@@ -34,7 +34,7 @@ pub(crate) enum ReconstructWorkItem {
 /// Tracks only runnable and dispatched work. Jobs waiting for downloads are
 /// owned by the artifact scheduler and enter this queue when ready.
 #[derive(Default)]
-pub(crate) struct ReconstructionWorkQueue {
+pub(crate) struct ReconstructWorkQueue {
     pub(crate) ready: VecDeque<(ReconstructWorkItem, ProfileInstant)>,
     // Decremented when the coordinator consumes one terminal event, including failure.
     pub(crate) in_flight: usize,
@@ -46,7 +46,7 @@ pub(crate) struct AdmittedReconstructionWork {
     pub(crate) queued_at: ProfileInstant,
 }
 
-impl ReconstructionWorkQueue {
+impl ReconstructWorkQueue {
     pub(crate) fn admit_next(
         &mut self,
         jobs: &[ReconstructJob],
@@ -176,7 +176,7 @@ pub(crate) struct ReconstructWorkContext {
 
 pub(crate) fn dispatch_ready_work(
     pool: &ThreadPool,
-    work_queue: &mut ReconstructionWorkQueue,
+    work_queue: &mut ReconstructWorkQueue,
     work_context: &Arc<ReconstructWorkContext>,
     event_tx: &mpsc::Sender<ReconstructJobEvent>,
 ) -> Result<()> {
@@ -323,7 +323,7 @@ mod tests {
                 full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
             })
             .collect::<Vec<_>>();
-        let mut queue = ReconstructionWorkQueue::default();
+        let mut queue = ReconstructWorkQueue::default();
         queue.ready.push_back((
             ReconstructWorkItem::Jobs(0..1),
             ProfileInstant::detailed(None),
@@ -383,7 +383,7 @@ mod tests {
             (vec![2 * 1024 * 1024, 2 * 1024 * 1024, 1], vec![1, 1, 1]),
         ] {
             let files = verification_files(&sizes);
-            let mut queue = ReconstructionWorkQueue::default();
+            let mut queue = ReconstructWorkQueue::default();
             for index in 0..files.len() {
                 queue.ready.push_back((
                     ReconstructWorkItem::VerifyFiles(vec![index]),
@@ -411,7 +411,7 @@ mod tests {
             file_index: 0,
             source_path: "unused".into(),
         }];
-        let mut queue = ReconstructionWorkQueue::default();
+        let mut queue = ReconstructWorkQueue::default();
         for work in [
             ReconstructWorkItem::VerifyFiles(vec![0]),
             ReconstructWorkItem::Jobs(0..1),
@@ -553,7 +553,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
-            let mut queue = ReconstructionWorkQueue::default();
+            let mut queue = ReconstructWorkQueue::default();
             for index in 0..jobs.len() {
                 queue.ready.push_back((
                     ReconstructWorkItem::Jobs(index..index + 1),
@@ -607,7 +607,7 @@ mod tests {
         ];
         let files = verification_files(&[4]);
         let memory = Arc::new(crate::runtime::MemoryBudget::new(2 * 1024 * 1024));
-        let mut queue = ReconstructionWorkQueue::default();
+        let mut queue = ReconstructWorkQueue::default();
         for work in [
             ReconstructWorkItem::Jobs(0..1),
             ReconstructWorkItem::Jobs(1..2),

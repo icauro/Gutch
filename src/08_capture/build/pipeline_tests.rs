@@ -4,6 +4,7 @@ use crate::artifact::format::MAX_RAW_BUNDLE_SIZE;
 use crate::artifact::profiles::BundleSizingProfile;
 use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
+use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
 use std::fs;
 use std::num::NonZeroU64;
@@ -567,7 +568,7 @@ fn streaming_bundle_admission_does_not_require_all_raw_chunks_at_once() {
     // Fits the six-byte largest chunk, but cannot admit the eleven-byte group.
     config.runtime_hints.memory_budget_bytes =
         NonZeroU64::new(compress::ENCODE_WORKING_MEMORY_BYTES + 6);
-    let (result, _) = build_with_config_timed(source.path(), &config).unwrap();
+    let (result, _) = build_directory(source.path(), &config).unwrap();
     assert_eq!(result.snapshot_manifest.file_count(), 2);
     assert_eq!(result.bundles.len(), 1);
 }

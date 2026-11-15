@@ -5,7 +5,9 @@ use std::path::Path;
 
 use crate::Result;
 use crate::installation::contracts::SnapshotReconstructSource;
-use crate::installation::inspect::{VerifyMode, VerifyRequest, classify_directory};
+use crate::installation::inspect::{
+    InspectionSpans, VerifyMode, VerifyRequest, classify_directory,
+};
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
@@ -38,6 +40,8 @@ pub(crate) fn resolve_verified_source<'a>(
         mode: VerifyMode::Fast,
         runtime_hints,
         control: control.clone(),
+        spans: &InspectionSpans::VERIFY,
+        pool: None,
     })?;
     let invalid: HashSet<_> = classification
         .missing_files

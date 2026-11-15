@@ -39,7 +39,7 @@ pub(crate) fn validate_destination_paths<'a>(
     root: &Path,
     paths: impl Iterator<Item = &'a str>,
 ) -> Result<()> {
-    validate_destination_paths_inner(root, paths).map_err(|error| match error {
+    validate_paths_on_destination_volume(root, paths).map_err(|error| match error {
         Error::PathError { path, reason } => Error::PathValidation(PathValidationFailure {
             operation: "installation".into(),
             snapshot_id: None,
@@ -58,7 +58,7 @@ pub(crate) fn validate_destination_paths<'a>(
         error => error,
     })
 }
-fn validate_destination_paths_inner<'a>(
+fn validate_paths_on_destination_volume<'a>(
     root: &Path,
     paths: impl Iterator<Item = &'a str>,
 ) -> Result<()> {

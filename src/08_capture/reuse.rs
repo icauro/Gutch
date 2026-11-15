@@ -13,8 +13,7 @@ use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::index::{
-    collect_file_paths, empty_chunk_index, load_chunk_index,
-    rebuild_chunk_index_from_bundles_with_pool,
+    collect_file_paths, empty_chunk_index, load_chunk_index, rebuild_chunk_index_from_bundles,
 };
 use crate::repo::inventory::list_repo_snapshot_ids;
 use crate::repo::paths::load_gutch_repo_manifest;
@@ -76,7 +75,7 @@ pub fn load_capture_reuse_state(
     state.chunk_index = if chunk_index.entries.is_empty() {
         let _rebuild_span = control
             .profile_span("capture.prepare_source.load_existing_store_state.rebuild_chunk_index");
-        let result = rebuild_chunk_index_from_bundles_with_pool(paths, &compression_profile, pool);
+        let result = rebuild_chunk_index_from_bundles(paths, &compression_profile, pool);
         drop(_rebuild_span);
         result?
     } else {
@@ -85,12 +84,8 @@ pub fn load_capture_reuse_state(
     let _locations_span = control.profile_span(
         "capture.prepare_source.load_existing_store_state.check_available_chunk_sizes",
     );
-    state.available_chunk_sizes = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
-        &state.chunk_index,
-        paths,
-        pool,
-        &state.bundle_ids,
-    )?;
+    state.available_chunk_sizes =
+        available_chunk_sizes(&state.chunk_index, paths, pool, &state.bundle_ids)?;
     drop(_locations_span);
 
     let _manifests_span = control
@@ -147,7 +142,7 @@ fn add_previous_file_manifests(
     }
 }
 
-pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
+pub(crate) fn available_chunk_sizes(
     chunk_index: &ChunkIndex,
     paths: &RepoPaths,
     pool: &rayon::ThreadPool,
@@ -280,10 +275,7 @@ mod tests {
         };
         let pool = crate::runtime::build_thread_pool(1, "capture-test").unwrap();
         let available = HashSet::from([bundle_a.to_string(), bundle_b.to_string()]);
-        let estimates = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
-            &index, &paths, &pool, &available,
-        )
-        .unwrap();
+        let estimates = available_chunk_sizes(&index, &paths, &pool, &available).unwrap();
         for (hash, size) in [
             (hash_for(1), 33),
             (loose_hash, u64::from(loose_size)),
@@ -303,30 +295,16 @@ mod tests {
                 .map(|(hash, entry)| (*hash, entry.clone()))
                 .collect(),
         };
-        let partial_estimates = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
-            &partial, &paths, &pool, &available,
-        )
-        .unwrap();
+        let partial_estimates = available_chunk_sizes(&partial, &paths, &pool, &available).unwrap();
         assert_eq!(partial_estimates[&hash_for(1)], 101);
-        let only_loose = available_chunk_sizes_from_index_with_pool_and_bundle_ids(
-            &index,
-            &paths,
-            &pool,
-            &HashSet::new(),
-        )
-        .unwrap();
+        let only_loose = available_chunk_sizes(&index, &paths, &pool, &HashSet::new()).unwrap();
         assert_eq!(only_loose.len(), 1);
         assert_eq!(only_loose[&loose_hash], u64::from(loose_size));
         std::fs::remove_file(loose_path).unwrap();
         assert!(
-            available_chunk_sizes_from_index_with_pool_and_bundle_ids(
-                &index,
-                &paths,
-                &pool,
-                &HashSet::new(),
-            )
-            .unwrap()
-            .is_empty()
+            available_chunk_sizes(&index, &paths, &pool, &HashSet::new(),)
+                .unwrap()
+                .is_empty()
         );
     }
 }

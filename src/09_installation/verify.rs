@@ -2,7 +2,7 @@
 
 use crate::Result;
 use crate::installation::contracts::{InstallationVerifyRequest, InstallationVerifyResult};
-use crate::installation::inspect::{VerifyRequest, classify_directory};
+use crate::installation::inspect::{InspectionSpans, VerifyRequest, classify_directory};
 use crate::installation::prepare::{LoadedRepoSnapshot, load_repo_snapshot_manifest};
 use crate::repo::coordination::read_with_control;
 
@@ -22,6 +22,8 @@ pub fn verify_installation(request: InstallationVerifyRequest) -> Result<Install
             mode: request.verify_mode,
             runtime_hints: &request.runtime_hints,
             control: request.control,
+            spans: &InspectionSpans::VERIFY,
+            pool: None,
         })?;
 
         Ok(InstallationVerifyResult {

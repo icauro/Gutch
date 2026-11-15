@@ -127,9 +127,7 @@ fn test_build_and_read_bundle_compressed_payload() {
     fs::write(staged.path(), &bundle_data).unwrap();
     let mut file_reader = BundleReader::open(File::open(staged.path()).unwrap(), &profile).unwrap();
     let profiler = Profiler::new(ProfileMode::Detailed);
-    let (read, metrics) = file_reader
-        .read_bundle_payload_with_profiler(Some(&profiler))
-        .unwrap();
+    let (read, metrics) = file_reader.read_bundle_payload(Some(&profiler)).unwrap();
     let second = &read[reader.entries()[1].raw_offset as usize
         ..(reader.entries()[1].raw_offset + reader.entries()[1].raw_size) as usize];
     assert_eq!(second, chunk2.as_slice());
@@ -187,7 +185,7 @@ fn test_stream_bundle_chunks_only_delivers_required_chunks() {
     let mut reader = read_bundle(&bundle_data, &profile).unwrap();
     let mut delivered = Vec::new();
     let metrics = reader
-        .stream_bundle_chunks_with_profiler(None, &[false, true, true, true], |index, chunk| {
+        .stream_bundle_chunks(None, &[false, true, true, true], |index, chunk| {
             delivered.push((index, chunk.to_vec()));
             Ok(())
         })

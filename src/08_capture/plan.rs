@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
-use crate::capture::sources::discovery::SourceSnapshotOperationCandidate;
-use crate::capture::sources::discovery::build_source_snapshot_ops_candidate_with_modified_at;
+use crate::capture::sources::discovery::SourceSnapshotCandidate;
+use crate::capture::sources::discovery::source_snapshot_candidate;
 use crate::manifest::SnapshotTagSet;
 use crate::repo::Result;
 
@@ -11,7 +11,7 @@ use crate::capture::contracts::SnapshotCapturePlan;
 use crate::progress::OperationControl;
 use crate::repo::paths::load_gutch_repo_manifest;
 impl SnapshotCapturePlan {
-    pub fn from_candidate(candidate: SourceSnapshotOperationCandidate) -> Self {
+    pub fn from_candidate(candidate: SourceSnapshotCandidate) -> Self {
         Self {
             folder_name: candidate.folder_name,
             path: candidate.path,
@@ -23,50 +23,25 @@ impl SnapshotCapturePlan {
     }
 }
 
-pub fn plan_snapshot_capture(
-    repo_root: &Path,
-    source_dir: &Path,
-    explicit_tags: &SnapshotTagSet,
-) -> Result<SnapshotCapturePlan> {
-    plan_snapshot_capture_with_source_modified_at(
-        repo_root,
-        source_dir,
-        explicit_tags,
-        String::new(),
-    )
-}
-
-/// Plans a capture while attributing the planning work to the capture profile.
+/// Plans a capture of `source_dir` into the repository at `repo_root`.
 ///
-/// The CLI needs to plan before it can ask for confirmation, so this wrapper
-/// keeps that real preflight work in the same trace as the subsequent capture.
-pub fn plan_snapshot_capture_with_control(
+/// The CLI plans before it asks for confirmation, so the planning work is
+/// recorded in the same profile as the capture that follows.
+pub fn plan_snapshot_capture(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,
     control: &OperationControl,
 ) -> Result<SnapshotCapturePlan> {
     let _plan_span = control.profile_span("capture.prepare_source.plan_snapshot");
-    plan_snapshot_capture(repo_root, source_dir, explicit_tags)
-}
-
-pub(crate) fn plan_snapshot_capture_with_source_modified_at(
-    repo_root: &Path,
-    source_dir: &Path,
-    explicit_tags: &SnapshotTagSet,
-    source_modified_at: String,
-) -> Result<SnapshotCapturePlan> {
     let (_, repository) = load_gutch_repo_manifest(repo_root)?;
     repository
         .constraints
         .unwrap_or_default()
         .validate_snapshot_tags(explicit_tags, &source_dir.display().to_string())?;
 
-    let candidate = build_source_snapshot_ops_candidate_with_modified_at(
-        source_dir,
-        explicit_tags,
-        source_modified_at,
-    )?;
+    // The plan does not report the source modification time, so skip reading it.
+    let candidate = source_snapshot_candidate(source_dir, explicit_tags, String::new())?;
     // Capture is additive: equal tags never select replacement targets. A new
     // content-derived snapshot ID always creates a new snapshot.
     Ok(SnapshotCapturePlan::from_candidate(candidate))

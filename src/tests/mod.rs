@@ -1,8 +1,10 @@
 mod module_boundaries;
 
-use crate::capture::build::pipeline::build_from_directory;
+use crate::capture::build::pipeline::build_directory;
+use crate::capture::build::types::BuildConfig;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
 use crate::installation::InstallationRequest;
+use crate::installation::inspect::InspectionSpans;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
@@ -42,6 +44,8 @@ fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String>
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
         control: OperationControl::default(),
+        spans: &InspectionSpans::VERIFY,
+        pool: None,
     })
     .unwrap()
     .0
@@ -55,6 +59,8 @@ fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairCla
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
         control: OperationControl::default(),
+        spans: &InspectionSpans::VERIFY,
+        pool: None,
     })
     .unwrap()
     .0
@@ -78,9 +84,13 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let v1 = build_from_directory(&v1_dir, &tags).unwrap();
+    let v1 = build_directory(&v1_dir, &BuildConfig::for_snapshot(&tags))
+        .unwrap()
+        .0;
     let tags_v2 = exclusive_tags("2.0.0", "windows", "x86_64", "base");
-    let v2 = build_from_directory(&v2_dir, &tags_v2).unwrap();
+    let v2 = build_directory(&v2_dir, &BuildConfig::for_snapshot(&tags_v2))
+        .unwrap()
+        .0;
 
     fs::create_dir_all(&destination_dir).unwrap();
     fs::copy(
@@ -204,7 +214,9 @@ fn test_verify_directory_reports_extra_file() {
     fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let result = build_from_directory(&dir, &tags).unwrap();
+    let result = build_directory(&dir, &BuildConfig::for_snapshot(&tags))
+        .unwrap()
+        .0;
 
     let mut manifest = result.snapshot_manifest.clone();
     manifest
@@ -233,7 +245,9 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
-    let result = build_from_directory(&dir, &tags).unwrap();
+    let result = build_directory(&dir, &BuildConfig::for_snapshot(&tags))
+        .unwrap()
+        .0;
 
     fs::remove_file(dir.join("healthy.txt")).unwrap();
     fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
@@ -317,7 +331,9 @@ fn test_large_game_build_200mb() {
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let t1 = Instant::now();
-    let result = build_from_directory(&root, &tags).unwrap();
+    let result = build_directory(&root, &BuildConfig::for_snapshot(&tags))
+        .unwrap()
+        .0;
     let build_ms = t1.elapsed().as_millis();
 
     let bundle_total: u64 = result.bundles.iter().map(|b| b.size).sum();

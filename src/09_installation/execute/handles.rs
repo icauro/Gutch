@@ -14,7 +14,7 @@ pub(crate) const RECONSTRUCT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
 
 /// One reconstruction worker owns this buffer. Success requires an explicit flush;
 /// failed or cancelled work discards buffered bytes instead of writing on drop.
-pub(crate) struct ReconstructionOutputWriter<'a> {
+pub(crate) struct ReconstructOutputWriter<'a> {
     outputs: &'a OutputHandleCache,
     handles: HashMap<usize, Arc<File>>,
     control: &'a OperationControl,
@@ -24,7 +24,7 @@ pub(crate) struct ReconstructionOutputWriter<'a> {
     bytes: Vec<u8>,
 }
 
-impl<'a> ReconstructionOutputWriter<'a> {
+impl<'a> ReconstructOutputWriter<'a> {
     pub(crate) fn new(outputs: &'a OutputHandleCache, control: &'a OperationControl) -> Self {
         Self {
             outputs,
@@ -421,7 +421,7 @@ mod output_handle_tests {
         ]);
         let cache = OutputHandleCache::new(paths.clone(), Arc::new(vec![16, 8]), &[1, 1], 1);
         let control = OperationControl::default();
-        let mut writer = ReconstructionOutputWriter::new(&cache, &control);
+        let mut writer = ReconstructOutputWriter::new(&cache, &control);
         writer.write(0, 0, b"ab").unwrap();
         writer.write(0, 2, b"cd").unwrap();
         assert!(!paths[0].exists());
@@ -451,7 +451,7 @@ mod output_handle_tests {
             1,
         );
         let control = OperationControl::default();
-        let mut writer = ReconstructionOutputWriter::new(&cache, &control);
+        let mut writer = ReconstructOutputWriter::new(&cache, &control);
         let large = vec![7; RECONSTRUCT_OUTPUT_BUFFER_BYTES + 1];
         writer.write(0, 0, &large).unwrap();
         assert_eq!(writer.bytes.capacity(), 0);
@@ -483,7 +483,7 @@ mod output_handle_tests {
                 OutputHandleCache::new(Arc::new(vec![path.clone()]), Arc::new(vec![8]), &[1], 1);
             let cancellation = Arc::new(Cancellation(std::sync::atomic::AtomicBool::new(false)));
             let control = OperationControl::default().with_cancellation(cancellation.clone());
-            let mut writer = ReconstructionOutputWriter::new(&cache, &control);
+            let mut writer = ReconstructOutputWriter::new(&cache, &control);
             writer.write(0, 0, b"data").unwrap();
             cancellation
                 .0

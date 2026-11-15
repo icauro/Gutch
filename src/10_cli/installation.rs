@@ -2,7 +2,7 @@
 
 use crate::cli::InstallationCommands;
 use crate::cli::Profile;
-use crate::cli::arguments::ReconstructionArgs;
+use crate::cli::arguments::ReconstructArgs;
 use crate::cli::arguments::RuntimeArgs;
 use crate::cli::command_support::InstallationVerifyStats;
 use crate::cli::command_support::SnapshotReconstructStats;
@@ -218,7 +218,7 @@ pub(crate) fn run_installation(
 ) -> crate::Result<()> {
     match command {
         InstallationCommands::Reconstruct(arguments) => {
-            let ReconstructionArgs {
+            let ReconstructArgs {
                 repo,
                 snapshot_id,
                 destination,

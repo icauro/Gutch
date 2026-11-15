@@ -17,25 +17,6 @@ use crate::profiling::Profiler;
 use std::fs::File;
 use std::path::Path;
 
-pub(crate) fn read_loose_chunk(
-    path: &Path,
-    chunk_hash: &str,
-    raw_size: u64,
-    compression_profile: &CompressionProfile,
-) -> Result<Vec<u8>> {
-    read_loose_chunk_with_profiler(path, chunk_hash, raw_size, compression_profile, None)
-}
-
-pub(crate) fn read_loose_chunk_with_profiler(
-    path: &Path,
-    chunk_hash: &str,
-    raw_size: u64,
-    compression_profile: &CompressionProfile,
-    profiler: Option<&Profiler>,
-) -> Result<Vec<u8>> {
-    Ok(read_loose_chunk_with_metrics(path, chunk_hash, raw_size, compression_profile, profiler)?.0)
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct LooseChunkReadMetrics {
     pub(crate) compressed_bytes: u64,
@@ -46,11 +27,12 @@ pub(crate) struct LooseChunkReadMetrics {
     pub(crate) hash_verify: Duration,
 }
 
-pub(crate) fn read_loose_chunk_with_metrics(
+/// Reads, decompresses and verifies one loose chunk. The stored codec is read
+/// from the chunk header.
+pub(crate) fn read_loose_chunk(
     path: &Path,
     chunk_hash: &str,
     raw_size: u64,
-    _compression_profile: &CompressionProfile,
     profiler: Option<&Profiler>,
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
     let mut metrics = LooseChunkReadMetrics::default();
@@ -172,13 +154,8 @@ mod tests {
             )
             .unwrap();
             // The stored codec remains authoritative after repository defaults change.
-            let decoded = read_loose_chunk(
-                &path,
-                &hash.to_hex(),
-                bytes.len() as u64,
-                &CompressionProfile::default(),
-            )
-            .unwrap();
+            let (decoded, _) =
+                read_loose_chunk(&path, &hash.to_hex(), bytes.len() as u64, None).unwrap();
             assert_eq!(decoded, bytes);
             let mut encoded = std::fs::read(&path).unwrap();
             encoded[20..24]

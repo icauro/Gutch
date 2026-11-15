@@ -8,7 +8,7 @@ use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
 use crate::capture::plan::plan_snapshot_capture;
-use crate::capture::sources::discovery::build_source_snapshot_ops_candidate;
+use crate::capture::sources::discovery::source_snapshot_candidate;
 use crate::installation::InstallationRequest;
 use crate::installation::reconstruct_snapshot;
 use crate::manifest;
@@ -46,9 +46,12 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
     fs::create_dir_all(&new_source).unwrap();
     fs::write(new_source.join("game.exe"), b"old-content").unwrap();
 
-    let old_candidate =
-        build_source_snapshot_ops_candidate(&new_source, &manifest::SnapshotTagSet::default())
-            .unwrap();
+    let old_candidate = source_snapshot_candidate(
+        &new_source,
+        &manifest::SnapshotTagSet::default(),
+        String::new(),
+    )
+    .unwrap();
     let old_files = vec![manifest::FileManifest {
         path: "game.exe".into(),
         size: 11,
@@ -81,6 +84,7 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
         &repo_root,
         &new_source,
         &manifest::SnapshotTagSet::default(),
+        &OperationControl::default(),
     )
     .unwrap();
     assert_eq!(plan.snapshot_tags, manifest::SnapshotTagSet::default());

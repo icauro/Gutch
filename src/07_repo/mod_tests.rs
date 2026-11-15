@@ -2,7 +2,7 @@ use super::*;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
 use crate::capture::reuse::load_capture_reuse_state;
 use crate::repo::index::load_chunk_index;
-use crate::repo::index::rebuild_chunk_index_from_bundles_with_pool;
+use crate::repo::index::rebuild_chunk_index_from_bundles;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
@@ -566,8 +566,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     fs::copy(built_bundle.staged_file.path(), bundle_path).unwrap();
     let pool = build_thread_pool(1, "gutch-test").unwrap();
     let rebuilt =
-        rebuild_chunk_index_from_bundles_with_pool(&paths, &CompressionProfile::default(), &pool)
-            .unwrap();
+        rebuild_chunk_index_from_bundles(&paths, &CompressionProfile::default(), &pool).unwrap();
 
     assert_eq!(incremental.entries, rebuilt.entries);
     assert_eq!(
