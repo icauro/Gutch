@@ -5,6 +5,7 @@ use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::integrity::verify_full_file_integrity;
 use crate::artifact::reference::ArtifactRef;
+use crate::filesystem::paths::ManifestPathResolver;
 use crate::filesystem::paths::resolve_manifest_relative_path;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::installation::execute::job_io::build_source_chunk_locations;
@@ -509,6 +510,7 @@ pub(crate) fn resolve_metadata_updates(
     control: &OperationControl,
 ) -> Result<Vec<SnapshotEntry>> {
     let mut updates = Vec::new();
+    let destination = ManifestPathResolver::new(destination)?;
     let entries: HashMap<_, _> = target
         .entries
         .iter()
@@ -519,7 +521,7 @@ pub(crate) fn resolve_metadata_updates(
         let Some(entry) = entries.get(issue.path.as_str()) else {
             continue;
         };
-        let path = resolve_manifest_relative_path(destination, entry.path())?;
+        let path = destination.resolve_entry(entry.path())?;
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };

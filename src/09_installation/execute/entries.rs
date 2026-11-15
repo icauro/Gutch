@@ -197,14 +197,37 @@ fn relative_link_text(link_path: &str, target_path: &str) -> PathBuf {
     relative
 }
 
+/// Explicit directory entries plus every implicit parent directory.
+#[cfg(windows)]
+fn directory_paths(manifest: &SnapshotManifest) -> std::collections::HashSet<&str> {
+    let mut directories = std::collections::HashSet::new();
+    for entry in &manifest.entries {
+        if matches!(entry, SnapshotEntry::Directory(_)) {
+            directories.insert(entry.path());
+        }
+        for (offset, _) in entry.path().match_indices('/') {
+            directories.insert(&entry.path()[..offset]);
+        }
+    }
+    directories
+}
+
+/// Applies links and attributes for `snapshot_manifest`. `complete_manifest` is
+/// the whole snapshot, which may be larger during repair; Windows needs it to
+/// tell whether a link points at a directory that is not itself being repaired.
 pub(crate) fn finalize_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
+    complete_manifest: &SnapshotManifest,
     output_dir: &Path,
     control: &OperationControl,
     metadata_worker_count: usize,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
     let path_resolver = ManifestPathResolver::new(output_dir)?;
+    #[cfg(windows)]
+    let directories = directory_paths(complete_manifest);
+    #[cfg(not(windows))]
+    let _ = complete_manifest;
     let symlinks = snapshot_manifest
         .entries
         .iter()
@@ -241,11 +264,7 @@ pub(crate) fn finalize_snapshot_entries(
             })?;
             #[cfg(windows)]
             {
-                let target_is_directory = snapshot_manifest.entries.iter().any(|target| {
-                    target.path() == link.target_path
-                        && matches!(target, SnapshotEntry::Directory(_))
-                });
-                let result = if target_is_directory {
+                let result = if directories.contains(link.target_path.as_str()) {
                     std::os::windows::fs::symlink_dir(&link_text, &link_path)
                 } else {
                     std::os::windows::fs::symlink_file(&link_text, &link_path)

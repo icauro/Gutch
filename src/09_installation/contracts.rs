@@ -168,7 +168,6 @@ pub struct SnapshotRepairResult {
     pub corrupt_file_count: usize,
     pub extra_file_count: usize,
     pub removed_extra_file_count: usize,
-    pub reconstructed_extra_file_count: usize,
     pub reconstruct_result: Option<SnapshotReconstructResult>,
 }
 

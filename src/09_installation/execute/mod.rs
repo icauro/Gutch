@@ -187,6 +187,7 @@ fn replace_with_staging(
         let _span = control.profile_span("installation.reconstruct.finalize.entries");
         finalize_snapshot_entries(
             request.snapshot_manifest,
+            request.snapshot_manifest,
             staging_dir,
             control,
             worker_count,

@@ -133,7 +133,6 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         corrupt_file_count: result.corrupt_file_count,
         extra_file_count: result.extra_file_count,
         removed_extra_file_count: result.removed_extra_file_count,
-        reconstructed_extra_file_count: result.reconstructed_extra_file_count,
         resolved_bundle_file_count: execution.resolved_bundle_file_count,
         elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
         outputs: optional_output_paths(&command.stats_json_out),
@@ -146,12 +145,11 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
     ));
     if verbose_output_enabled() {
         output::line(format_args!(
-            "classified missing={}, corrupt={}, extra={}; removed extra={}, preserved extra={}",
+            "classified missing={}, corrupt={}, extra={}; removed extra={}",
             stats.missing_file_count,
             stats.corrupt_file_count,
             stats.extra_file_count,
-            stats.removed_extra_file_count,
-            stats.reconstructed_extra_file_count
+            stats.removed_extra_file_count
         ));
     }
     if profile.is_some() {

@@ -4,7 +4,6 @@ use crate::Error;
 use crate::Result;
 use crate::filesystem;
 use crate::filesystem::paths::ManifestPathResolver;
-use crate::filesystem::paths::resolve_manifest_relative_path;
 use crate::filesystem::set_read_only;
 use crate::installation::contracts::SnapshotRepairResult;
 use crate::installation::inspect::InspectionSpans;
@@ -26,7 +25,6 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process;
 
 pub(crate) enum Publication<'a> {
     ReplaceDirectory,
@@ -70,20 +68,8 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         operation_pool,
     } = request;
     let _finalize_span = control.profile_span("installation.repair.finalize");
-    let mut reconstructed_extra_file_count = 0usize;
     let mut removed_extra_file_count = 0usize;
-    let mut preserved_extra_dir = None;
-
-    // Finish the publication sequence without cancellation between entries.
-    // I/O failure can still leave a partially repaired destination; retry reclassifies it.
-    control.checkpoint()?;
-    if !remove_added_files && repair_plan.extra_file_count > 0 {
-        preserved_extra_dir = Some(preserve_extra_files(
-            destination_dir,
-            snapshot_manifest,
-            &repair_plan.classification,
-        )?);
-    }
+    let destination = ManifestPathResolver::new(destination_dir)?;
 
     // Dependencies staged for link validation are not themselves repair targets.
     let changed_paths: HashSet<_> = repair_plan
@@ -97,22 +83,20 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     publication_manifest
         .entries
         .retain(|entry| changed_paths.contains(entry.path()));
+    if !remove_added_files {
+        refuse_to_replace_non_empty_directories(&publication_manifest, &destination)?;
+    }
+    // Finish the publication sequence without cancellation between entries.
+    // I/O failure can still leave a partially repaired destination; retry reclassifies it.
+    control.checkpoint()?;
     promote_repaired_files(
         &publication_manifest,
+        snapshot_manifest,
         destination_dir,
         staging_dir,
         control,
         operation_pool,
     )?;
-    if let Some(preserved_extra_dir) = preserved_extra_dir.as_ref() {
-        reconstructed_extra_file_count = reconstruct_preserved_extra_files(
-            preserved_extra_dir,
-            destination_dir,
-            snapshot_manifest,
-        )?;
-        let _ = filesystem::remove_dir_all(preserved_extra_dir);
-    }
-
     if remove_added_files {
         removed_extra_file_count = remove_extra_files(
             destination_dir,
@@ -124,7 +108,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     let mut verification_manifest = repair_plan.affected_manifest.clone();
     if !repair_plan.metadata_updates.is_empty() {
         for entry in &repair_plan.metadata_updates {
-            let path = resolve_manifest_relative_path(destination_dir, entry.path())?;
+            let path = destination.resolve_entry(entry.path())?;
             match entry {
                 SnapshotEntry::File(file) => super::entries::apply_entry_permissions(
                     &path,
@@ -158,9 +142,8 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         .0
     };
     if remove_added_files {
-        let path_resolver = ManifestPathResolver::new(destination_dir)?;
         for issue in &repair_plan.classification.extra_files {
-            let path = path_resolver.resolve(&issue.path)?;
+            let path = destination.resolve_entry(&issue.path)?;
             if fs::symlink_metadata(path).is_ok() {
                 final_classification.push(RepairIssue::extra(
                     &issue.path,
@@ -196,51 +179,38 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         corrupt_file_count: repair_plan.corrupt_file_count,
         extra_file_count: repair_plan.extra_file_count,
         removed_extra_file_count,
-        reconstructed_extra_file_count,
         reconstruct_result: None,
     })
 }
 
-fn preserve_extra_files(
-    destination_dir: &Path,
-    snapshot_manifest: &SnapshotManifest,
-    classification: &RepairClassification,
-) -> Result<PathBuf> {
-    let preserve_dir = destination_dir.with_file_name(format!(
-        ".gutch-preserve-extra-{}-{}",
-        destination_dir
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("destination"),
-        process::id()
-    ));
-    if preserve_dir.exists() {
-        filesystem::remove_dir_all(&preserve_dir)?;
-    }
-    filesystem::create_dir_all(&preserve_dir)?;
-
-    let manifest_paths = manifest_paths_set(snapshot_manifest);
-
-    for issue in &classification.extra_files {
-        if manifest_paths.contains(issue.path.as_str()) {
+/// Promoting a file or link over a real directory deletes the directory's
+/// contents. When extra entries must be kept, refuse before anything changes:
+/// they could not be put back at a path that is now a file.
+fn refuse_to_replace_non_empty_directories(
+    publication_manifest: &SnapshotManifest,
+    destination: &ManifestPathResolver,
+) -> Result<()> {
+    for entry in &publication_manifest.entries {
+        if matches!(entry, SnapshotEntry::Directory(_)) {
             continue;
         }
-        let source = resolve_manifest_relative_path(destination_dir, &issue.path)?;
-        if !source.is_file() {
-            continue;
+        let path = destination.resolve_entry(entry.path())?;
+        let is_real_directory = fs::symlink_metadata(&path).is_ok_and(|metadata| {
+            metadata.file_type().is_dir() && !metadata.file_type().is_symlink()
+        });
+        if is_real_directory && fs::read_dir(&path)?.next().is_some() {
+            return Err(Error::invalid_input(format!(
+                "repairing '{}' would delete the extra entries inside the directory now at that path;                  move them elsewhere or repair with added files removed",
+                entry.path()
+            )));
         }
-        let dest = resolve_manifest_relative_path(&preserve_dir, &issue.path)?;
-        if let Some(parent) = dest.parent() {
-            filesystem::create_dir_all(parent)?;
-        }
-        fs::copy(&source, &dest)?;
     }
-
-    Ok(preserve_dir)
+    Ok(())
 }
 
 fn promote_repaired_files(
     repaired_manifest: &SnapshotManifest,
+    complete_manifest: &SnapshotManifest,
     destination_dir: &Path,
     staging_dir: &Path,
     control: &OperationControl,
@@ -255,9 +225,11 @@ fn promote_repaired_files(
         })
         .collect::<Vec<_>>();
     directories.sort_by_key(|directory| directory.path.matches('/').count());
-    let reopened_ancestors = reopen_read_only_directories(repaired_manifest, destination_dir)?;
+    let destination = ManifestPathResolver::new(destination_dir)?;
+    let staging = ManifestPathResolver::new(staging_dir)?;
+    let reopened_ancestors = reopen_read_only_directories(repaired_manifest, &destination)?;
     for directory in &directories {
-        let dest = resolve_manifest_relative_path(destination_dir, &directory.path)?;
+        let dest = destination.resolve_entry(&directory.path)?;
         let is_existing_directory = fs::symlink_metadata(&dest)
             .map(|metadata| metadata.file_type().is_dir() && !metadata.file_type().is_symlink())
             .unwrap_or(false);
@@ -273,8 +245,8 @@ fn promote_repaired_files(
             SnapshotEntry::Symlink(link) => &link.path,
             SnapshotEntry::Directory(_) => continue,
         };
-        let source = resolve_manifest_relative_path(staging_dir, path)?;
-        let dest = resolve_manifest_relative_path(destination_dir, path)?;
+        let source = staging.resolve_entry(path)?;
+        let dest = destination.resolve_entry(path)?;
         if let Some(parent) = dest.parent() {
             filesystem::create_dir_all(parent)?;
         }
@@ -288,6 +260,7 @@ fn promote_repaired_files(
     // normal reconstruction before declaring the repaired destination verified.
     finalize_snapshot_entries(
         repaired_manifest,
+        complete_manifest,
         destination_dir,
         control,
         operation_pool.map_or(1, ThreadPool::current_num_threads),
@@ -295,7 +268,7 @@ fn promote_repaired_files(
     )?;
     directories.sort_by_key(|directory| Reverse(directory.path.matches('/').count()));
     for directory in directories {
-        let dest = resolve_manifest_relative_path(destination_dir, &directory.path)?;
+        let dest = destination.resolve_entry(&directory.path)?;
         let mut permissions = fs::metadata(&dest)?.permissions();
         set_read_only(&mut permissions, directory.read_only);
         fs::set_permissions(dest, permissions)?;
@@ -315,7 +288,7 @@ fn promote_repaired_files(
 /// reclassifies as a read-only mismatch.
 fn reopen_read_only_directories(
     repaired_manifest: &SnapshotManifest,
-    destination_dir: &Path,
+    destination: &ManifestPathResolver,
 ) -> Result<Vec<PathBuf>> {
     let repaired_directories: HashSet<&str> = repaired_manifest
         .entries
@@ -332,7 +305,7 @@ fn reopen_read_only_directories(
     directories.extend(repaired_directories.iter().copied());
     let mut reopened_ancestors = Vec::new();
     for directory in directories {
-        let path = resolve_manifest_relative_path(destination_dir, directory)?;
+        let path = destination.resolve_entry(directory)?;
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };
@@ -362,48 +335,13 @@ fn remove_existing_entry(path: &Path) -> Result<()> {
     }
 }
 
-fn reconstruct_preserved_extra_files(
-    preserve_dir: &Path,
-    destination_dir: &Path,
-    snapshot_manifest: &SnapshotManifest,
-) -> Result<usize> {
-    let manifest_paths = manifest_paths_set(snapshot_manifest);
-    let mut reconstructed = 0usize;
-
-    for entry in walkdir::WalkDir::new(preserve_dir).sort_by_file_name() {
-        let entry = entry?;
-        if !(entry.file_type().is_file()
-            || (entry.file_type().is_symlink() && entry.path().is_file()))
-        {
-            continue;
-        }
-        let Ok(relative_path) = entry.path().strip_prefix(preserve_dir) else {
-            continue;
-        };
-        let relative = relative_path.to_string_lossy().replace('\\', "/");
-        if manifest_paths.contains(relative.as_str()) {
-            continue;
-        }
-        let dest = resolve_manifest_relative_path(destination_dir, &relative)?;
-        if dest.exists() {
-            continue;
-        }
-        if let Some(parent) = dest.parent() {
-            filesystem::create_dir_all(parent)?;
-        }
-        fs::copy(entry.path(), &dest)?;
-        reconstructed += 1;
-    }
-
-    Ok(reconstructed)
-}
-
 fn remove_extra_files(
     destination_dir: &Path,
     snapshot_manifest: &SnapshotManifest,
     extra_files: &[RepairIssue],
 ) -> Result<usize> {
     let manifest_paths = manifest_paths_set(snapshot_manifest);
+    let destination = ManifestPathResolver::new(destination_dir)?;
     let mut removed = 0usize;
 
     let mut paths = extra_files.iter().collect::<Vec<_>>();
@@ -412,7 +350,7 @@ fn remove_extra_files(
         if manifest_paths.contains(issue.path.as_str()) {
             continue;
         }
-        let path = resolve_manifest_relative_path(destination_dir, &issue.path)?;
+        let path = destination.resolve_entry(&issue.path)?;
         if fs::symlink_metadata(&path).is_ok() {
             remove_existing_entry(&path)?;
             removed += 1;

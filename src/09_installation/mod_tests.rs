@@ -449,3 +449,103 @@ fn repair_restores_files_inside_read_only_directories() {
     set_read_only(&mut permissions, false);
     fs::set_permissions(&data_directory, permissions).unwrap();
 }
+
+fn repair(root: &Path, manifest: &SnapshotManifest, remove_added_files: bool) -> crate::Result<()> {
+    repair_installation(InstallationRepairRequest {
+        repo_path: root.to_path_buf(),
+        snapshot_id: manifest.snapshot_id.clone(),
+        destination_dir: root.join("destination"),
+        staging_dir: None,
+        remove_added_files,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: OperationControl::default(),
+    })
+    .map(|_| ())
+}
+
+/// Creates a file symlink, or returns false where the host lacks the privilege.
+fn try_file_symlink(target: &str, link: &Path) -> bool {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(target, link).is_ok();
+    #[cfg(windows)]
+    return std::os::windows::fs::symlink_file(target, link).is_ok();
+}
+
+#[test]
+fn repair_replaces_a_dangling_link_and_keeps_extra_dangling_links() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("destination");
+    fs::create_dir_all(&destination).unwrap();
+    if !try_file_symlink("missing", &destination.join("game.dat"))
+        || !try_file_symlink("../../outside", &destination.join("user-link"))
+    {
+        return;
+    }
+    let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
+    write_repair_test_repo(root.path(), &manifest);
+
+    repair(root.path(), &manifest, false).unwrap();
+    let game = fs::symlink_metadata(destination.join("game.dat")).unwrap();
+    assert!(game.file_type().is_file());
+    assert!(fs::symlink_metadata(destination.join("user-link")).is_ok());
+
+    repair(root.path(), &manifest, true).unwrap();
+    assert!(fs::symlink_metadata(destination.join("user-link")).is_err());
+}
+
+#[test]
+fn repaired_links_to_intact_directories_still_point_at_directories() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("destination");
+    fs::create_dir_all(destination.join("data")).unwrap();
+    fs::write(destination.join("data").join("game.dat"), b"").unwrap();
+    let mut manifest = test_snapshot_manifest(vec![("data/game.dat", b"")]);
+    manifest.entries.push(manifest::SnapshotEntry::Directory(
+        manifest::DirectoryManifest {
+            path: "data".to_string(),
+            read_only: false,
+        },
+    ));
+    manifest.entries.push(manifest::SnapshotEntry::Symlink(
+        manifest::SymlinkManifest {
+            path: "current".to_string(),
+            target_path: "data".to_string(),
+        },
+    ));
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
+    write_repair_test_repo(root.path(), &manifest);
+
+    // The link is missing; its target directory is intact.
+    match repair(root.path(), &manifest, true) {
+        Err(error) if error.to_string().contains("symbolic-link privilege") => return,
+        result => result.unwrap(),
+    }
+    assert!(destination.join("current").join("game.dat").is_file());
+}
+
+#[test]
+fn keeping_extras_refuses_to_replace_a_directory_that_holds_them() {
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("destination");
+    fs::create_dir_all(destination.join("game.dat")).unwrap();
+    fs::write(destination.join("game.dat").join("save.txt"), b"user data").unwrap();
+    let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
+    write_repair_test_repo(root.path(), &manifest);
+
+    let error = repair(root.path(), &manifest, false).unwrap_err();
+    assert!(error.to_string().contains("game.dat"), "{error}");
+    assert_eq!(
+        fs::read(destination.join("game.dat").join("save.txt")).unwrap(),
+        b"user data"
+    );
+    assert!(!root.path().read_dir().unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("preserve")
+    }));
+
+    repair(root.path(), &manifest, true).unwrap();
+    assert!(destination.join("game.dat").is_file());
+}

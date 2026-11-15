@@ -208,14 +208,16 @@ pub(crate) fn run_reconstruction_jobs(
     };
     coordinator.queue_initial_work(existing_artifacts)?;
     let result = coordinator.run(pool, &work_context, &event_tx, &event_rx);
-    finish_pipeline_workers(
+    let shutdown = finish_pipeline_workers(
         coordinator.artifact_scheduler.take(),
         &mut coordinator.work_queue,
         &event_rx,
         control,
         result.is_err(),
-    )?;
+    );
+    // The pipeline's own error explains the failure better than a shutdown one.
     result?;
+    shutdown?;
     coordinator.finish(pipeline_started_at)
 }
 
@@ -667,10 +669,10 @@ fn finish_pipeline_workers(
     if failed && let Some(scheduler) = artifact_scheduler.as_ref() {
         scheduler.cancel();
     }
-    if let Some(scheduler) = artifact_scheduler {
-        scheduler.join()?;
-    }
-    // Queued work has never started and emits no completion event.
+    let joined = artifact_scheduler.map_or(Ok(()), ArtifactDownloadScheduler::join);
+    // Queued work has never started and emits no completion event. Dispatched
+    // workers may still write into staging, so wait for them even if the
+    // download workers failed to join.
     work_queue.ready.clear();
     while failed && work_queue.in_flight > 0 {
         let event = {
@@ -682,7 +684,7 @@ fn finish_pipeline_workers(
             Err(_) => break,
         }
     }
-    Ok(())
+    joined
 }
 
 fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {

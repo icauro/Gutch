@@ -103,7 +103,13 @@ An install with missing or corrupt expected content requires repair. Extra
 files are reported independently. Repair can preserve extra files or remove
 the classified extras when the caller explicitly requests full repair. Extra-entry
 counters include directories. Removal preserves directories declared by the target
-snapshot, even when deleting their last extra child.
+snapshot, even when deleting their last extra child. Preserved extras stay in
+place; when an expected file or link must replace a directory that still holds
+entries, repair refuses before changing anything instead of deleting them.
+Repair inspects and replaces entries without following a final symlink, so
+dangling or escaping links can be repaired or kept. Repaired Windows links
+choose directory or file links from the complete snapshot, not just the
+repaired entries.
 
 ## Reconstruction and Promotion
 

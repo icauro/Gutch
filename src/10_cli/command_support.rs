@@ -97,7 +97,6 @@ pub(crate) struct InstallationRepairStats {
     pub(crate) corrupt_file_count: usize,
     pub(crate) extra_file_count: usize,
     pub(crate) removed_extra_file_count: usize,
-    pub(crate) reconstructed_extra_file_count: usize,
     pub(crate) resolved_bundle_file_count: usize,
     pub(crate) elapsed_seconds: Option<f64>,
     pub(crate) outputs: OptionalOutputPaths,
