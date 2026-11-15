@@ -11,7 +11,7 @@ use super::discovery::discover_source_snapshots;
 use crate::Result;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::execute::build_capture_pool;
-use crate::capture::execute::capture_snapshot_reusing_state;
+use crate::capture::execute::execute_repo_snapshot_capture;
 use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::load_capture_reuse_state;
 use crate::manifest::repo_manifest::ArtifactProfile;
@@ -249,7 +249,7 @@ fn capture_source_snapshot(
     } else {
         control.clone()
     };
-    capture_snapshot_reusing_state(
+    execute_repo_snapshot_capture(
         SnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
             source_dir: PathBuf::from(&candidate.path),

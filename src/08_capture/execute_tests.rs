@@ -718,3 +718,44 @@ fn capture_bundle_counts_include_each_referenced_bundle_once() {
         assert_eq!(mixed.new_chunk_count, 1);
     }
 }
+
+#[test]
+fn batch_capture_reuses_chunks_from_earlier_sources_in_the_batch() {
+    let temp = tempfile::tempdir().unwrap();
+    let (repo_root, first_source) = test_repo_with_source(&temp, "first", b"shared file");
+    let second_source = temp.path().join("second");
+    fs::create_dir_all(&second_source).unwrap();
+    fs::write(second_source.join("game.exe"), b"shared file").unwrap();
+    fs::write(second_source.join("extra.dat"), b"second only").unwrap();
+    let request = |source_dir: &Path, version: &str| SnapshotCaptureRequest {
+        repo_root: repo_root.clone(),
+        source_dir: source_dir.to_path_buf(),
+        explicit_tags: manifest::SnapshotTagSet::from_compact_strings(&[
+            format!("version={version}"),
+            "os=windows".to_string(),
+        ])
+        .unwrap(),
+        chunk_profile: ChunkSizingPreset::Chunk128KiB,
+        chunker: Chunker::FastCdc,
+        bundle_profile: BundleSizingPreset::Bundle8MiB,
+        compression_algorithm: CompressionKind::Zstd,
+        compression_level: None,
+        storage_mode: ArtifactStorageMode::Bundled,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: OperationControl::default(),
+    };
+
+    let results = crate::capture::sources::capture_snapshots(vec![
+        request(&first_source, "1.0.0"),
+        request(&second_source, "1.1.0"),
+    ])
+    .unwrap();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].new_chunk_count, 1);
+    assert_eq!(results[1].reused_chunk_count, 1);
+    assert_eq!(results[1].new_chunk_count, 1);
+    for result in &results {
+        test_reconstruct_and_strict_verify(&repo_root, &result.snapshot_id);
+    }
+}

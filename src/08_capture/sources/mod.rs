@@ -11,7 +11,7 @@ use crate::artifact::profiles::validate_packaging_sizes;
 use crate::capture::contracts::SnapshotCapturePlan;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
-use crate::capture::execute::capture_snapshot;
+use crate::capture::execute::capture_planned_snapshots;
 use crate::capture::plan::plan_snapshot_capture;
 use crate::manifest::SnapshotTagSet;
 use std::path::Path;
@@ -77,7 +77,7 @@ pub fn capture_snapshots(
     requests: Vec<SnapshotCaptureRequest>,
 ) -> Result<Vec<SnapshotCaptureResult>> {
     plan_snapshot_captures(&requests)?;
-    requests.into_iter().map(capture_snapshot).collect()
+    capture_planned_snapshots(requests)
 }
 
 fn collect_capture_sources(

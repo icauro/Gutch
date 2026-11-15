@@ -52,53 +52,77 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
         &BundleSizingProfile::for_preset(request.bundle_profile),
         request.storage_mode,
     )?;
-    request.control.checkpoint()?;
-    let operation_root = request.repo_root.to_path_buf();
-    write_with_control(&operation_root, &request.control.clone(), || {
-        request.control.checkpoint()?;
-        let build_pool = build_capture_pool(&request.control, &request.runtime_hints)?;
+    plan_snapshot_capture(
+        &request.repo_root,
+        &request.source_dir,
+        &request.explicit_tags,
+        &request.control,
+    )?;
+    let mut results = capture_planned_snapshots(vec![request])?;
+    Ok(results.remove(0))
+}
 
-        let repo_paths = RepoPaths::from_repo_root(&request.repo_root);
-        let _existing_state_span = request
-            .control
-            .profile_span("capture.prepare_source.load_existing_store_state");
-        let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, &request.control)?;
+/// Captures requests that were already validated and planned. Consecutive
+/// requests for the same repository and runtime hints share one write lock,
+/// worker pool and reuse state.
+pub(crate) fn capture_planned_snapshots(
+    requests: Vec<SnapshotCaptureRequest>,
+) -> Result<Vec<SnapshotCaptureResult>> {
+    let mut results = Vec::with_capacity(requests.len());
+    let mut requests = requests.into_iter().peekable();
+    while let Some(first) = requests.next() {
+        let mut group = vec![first];
+        while let Some(next) = requests.next_if(|next| {
+            next.repo_root == group[0].repo_root && next.runtime_hints == group[0].runtime_hints
+        }) {
+            group.push(next);
+        }
+        results.extend(capture_repository_group(group)?);
+    }
+    Ok(results)
+}
+
+fn capture_repository_group(
+    group: Vec<SnapshotCaptureRequest>,
+) -> Result<Vec<SnapshotCaptureResult>> {
+    let control = group[0].control.clone();
+    let repo_root = group[0].repo_root.clone();
+    let runtime_hints = group[0].runtime_hints;
+    control.checkpoint()?;
+    write_with_control(&repo_root, &control, || {
+        control.checkpoint()?;
+        let build_pool = build_capture_pool(&control, &runtime_hints)?;
+
+        let repo_paths = RepoPaths::from_repo_root(&repo_root);
+        let _existing_state_span =
+            control.profile_span("capture.prepare_source.load_existing_store_state");
+        let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, &control)?;
         drop(_existing_state_span);
 
-        let (_, mut manifest) = load_gutch_repo_manifest(&request.repo_root)?;
-        manifest.set_artifact_profile(
-            request.chunk_profile,
-            request.compression_algorithm,
-            request.compression_level,
-            request.bundle_profile,
-            request.storage_mode,
-        );
-        manifest.artifact_profile.chunker = request.chunker;
-        let result = capture_snapshot_reusing_state(request, &mut reuse_state, &build_pool)?;
-        write_gutch_repo_manifest(&repo_paths, &manifest)?;
-        Ok(result)
+        let mut results = Vec::with_capacity(group.len());
+        for request in group {
+            let (_, mut manifest) = load_gutch_repo_manifest(&repo_root)?;
+            manifest.set_artifact_profile(
+                request.chunk_profile,
+                request.compression_algorithm,
+                request.compression_level,
+                request.bundle_profile,
+                request.storage_mode,
+            );
+            manifest.artifact_profile.chunker = request.chunker;
+            results.push(execute_repo_snapshot_capture(
+                request,
+                &mut reuse_state,
+                &build_pool,
+            )?);
+            write_gutch_repo_manifest(&repo_paths, &manifest)?;
+        }
+        Ok(results)
     })
 }
 
-pub(crate) fn capture_snapshot_reusing_state(
-    request: SnapshotCaptureRequest,
-    reuse_state: &mut CaptureReuseState,
-    build_pool: &rayon::ThreadPool,
-) -> Result<SnapshotCaptureResult> {
-    request.control.checkpoint()?;
-    let operation_root = request.repo_root.to_path_buf();
-    write_with_control(&operation_root, &request.control.clone(), || {
-        plan_snapshot_capture(
-            request.repo_root.as_path(),
-            request.source_dir.as_path(),
-            &request.explicit_tags,
-            &request.control,
-        )?;
-        execute_repo_snapshot_capture(request, reuse_state, build_pool)
-    })
-}
-
-fn execute_repo_snapshot_capture(
+/// Captures one planned source; the caller holds the repository write lock.
+pub(crate) fn execute_repo_snapshot_capture(
     request: SnapshotCaptureRequest,
     reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
