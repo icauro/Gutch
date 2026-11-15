@@ -168,17 +168,6 @@ pub(super) fn publish_snapshot_artifacts(
             .available_chunk_sizes
             .insert(chunk.chunk_hash, chunk.compressed_size);
     }
-    for file in result.snapshot_manifest.files() {
-        let candidates = reuse_state
-            .previous_file_manifests
-            .entry(file.path.clone())
-            .or_default();
-        if !candidates.iter().any(|candidate| {
-            candidate.size == file.size && candidate.full_file_hash == file.full_file_hash
-        }) {
-            candidates.push(file.clone());
-        }
-    }
     let _chunk_index_write_span =
         control.profile_span("capture.publish_snapshot.write_chunk_index");
     write_chunk_index(repo_paths, &reuse_state.chunk_index)?;
@@ -186,7 +175,7 @@ pub(super) fn publish_snapshot_artifacts(
     let mut required_bundle_count = 0;
     for artifact in required_artifacts(&result.snapshot_manifest, &reuse_state.chunk_index)? {
         if !artifact.local_path(repo_paths)?.is_file() {
-            return Err(crate::Error::capture(format!(
+            return Err(crate::Error::repository(format!(
                 "capture is missing required artifact '{}'",
                 artifact.id()
             )));

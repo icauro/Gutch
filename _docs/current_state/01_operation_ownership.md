@@ -37,8 +37,7 @@ The shared installation entrypoint is `install_snapshot_from_repo`; reconstructi
 and repair are presets. `visit_installation_plan` streams change descriptions
 from the same classification and job-planning functions.
 
-Capture owns the derived state used to reuse existing chunks and previous file
-manifests, including proportional encoded-byte estimates. Repository code owns
+Capture owns the derived state used to reuse existing chunks, including proportional encoded-byte estimates. Repository code owns
 persisted indexes and their codecs. Runtime chunk-index entries retain physical
 artifact references, encoded artifact sizes, chunk ordinals and raw chunk sizes.
 Installation carries the complete encoded size once per artifact job and raw

@@ -47,7 +47,6 @@ pub(crate) struct FileBuildEntry {
     pub(crate) stream_chunk_bytes: u64,
     pub(crate) chunk_hash_judgment: Duration,
     pub(crate) chunk_hash_judgment_bytes: u64,
-    pub(crate) metadata: Duration,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +56,6 @@ pub(crate) struct ChunkPlacementKey {
 }
 
 pub(crate) struct ScanDirectoryOptions<'a> {
-    pub previous_file_manifests: &'a HashMap<String, Vec<FileManifest>>,
     pub chunking_profile: &'a ChunkSizingProfile,
     pub available_chunk_sizes: &'a HashMap<ChunkHash, u64>,
     pub worker_count: usize,
@@ -85,7 +83,6 @@ pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileB
     timings.stream_chunk_bytes += entry.stream_chunk_bytes;
     timings.chunk_hash_judgment += entry.chunk_hash_judgment;
     timings.chunk_hash_judgment_bytes += entry.chunk_hash_judgment_bytes;
-    timings.metadata += entry.metadata;
 }
 
 pub(crate) struct ScannedChunks {
@@ -365,22 +362,14 @@ pub(crate) fn scan_directory_into_file_entries(
             let path = &source_file.path;
             let normalized_relative = source_file.normalized_relative.clone();
             let source_metadata = &source_file.metadata;
-            let metadata = Duration::ZERO;
-            let previous_candidates = options
-                .previous_file_manifests
-                .get(&normalized_relative)
-                .map(Vec::as_slice)
-                .unwrap_or_default();
             let _file_span = control_for_scan.profile_span_with_args("capture.scan.file", || {
                 file_trace_args(&normalized_relative, source_metadata.len())
             });
 
-            scan_changed_file(ScanChangedFileRequest {
+            scan_file(ScanFileRequest {
                 path,
                 normalized_relative,
                 source_metadata,
-                metadata,
-                previous_candidates,
                 options: &options,
                 control: &control_for_scan,
             })
@@ -413,34 +402,35 @@ pub(crate) fn scan_directory_into_file_entries(
     }
 }
 
-struct ScanChangedFileRequest<'a> {
+#[cfg(unix)]
+fn is_executable(metadata: &Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    metadata.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_metadata: &Metadata) -> bool {
+    false
+}
+
+struct ScanFileRequest<'a> {
     path: &'a Path,
     normalized_relative: String,
     source_metadata: &'a Metadata,
-    metadata: Duration,
-    previous_candidates: &'a [FileManifest],
     options: &'a ScanDirectoryOptions<'a>,
     control: &'a OperationControl,
 }
 
-fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEntry> {
-    let ScanChangedFileRequest {
+fn scan_file(request: ScanFileRequest<'_>) -> Result<FileBuildEntry> {
+    let ScanFileRequest {
         path,
         normalized_relative,
         source_metadata,
-        metadata,
-        previous_candidates,
         options,
         control,
     } = request;
     let read_only = source_metadata.permissions().readonly();
-    #[cfg(unix)]
-    let executable = {
-        use std::os::unix::fs::PermissionsExt;
-        source_metadata.permissions().mode() & 0o111 != 0
-    };
-    #[cfg(not(unix))]
-    let executable = false;
+    let executable = is_executable(source_metadata);
     let (chunk_scan, chunk_timings) = scan_file_chunks(
         path,
         source_metadata.len(),
@@ -450,37 +440,6 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     let file_size = chunk_scan.file_size;
     let full_file_hash = chunk_scan.full_file_hash;
     let file_hash = chunk_scan.full_file_hash_duration;
-
-    let previous = {
-        previous_candidates.iter().find(|candidate| {
-            candidate.size == file_size
-                && candidate.full_file_hash == full_file_hash
-                && candidate.executable == executable
-                && candidate.read_only == read_only
-                // Settings may change while file contents stay identical.
-                && candidate.chunks.len() == chunk_scan.chunks.len()
-                && candidate.chunks.iter().zip(&chunk_scan.chunks).all(|(old, new)| {
-                    u64::from(old.raw_size) == new.size
-                        && old.chunk_hash == new.hash
-                        && options.available_chunk_sizes.contains_key(&old.chunk_hash)
-                })
-        })
-    };
-    if let Some(previous) = previous {
-        return Ok(FileBuildEntry {
-            manifest: previous.clone(),
-            chunks: Vec::new(),
-            new_chunk_offsets: Vec::new(),
-            size: file_size,
-            file_hash,
-            file_hash_bytes: file_size,
-            stream_chunk: chunk_timings.boundary_scan,
-            stream_chunk_bytes: chunk_timings.boundary_scan_bytes,
-            chunk_hash_judgment: chunk_timings.hash_judgment,
-            chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
-            metadata,
-        });
-    }
 
     let stream_chunk = chunk_timings.boundary_scan;
 
@@ -533,7 +492,6 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
         stream_chunk_bytes: chunk_timings.boundary_scan_bytes,
         chunk_hash_judgment: chunk_timings.hash_judgment,
         chunk_hash_judgment_bytes: chunk_timings.hash_judgment_bytes,
-        metadata,
     })
 }
 
@@ -568,81 +526,37 @@ pub(crate) fn verify_source_inventory_stable(
     before: &SourceInventory,
     after: &SourceInventory,
 ) -> Result<()> {
-    fn metadata_observation(entry: &SnapshotEntry) -> (String, String, String) {
-        match entry {
-            SnapshotEntry::File(file) => (
-                file.path.clone(),
-                String::from("file"),
-                format!("{}:{}:{}", file.size, file.executable, file.read_only),
-            ),
-            SnapshotEntry::Directory(directory) => (
-                directory.path.clone(),
-                String::from("directory"),
-                directory.read_only.to_string(),
-            ),
-            SnapshotEntry::Symlink(link) => (
-                link.path.clone(),
-                String::from("symlink"),
-                link.target_path.clone(),
-            ),
-        }
+    // Compare the metadata captured during each inventory's scan, never a
+    // fresh read: re-reading current state for both sides would always agree
+    // with itself. Both walks sort by file name, so equal trees list entries
+    // in the same order.
+    #[derive(PartialEq)]
+    struct FileObservation<'a> {
+        path: &'a str,
+        size: u64,
+        modified_at: SystemTime,
+        read_only: bool,
+        executable: bool,
+    }
+    fn observe_files(inventory: &SourceInventory) -> Result<Vec<FileObservation<'_>>> {
+        inventory
+            .files
+            .iter()
+            .map(|entry| {
+                Ok(FileObservation {
+                    path: &entry.normalized_relative,
+                    size: entry.metadata.len(),
+                    modified_at: entry.metadata.modified()?,
+                    read_only: entry.metadata.permissions().readonly(),
+                    executable: is_executable(&entry.metadata),
+                })
+            })
+            .collect()
     }
 
-    fn file_observation(entry: &SourceFileEntry) -> Result<(String, u64, SystemTime, bool, bool)> {
-        // Compare the metadata captured during that inventory's scan, never a
-        // fresh read: re-reading current state for both sides would always
-        // agree with itself.
-        let metadata = &entry.metadata;
-        let executable = is_executable(metadata);
-        Ok((
-            entry.normalized_relative.clone(),
-            metadata.len(),
-            metadata
-                .modified()
-                .map_err(|_| Error::capture("source changed during capture".to_string()))?,
-            metadata.permissions().readonly(),
-            executable,
-        ))
-    }
-
-    #[cfg(unix)]
-    fn is_executable(metadata: &Metadata) -> bool {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
-    }
-
-    #[cfg(not(unix))]
-    fn is_executable(_metadata: &Metadata) -> bool {
-        false
-    }
-
-    let before_metadata: Vec<_> = before
-        .metadata_entries
-        .iter()
-        .map(metadata_observation)
-        .collect();
-    let after_metadata: Vec<_> = after
-        .metadata_entries
-        .iter()
-        .map(metadata_observation)
-        .collect();
-    if before_metadata != after_metadata {
-        return Err(Error::SourceChanged { path: None });
-    }
-
-    let mut before_files: Vec<_> = before
-        .files
-        .iter()
-        .map(file_observation)
-        .collect::<Result<_>>()?;
-    let mut after_files: Vec<_> = after
-        .files
-        .iter()
-        .map(file_observation)
-        .collect::<Result<_>>()?;
-    before_files.sort();
-    after_files.sort();
-    if before_files != after_files {
+    if before.metadata_entries != after.metadata_entries
+        || observe_files(before)? != observe_files(after)?
+    {
         return Err(Error::SourceChanged { path: None });
     }
     Ok(())
@@ -695,7 +609,6 @@ mod tests {
             scan_directory_into_file_entries(
                 &inventory,
                 ScanDirectoryOptions {
-                    previous_file_manifests: &HashMap::new(),
                     chunking_profile: &crate::artifact::profiles::ChunkSizingProfile::default(),
                     available_chunk_sizes: &HashMap::new(),
                     worker_count: workers,

@@ -255,16 +255,11 @@ fn configure_build<'a>(
                         "existing_chunk_location_count".to_string(),
                         serde_json::json!(reuse_state.available_chunk_sizes.len()),
                     ),
-                    (
-                        "previous_file_manifest_path_count".to_string(),
-                        serde_json::json!(reuse_state.previous_file_manifests.len()),
-                    ),
                 ])
             });
     let mut build_config = BuildConfig::for_snapshot(snapshot_tags)
         .with_existing_chunks(&reuse_state.available_chunk_sizes)
         .with_existing_bundles(&reuse_state.bundle_ids)
-        .with_previous_manifests(&reuse_state.previous_file_manifests)
         .with_chunk_profile(request.chunk_profile)
         .with_chunker(request.chunker)
         .with_bundle_profile(request.bundle_profile)

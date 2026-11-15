@@ -33,7 +33,7 @@ capture Rayon pool unless noted otherwise.
 | 3. Inventory | Walk each source with `WalkDir`, without following links, in filename order. Record regular files, directories, and supported symlinks. | Directory enumeration is ordered; metadata conversion can run on the pool. |
 | 4. File scan | Read each regular file as a stream, find the selected CDC boundaries, and compute the full-file BLAKE3 hash. | Files are scanned concurrently when more than one worker is configured. |
 | 5. Chunk hashes | Hash each chunk as it is read and retain its source range, size, and identity. | Hashing runs in the file worker; raw chunks are released immediately. |
-| 6. Reuse decision | Compare each file with the previous manifest and look up already-known chunk identities. | Decisions are made per file and then combined. |
+| 6. Reuse decision | Look up each chunk identity in the repo-wide chunk map. | Decisions are made per file and then combined. |
 | 7. Dedupe planning | Keep only content not already represented in the repo and collapse duplicate new chunk identities. | Planning is deterministic and mostly sequential after collection. |
 | 8. Artifact encoding | Group new chunks into bundles or encode loose compressed chunks, then write the artifact files. | Bundle groups and loose chunks are encoded concurrently. |
 | 9. Manifest finalize | Sort entries, construct the snapshot blueprint/manifest, and persist the current repo metadata and indexes. | Final ordering and manifest construction are deterministic. |
@@ -76,14 +76,10 @@ Chunk hashes are calculated before the file result is returned, so
 the manifest always contains ordered, content-addressed references rather than
 only offsets.
 
-The previous manifest is reusable for a path only when the current file has the
-same normalized path, size, full-file hash, executable bit, read-only bit, and
-newly scanned chunk hashes and lengths. Chunker or size changes therefore cannot
-reuse a different old boundary layout in a new snapshot.
-When that comparison succeeds, Gutch reuses the previous file manifest without
-rechunking it into new artifacts. Otherwise, each chunk is resolved through the
-repo-wide chunk map; source ranges are retained only for chunks that are not
-already available locally.
+Every file manifest comes from the current scan; earlier snapshots are not
+loaded. Each chunk is resolved through the repo-wide chunk map, and source
+ranges are retained only for chunks that are not already available locally, so
+an unchanged file adds no artifacts.
 
 ## Parallelization and resource limits
 
@@ -173,9 +169,9 @@ released through the same operation-owned artifact lifecycle.
 ## Failure boundaries
 
 - A path, unsupported object, read, chunk, or hash failure stops capture.
-- A previous manifest is reused only after its file identity properties match
-  and every referenced chunk has an available artifact. Missing artifacts are
-  rebuilt from source, including when recapturing an identical snapshot.
+- A chunk is reused only when the chunk map lists an available artifact for it.
+  Missing artifacts are rebuilt from source, including when recapturing an
+  identical snapshot.
 - Encoding re-reads selected source ranges and verifies their chunk hashes.
 - Each bundle-loading job retains only its current source file handle, reusing
   it for consecutive chunks from the same path. Switching paths closes the old

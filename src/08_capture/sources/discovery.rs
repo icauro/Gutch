@@ -34,9 +34,10 @@ pub struct SourceSnapshotCandidate {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceSnapshotDisposition {
+    /// A valid source; capture records it as a snapshot.
     #[default]
-    Unchanged,
     Capture,
+    /// The source cannot be captured; `error` says why.
     Invalid,
 }
 
@@ -126,7 +127,7 @@ pub(crate) fn source_snapshot_candidate(
         os: summary.os,
         arch: summary.arch,
         snapshot_tags: normalized_tags,
-        disposition: SourceSnapshotDisposition::Unchanged,
+        disposition: SourceSnapshotDisposition::Capture,
         error: None,
     })
 }
@@ -170,13 +171,13 @@ mod tests {
         assert_eq!(candidates[0].version_tag, "");
         assert_eq!(
             candidates[0].disposition,
-            SourceSnapshotDisposition::Unchanged
+            SourceSnapshotDisposition::Capture
         );
         // Every discovered directory is a valid tagless source.
         assert_eq!(candidates[1].folder_name, "not-a-snapshot-folder");
         assert_eq!(
             candidates[1].disposition,
-            SourceSnapshotDisposition::Unchanged
+            SourceSnapshotDisposition::Capture
         );
         assert!(
             candidates

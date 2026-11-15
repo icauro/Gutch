@@ -1,4 +1,4 @@
-//! Reuse state from the repository: known chunks and previous file manifests.
+//! Reuse state from the repository: known bundles and chunks.
 
 use crate::Result;
 use crate::artifact::format::size_u32;
@@ -6,22 +6,15 @@ use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::capture::build::types::BuiltBundle;
 use crate::capture::build::types::BuiltLooseChunk;
-use crate::manifest::FileManifest;
-use crate::manifest::SnapshotEntry;
-use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::index::{collect_file_paths, empty_chunk_index, load_chunk_index};
-use crate::repo::inventory::list_repo_snapshot_ids;
 use crate::repo::paths::{RepoPaths, bundle_id_from_bundle_path, chunk_path};
 use crate::repo::recovery::rebuild_chunk_index_from_artifacts;
-use crate::repo::snapshot_manifests::load_snapshot_manifest;
-use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct CaptureReuseState {
@@ -30,7 +23,6 @@ pub struct CaptureReuseState {
     /// Encoded byte estimates for chunks with usable local artifacts.
     /// Artifact locations remain authoritative in chunk_index.
     pub available_chunk_sizes: HashMap<ChunkHash, u64>,
-    pub previous_file_manifests: HashMap<String, Vec<FileManifest>>,
 }
 
 impl Default for CaptureReuseState {
@@ -39,7 +31,6 @@ impl Default for CaptureReuseState {
             bundle_ids: HashSet::new(),
             chunk_index: empty_chunk_index(),
             available_chunk_sizes: HashMap::new(),
-            previous_file_manifests: HashMap::new(),
         }
     }
 }
@@ -84,58 +75,7 @@ pub fn load_capture_reuse_state(
         available_chunk_sizes(&state.chunk_index, paths, pool, &state.bundle_ids)?;
     drop(_locations_span);
 
-    let _manifests_span = control
-        .profile_span("capture.prepare_source.load_existing_store_state.load_snapshot_manifests");
-    let snapshot_manifest_paths = collect_snapshot_manifest_paths(paths)?;
-    let manifests = pool.install(|| {
-        snapshot_manifest_paths
-            .par_iter()
-            .map(|path| {
-                let Some(snapshot_id) = snapshot_id_from_manifest_path(path) else {
-                    return Ok(None);
-                };
-                load_snapshot_manifest(paths, snapshot_id).map(Some)
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
-    for manifest in manifests.into_iter().flatten() {
-        add_previous_file_manifests(&mut state.previous_file_manifests, manifest);
-    }
-    drop(_manifests_span);
-
     Ok(state)
-}
-
-fn collect_snapshot_manifest_paths(paths: &RepoPaths) -> Result<Vec<PathBuf>> {
-    list_repo_snapshot_ids(paths)?
-        .into_iter()
-        .map(|snapshot_id| snapshot_metadata_path(paths, &snapshot_id))
-        .collect()
-}
-
-fn snapshot_id_from_manifest_path(path: &Path) -> Option<&str> {
-    path.parent()
-        .and_then(Path::file_name)
-        .and_then(|value| value.to_str())
-}
-
-fn add_previous_file_manifests(
-    previous_file_manifests: &mut HashMap<String, Vec<FileManifest>>,
-    manifest: SnapshotManifest,
-) {
-    for entry in manifest.entries {
-        let SnapshotEntry::File(file) = entry else {
-            continue;
-        };
-        let candidates = previous_file_manifests
-            .entry(file.path.clone())
-            .or_default();
-        if !candidates.iter().any(|candidate| {
-            candidate.size == file.size && candidate.full_file_hash == file.full_file_hash
-        }) {
-            candidates.push(file);
-        }
-    }
 }
 
 pub(crate) fn available_chunk_sizes(
@@ -209,15 +149,14 @@ pub(crate) fn add_built_loose_chunks_to_chunk_index(
     chunk_index: &mut ChunkIndex,
     chunks: &[BuiltLooseChunk],
 ) -> Result<()> {
-    let mut updates = Vec::new();
+    let mut updates = Vec::with_capacity(chunks.len());
     for chunk in chunks {
-        let chunk_hash = chunk.chunk_hash.to_string();
         updates.push((
-            ChunkHash::parse_hex(&chunk_hash)?,
+            chunk.chunk_hash,
             ChunkIndexEntry::new(
                 size_u32(chunk.compressed_size)?,
                 0,
-                chunk_hash.into(),
+                chunk.chunk_hash.to_hex().into(),
                 size_u32(chunk.raw_size)?,
                 ArtifactStorageMode::LooseChunks,
             ),

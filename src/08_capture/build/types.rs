@@ -16,7 +16,6 @@ use crate::artifact::profiles::ChunkSizingProfile;
 use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
-use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
@@ -31,7 +30,6 @@ pub struct BuildConfig<'a> {
     pub(crate) snapshot_tags: SnapshotTagSet,
     pub(crate) available_chunk_sizes: Option<&'a HashMap<ChunkHash, u64>>,
     pub(crate) existing_bundle_ids: Option<&'a HashSet<String>>,
-    pub(crate) previous_file_manifests: Option<&'a HashMap<String, Vec<FileManifest>>>,
     pub(crate) chunk_profile: ChunkSizingProfile,
     pub(crate) bundle_profile: BundleSizingProfile,
     pub(crate) compression_profile: CompressionProfile,
@@ -47,7 +45,6 @@ impl<'a> BuildConfig<'a> {
             snapshot_tags: snapshot_tags.clone(),
             available_chunk_sizes: None,
             existing_bundle_ids: None,
-            previous_file_manifests: None,
             chunk_profile: ChunkSizingProfile::default(),
             bundle_profile: BundleSizingProfile::default(),
             compression_profile: CompressionProfile::default(),
@@ -65,14 +62,6 @@ impl<'a> BuildConfig<'a> {
 
     pub(crate) fn with_existing_chunks(mut self, sizes: &'a HashMap<ChunkHash, u64>) -> Self {
         self.available_chunk_sizes = Some(sizes);
-        self
-    }
-
-    pub(crate) fn with_previous_manifests(
-        mut self,
-        manifests: &'a HashMap<String, Vec<FileManifest>>,
-    ) -> Self {
-        self.previous_file_manifests = Some(manifests);
         self
     }
 
@@ -169,8 +158,6 @@ pub struct BuiltBundle {
     pub(crate) entries: Vec<BundleTableEntry>,
 }
 
-impl BuiltBundle {}
-
 #[derive(Debug)]
 pub struct BuiltLooseChunk {
     pub chunk_hash: ChunkHash,
@@ -258,7 +245,6 @@ pub struct BuildTimings {
     pub(crate) stream_chunk_bytes: u64,
     pub(crate) chunk_hash_judgment: Duration,
     pub(crate) chunk_hash_judgment_bytes: u64,
-    pub(crate) metadata: Duration,
     pub(crate) dedupe_plan_wall: Duration,
     pub(crate) dedupe_lookup: Duration,
     pub(crate) dedupe_lookup_bytes: u64,

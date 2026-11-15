@@ -392,7 +392,7 @@ mod tests {
             os: String::from("windows"),
             arch: String::new(),
             snapshot_tags: tags.clone(),
-            disposition: SourceSnapshotDisposition::Unchanged,
+            disposition: SourceSnapshotDisposition::Capture,
             error: None,
         };
         let plan = plan_snapshot_sources_capture_with_context(
@@ -422,7 +422,7 @@ mod tests {
                 "version=1.0.0".to_string()
             ])
             .unwrap(),
-            disposition: super::super::discovery::SourceSnapshotDisposition::Unchanged,
+            disposition: super::super::discovery::SourceSnapshotDisposition::Capture,
             error: None,
         };
         let candidate_json = serde_json::to_value(&candidate).unwrap();

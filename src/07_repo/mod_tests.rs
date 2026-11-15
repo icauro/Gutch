@@ -1,6 +1,5 @@
 use super::*;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
-use crate::capture::reuse::load_capture_reuse_state;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::index::write_chunk_index;
@@ -33,7 +32,6 @@ use crate::capture::build::types::StagedArtifactFile;
 use crate::manifest;
 use crate::manifest::ChunkRef;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntries;
 use crate::repo::index::ChunkIndexEntry;
@@ -64,44 +62,6 @@ fn test_hash(label: &str) -> String {
 
 fn test_chunk_hash(label: &str) -> ChunkHash {
     ChunkHash::of(label.as_bytes())
-}
-
-#[test]
-fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
-    let temp = tempfile::tempdir().unwrap();
-    let paths = RepoPaths::from_repo_root(temp.path());
-    ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
-
-    for (snapshot_id, content_label) in [("snapshot-a", "content-a"), ("snapshot-b", "content-b")] {
-        let mut manifest =
-            SnapshotManifest::new(snapshot_id.to_string(), manifest::SnapshotTagSet::default());
-        manifest.push_file(manifest::FileManifest {
-            path: "game.bin".to_string(),
-            size: 9,
-            executable: false,
-            read_only: false,
-            full_file_hash: test_chunk_hash(content_label),
-            chunks: vec![ChunkRef {
-                chunk_hash: ChunkHash::parse_hex(&test_hash(content_label)).unwrap(),
-                raw_size: 9,
-            }],
-        });
-        manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
-        write_snapshot_manifest_artifacts(
-            &paths,
-            &manifest,
-            &crate::progress::OperationControl::default(),
-        )
-        .unwrap();
-        index_manifest(&paths, &manifest);
-    }
-
-    let pool = build_thread_pool(1, "gutch-test").unwrap();
-    let state = load_capture_reuse_state(&paths, &pool, &OperationControl::default()).unwrap();
-    let candidates = state.previous_file_manifests.get("game.bin").unwrap();
-
-    assert_eq!(candidates.len(), 2);
-    assert_ne!(candidates[0].full_file_hash, candidates[1].full_file_hash);
 }
 
 #[test]

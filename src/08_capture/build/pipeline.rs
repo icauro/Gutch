@@ -55,8 +55,6 @@ use crate::snapshot::identity::snapshot_id_from_entries;
 use std::env::temp_dir;
 use std::time::Duration;
 
-const MAX_BUNDLE_SIZE: u64 = 64 * 1024 * 1024;
-const PREFERRED_BUNDLE_SIZE: u64 = 8 * 1024 * 1024;
 const MIN_FILE_LOCALITY_SEGMENT_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
@@ -85,12 +83,6 @@ impl BundleSizingPolicy {
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
-
-impl Default for BundleSizingPolicy {
-    fn default() -> Self {
-        Self::new(MAX_BUNDLE_SIZE, PREFERRED_BUNDLE_SIZE)
-    }
-}
 
 type ChunkPayloadEntry = (ChunkHash, ChunkPayload);
 type PlannedChunkGroup = Vec<ChunkPayloadEntry>;
@@ -455,17 +447,12 @@ fn build_bundled_chunks(
     let artifact_staging_root = artifact_staging_root.to_path_buf();
     let progress_for_work = progress.clone();
     let encoded_limit = planned_bundle_groups.encoded_limit;
-    let work_items = planned_bundle_groups
-        .groups
-        .into_iter()
-        .enumerate()
-        .collect::<Vec<_>>();
     run_parallel_chunk_work(
-        work_items,
+        planned_bundle_groups.groups,
         pool,
         control,
         memory_budget,
-        |(_, bundle)| {
+        |bundle| {
             // Loading and encoding overlap: only the largest chunk is live,
             // alongside the codec's own working-memory reservation.
             bundle
@@ -475,9 +462,9 @@ fn build_bundled_chunks(
                 .unwrap_or(0)
                 + ENCODE_WORKING_MEMORY_BYTES
         },
-        move |(_bundle_index, planned_bundle), control| {
+        move |planned_bundle, control| {
             build_bounded_bundle_groups(
-                planned_bundle,
+                &planned_bundle,
                 encoded_limit,
                 &compression_profile_for_work,
                 &artifact_staging_root,
@@ -500,7 +487,8 @@ fn build_loose_chunks(
     memory_budget: u64,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
     control.checkpoint()?;
-    let progress = BuildProgressTracker::new(control, ProgressPhase::Capture, "Building bundles");
+    let progress =
+        BuildProgressTracker::new(control, ProgressPhase::Capture, "Building loose chunks");
     progress.start(chunks_to_compress.len());
     let compression_profile_for_work = compression_profile.clone();
     let progress_for_work = progress.clone();
@@ -578,13 +566,13 @@ fn build_loose_chunk(
 }
 
 fn build_bounded_bundle_groups(
-    planned: Vec<(ChunkHash, ChunkPayload)>,
+    planned: &[(ChunkHash, ChunkPayload)],
     encoded_limit: u64,
     profile: &CompressionProfile,
     staging: &Path,
     control: &OperationControl,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
-    let built = build_bundle_compressed_group(planned.clone(), profile, staging, control)?;
+    let built = build_bundle_compressed_group(planned, profile, staging, control)?;
     if built.bundle_size <= encoded_limit {
         return Ok(vec![built]);
     }
@@ -594,8 +582,7 @@ fn build_bounded_bundle_groups(
             "single chunk cannot fit encoded bundle limit",
         ));
     }
-    let mut left = planned;
-    let right = left.split_off(left.len() / 2);
+    let (left, right) = planned.split_at(planned.len() / 2);
     let mut result = build_bounded_bundle_groups(left, encoded_limit, profile, staging, control)?;
     result.extend(build_bounded_bundle_groups(
         right,
@@ -608,7 +595,7 @@ fn build_bounded_bundle_groups(
 }
 
 fn build_bundle_compressed_group(
-    planned_bundle: Vec<(ChunkHash, ChunkPayload)>,
+    planned_bundle: &[(ChunkHash, ChunkPayload)],
     compression_profile: &CompressionProfile,
     artifact_staging_root: &Path,
     control: &OperationControl,
@@ -696,10 +683,6 @@ pub(crate) fn build_from_inventory(
     let runtime_plan = plan_runtime(&config.runtime_hints);
     timings.runtime_plan = Some(runtime_plan.clone());
 
-    let empty_previous_file_manifests = HashMap::new();
-    let previous_file_manifests = config
-        .previous_file_manifests
-        .unwrap_or(&empty_previous_file_manifests);
     let empty_available_chunk_sizes = HashMap::new();
     let available_chunk_sizes = config
         .available_chunk_sizes
@@ -716,7 +699,6 @@ pub(crate) fn build_from_inventory(
         collect_scanned_chunks(
             inventory,
             ScanDirectoryOptions {
-                previous_file_manifests,
                 chunking_profile: &config.chunk_profile,
                 available_chunk_sizes,
                 worker_count: runtime_plan.worker_count,

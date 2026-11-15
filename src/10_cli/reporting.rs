@@ -231,7 +231,6 @@ pub(crate) struct BuildScanChunkDetailsSummary {
     pub(crate) chunk_hash_worker_seconds: Option<f64>,
     pub(crate) chunk_hash_bytes: u64,
     pub(crate) chunk_hash_mib_per_second: Option<f64>,
-    pub(crate) metadata_worker_seconds: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -410,7 +409,6 @@ pub(crate) fn build_timings_summary(
                         timings.chunk_hash_judgment_bytes,
                         timings.chunk_hash_judgment,
                     )),
-                    metadata_worker_seconds: detailed.then_some(secs(timings.metadata)),
                 },
             },
             dedupe_plan: BuildDedupePlanPhaseSummary {

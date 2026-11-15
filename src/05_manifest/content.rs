@@ -29,7 +29,7 @@ pub struct SymlinkManifest {
     pub target_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "entry_type", rename_all = "snake_case")]
 pub enum SnapshotEntry {
     File(FileManifest),
