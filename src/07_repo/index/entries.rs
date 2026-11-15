@@ -2,6 +2,11 @@
 
 use super::ChunkIndexEntry;
 use crate::artifact::hash::ChunkHash;
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::iter::Map;
+use std::mem;
+use std::slice::Iter;
 
 /// Sorted binary keys and contiguous values. Text is decoded only at boundaries.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -9,7 +14,7 @@ pub struct ChunkIndexEntries(Vec<(ChunkHash, ChunkIndexEntry)>);
 
 impl ChunkIndexEntries {
     pub(crate) fn share_artifacts(&mut self) {
-        let mut artifacts = std::collections::BTreeMap::new();
+        let mut artifacts = BTreeMap::new();
         for (_, entry) in &mut self.0 {
             let shared = artifacts
                 .entry(entry.bundle_id.clone())
@@ -55,7 +60,7 @@ impl ChunkIndexEntries {
     }
     pub fn insert(&mut self, hash: ChunkHash, entry: ChunkIndexEntry) -> Option<ChunkIndexEntry> {
         match self.0.binary_search_by_key(&hash, |row| row.0) {
-            Ok(row) => Some(std::mem::replace(&mut self.0[row].1, entry)),
+            Ok(row) => Some(mem::replace(&mut self.0[row].1, entry)),
             Err(row) => {
                 self.0.insert(row, (hash, entry));
                 None
@@ -64,20 +69,20 @@ impl ChunkIndexEntries {
     }
     pub fn extend(&mut self, updates: impl IntoIterator<Item = (ChunkHash, ChunkIndexEntry)>) {
         // Later updates win for repeated hashes; merging retains sorted keys.
-        let updates: std::collections::BTreeMap<_, _> = updates.into_iter().collect();
-        let mut existing_entries = std::mem::take(&mut self.0).into_iter().peekable();
+        let updates: BTreeMap<_, _> = updates.into_iter().collect();
+        let mut existing_entries = mem::take(&mut self.0).into_iter().peekable();
         let mut replacement_entries = updates.into_iter().peekable();
         let mut merged = Vec::with_capacity(existing_entries.len() + replacement_entries.len());
         while let (Some(existing_entry), Some(replacement_entry)) =
             (existing_entries.peek(), replacement_entries.peek())
         {
             match existing_entry.0.cmp(&replacement_entry.0) {
-                std::cmp::Ordering::Less => merged.push(existing_entries.next().unwrap()),
-                std::cmp::Ordering::Equal => {
+                Ordering::Less => merged.push(existing_entries.next().unwrap()),
+                Ordering::Equal => {
                     existing_entries.next();
                     merged.push(replacement_entries.next().unwrap());
                 }
-                std::cmp::Ordering::Greater => merged.push(replacement_entries.next().unwrap()),
+                Ordering::Greater => merged.push(replacement_entries.next().unwrap()),
             }
         }
         merged.extend(existing_entries);
@@ -107,8 +112,8 @@ impl IntoIterator for ChunkIndexEntries {
 }
 impl<'a> IntoIterator for &'a ChunkIndexEntries {
     type Item = (&'a ChunkHash, &'a ChunkIndexEntry);
-    type IntoIter = std::iter::Map<
-        std::slice::Iter<'a, (ChunkHash, ChunkIndexEntry)>,
+    type IntoIter = Map<
+        Iter<'a, (ChunkHash, ChunkIndexEntry)>,
         fn(&'a (ChunkHash, ChunkIndexEntry)) -> Self::Item,
     >;
     fn into_iter(self) -> Self::IntoIter {

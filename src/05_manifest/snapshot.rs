@@ -8,6 +8,10 @@ use super::{
     ExternalProductDependencyRequirement, FileManifest, PUBLIC_METADATA_FORMAT_VERSION,
     SnapshotEntry, SnapshotTagSet, launch, validate_external_product_dependency_requirements,
 };
+use std::collections::HashSet;
+use std::env::consts::ARCH;
+use std::env::consts::OS;
+use std::slice::from_ref;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -82,7 +86,7 @@ impl SnapshotProductMetadata {
                         "snapshot product metadata host_variants must not be empty",
                     ));
                 }
-                let mut variant_ids = std::collections::HashSet::new();
+                let mut variant_ids = HashSet::new();
                 for variant in &runtime.host_variants {
                     if !is_runtime_identifier(&variant.variant_id)
                         || !variant_ids.insert(variant.variant_id.as_str())
@@ -99,10 +103,9 @@ impl SnapshotProductMetadata {
                     // Matching compares canonical `key=value` strings exactly, so a
                     // non-canonical requirement would silently never match any host.
                     for requirement in &variant.host_tag_requirements {
-                        let canonical = SnapshotTagSet::from_compact_strings(
-                            std::slice::from_ref(requirement),
-                        )?
-                        .to_canonical_strings();
+                        let canonical =
+                            SnapshotTagSet::from_compact_strings(from_ref(requirement))?
+                                .to_canonical_strings();
                         if canonical != [requirement.as_str()] {
                             return Err(crate::Error::manifest(format!(
                                 "snapshot product metadata host tag requirement '{requirement}' must be canonical key=value"
@@ -248,7 +251,7 @@ pub(crate) fn validate_runtime_actions(
             "snapshot product metadata launch_actions must not be empty",
         ));
     }
-    let mut action_names = std::collections::HashSet::new();
+    let mut action_names = HashSet::new();
     for action in actions {
         if action.action_name.trim().is_empty()
             || !action_names.insert(action.action_name.trim().to_ascii_lowercase())
@@ -274,13 +277,13 @@ fn is_runtime_identifier(value: &str) -> bool {
 /// These tags are runtime facts and are never written into snapshot metadata.
 pub(crate) fn current_host_tags() -> SnapshotTagSet {
     let mut tags = SnapshotTagSet::default();
-    let operating_system = match std::env::consts::OS {
+    let operating_system = match OS {
         "windows" => "windows",
         "linux" => "linux",
         "macos" => "macos",
         _ => "unknown",
     };
-    let architecture = match std::env::consts::ARCH {
+    let architecture = match ARCH {
         "x86_64" => "x86_64",
         "x86" => "x86_32",
         "aarch64" => "arm64",

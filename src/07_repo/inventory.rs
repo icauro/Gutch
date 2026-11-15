@@ -5,8 +5,13 @@ use std::path::PathBuf;
 
 use crate::Result;
 
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::reference::ArtifactRef;
+use crate::filesystem::directory::is_owned_promotion_backup;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_id_from_bundle_path;
+use crate::repo::snapshot_manifests::validate_snapshot_id;
+use std::fs;
 
 pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
     if !paths.snapshots_root.is_dir() {
@@ -14,12 +19,12 @@ pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
     }
 
     let mut snapshot_ids = Vec::new();
-    for entry in std::fs::read_dir(&paths.snapshots_root)? {
+    for entry in fs::read_dir(&paths.snapshots_root)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        if crate::filesystem::directory::is_owned_promotion_backup(&entry.path()) {
+        if is_owned_promotion_backup(&entry.path()) {
             continue;
         }
         let id = entry
@@ -27,7 +32,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
             .to_str()
             .ok_or_else(|| crate::Error::manifest("invalid snapshot directory name"))?
             .to_string();
-        crate::repo::snapshot_manifests::validate_snapshot_id(&id)?;
+        validate_snapshot_id(&id)?;
         if !entry
             .path()
             .join(super::snapshot_manifests::SNAPSHOT_METADATA_FILE)
@@ -43,9 +48,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
     Ok(snapshot_ids)
 }
 
-pub(crate) fn list_repo_artifact_paths(
-    paths: &RepoPaths,
-) -> Result<Vec<(crate::artifact::reference::ArtifactRef, PathBuf)>> {
+pub(crate) fn list_repo_artifact_paths(paths: &RepoPaths) -> Result<Vec<(ArtifactRef, PathBuf)>> {
     let mut artifacts = Vec::new();
     visit_repo_artifacts(paths, |artifact, entry| {
         artifacts.push((artifact, entry.into_path()));
@@ -56,7 +59,7 @@ pub(crate) fn list_repo_artifact_paths(
 
 fn visit_repo_artifacts(
     paths: &RepoPaths,
-    mut visit: impl FnMut(crate::artifact::reference::ArtifactRef, walkdir::DirEntry) -> Result<()>,
+    mut visit: impl FnMut(ArtifactRef, walkdir::DirEntry) -> Result<()>,
 ) -> Result<()> {
     if paths.bundles_root.exists() {
         for entry in walkdir::WalkDir::new(&paths.bundles_root).sort_by_file_name() {
@@ -68,7 +71,7 @@ fn visit_repo_artifacts(
             }
             if let Some(bundle_id) = bundle_id_from_bundle_path(entry.path()) {
                 visit(
-                    crate::artifact::reference::ArtifactRef::Bundle {
+                    ArtifactRef::Bundle {
                         id: bundle_id.into(),
                     },
                     entry,
@@ -87,8 +90,8 @@ fn visit_repo_artifacts(
             let Some(hash) = entry.file_name().to_str() else {
                 continue;
             };
-            if crate::artifact::hash::ChunkHash::parse_hex(hash).is_ok() {
-                let artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
+            if ChunkHash::parse_hex(hash).is_ok() {
+                let artifact = ArtifactRef::LooseChunk {
                     hash: hash.to_string(),
                 };
                 visit(artifact, entry)?;
@@ -100,7 +103,7 @@ fn visit_repo_artifacts(
 
 #[derive(Default)]
 pub(crate) struct ArtifactInventory {
-    pub artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
+    pub artifacts: HashSet<ArtifactRef>,
     pub artifact_count: usize,
     pub artifact_bytes: u64,
     pub bundle_count: usize,
@@ -111,10 +114,7 @@ pub(crate) fn scan_artifact_inventory(paths: &RepoPaths) -> Result<ArtifactInven
     let mut inventory = ArtifactInventory::default();
     visit_repo_artifacts(paths, |artifact, entry| {
         let bytes = entry.metadata()?.len();
-        if matches!(
-            artifact,
-            crate::artifact::reference::ArtifactRef::Bundle { .. }
-        ) {
+        if matches!(artifact, ArtifactRef::Bundle { .. }) {
             inventory.bundle_count += 1;
             inventory.bundle_bytes += bytes;
         }

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Formatter;
 
 /// A snapshot has one value per key. The named collection is always serialized,
 /// including for tagless snapshots, so the wire shape stays explicit.
@@ -19,7 +20,7 @@ where
     struct TagMapVisitor;
     impl<'de> serde::de::Visitor<'de> for TagMapVisitor {
         type Value = BTreeMap<String, String>;
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
             formatter.write_str("an object mapping tag keys to string values")
         }
         fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>

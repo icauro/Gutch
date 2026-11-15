@@ -1,9 +1,13 @@
 //! Coalesced operation feedback, independent of diagnostic profiling.
 use super::{ProgressEvent, ProgressSink};
+use crate::profiling::Profiler;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::thread::Builder;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,7 +66,7 @@ struct FeedbackState {
     stop: bool,
     download: ThroughputHistory,
     output: ThroughputHistory,
-    profiler: Option<Arc<crate::profiling::Profiler>>,
+    profiler: Option<Arc<Profiler>>,
 }
 #[derive(Debug, Default)]
 struct SharedFeedbackState {
@@ -74,13 +78,13 @@ struct SharedFeedbackState {
 #[derive(Debug)]
 pub(crate) struct LiveProgress {
     shared: Arc<SharedFeedbackState>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
 }
 impl LiveProgress {
     pub(crate) fn new(sink: Arc<dyn ProgressSink>) -> Arc<Self> {
         let shared = Arc::new(SharedFeedbackState::default());
         let thread_shared = shared.clone();
-        let thread = std::thread::Builder::new()
+        let thread = Builder::new()
             .name("gutch-progress".into())
             .spawn(move || {
                 let mut previous_revision = 0;
@@ -130,7 +134,7 @@ impl LiveProgress {
                             .and_then(|s| s.profiler.clone());
                         if let Some(profiler) = profiler {
                             profiler.event_with_args("operation.progress", || {
-                                let mut args = std::collections::BTreeMap::new();
+                                let mut args = BTreeMap::new();
                                 if let Some(feedback) = &event.feedback {
                                     for (prefix, rate) in [
                                         ("download", &feedback.download),
@@ -166,7 +170,7 @@ impl LiveProgress {
             thread: Mutex::new(thread),
         })
     }
-    pub(crate) fn with_profiler(&self, profiler: Arc<crate::profiling::Profiler>) {
+    pub(crate) fn with_profiler(&self, profiler: Arc<Profiler>) {
         if let Ok(mut state) = self.shared.state.lock() {
             state.profiler = Some(profiler);
         }

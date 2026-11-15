@@ -1,6 +1,7 @@
 //! Binary encoding of the snapshot blueprint (the stored entry list).
 
 use crate::artifact::{format::SNAPSHOT_BLUEPRINT_MAGIC, metadata};
+use crate::filesystem::write_atomic_with;
 use crate::manifest::snapshot::SnapshotBlueprint;
 use crate::{Result, manifest};
 use std::io::Write;
@@ -12,7 +13,7 @@ pub(crate) fn write_snapshot_blueprint_binary(
 ) -> Result<()> {
     let groups = super::blueprint_columns::encode(&blueprint.entries)?;
     let bytes = metadata::encode(SNAPSHOT_BLUEPRINT_MAGIC, &groups)?;
-    crate::filesystem::write_atomic_with(path, |file| {
+    write_atomic_with(path, |file| {
         file.write_all(&bytes)?;
         Ok(())
     })

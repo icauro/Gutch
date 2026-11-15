@@ -1,7 +1,11 @@
 //! Snapshot entries: files with their chunk references, directories and symlinks.
 
+use crate::artifact::format::MAX_RAW_CHUNK_SIZE;
+use crate::artifact::hash::ChunkHash;
+use crate::filesystem::paths::validate_manifest_relative_path;
 use serde::Deserialize;
 use serde::Serialize;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileManifest {
@@ -57,9 +61,9 @@ impl SnapshotEntry {
 }
 
 pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Result<()> {
-    let mut paths = std::collections::HashSet::with_capacity(entries.len());
+    let mut paths = HashSet::with_capacity(entries.len());
     for entry in entries {
-        crate::filesystem::paths::validate_manifest_relative_path(entry.path(), false)?;
+        validate_manifest_relative_path(entry.path(), false)?;
         if !paths.insert(entry.path()) {
             return Err(crate::Error::manifest(format!(
                 "snapshot blueprint contains duplicate path '{}'",
@@ -67,11 +71,9 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             )));
         }
         if let SnapshotEntry::File(file) = entry {
-            crate::artifact::hash::ChunkHash::parse_hex(&file.full_file_hash)?;
+            ChunkHash::parse_hex(&file.full_file_hash)?;
             for chunk in &file.chunks {
-                if chunk.raw_size == 0
-                    || u64::from(chunk.raw_size) > crate::artifact::format::MAX_RAW_CHUNK_SIZE
-                {
+                if chunk.raw_size == 0 || u64::from(chunk.raw_size) > MAX_RAW_CHUNK_SIZE {
                     return Err(crate::Error::manifest("invalid snapshot chunk size"));
                 }
             }
@@ -88,7 +90,7 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             }
         }
     }
-    let non_directories: std::collections::HashSet<_> = entries
+    let non_directories: HashSet<_> = entries
         .iter()
         .filter(|entry| !matches!(entry, SnapshotEntry::Directory(_)))
         .map(SnapshotEntry::path)
@@ -102,7 +104,7 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
             }
         }
         if let SnapshotEntry::Symlink(link) = entry {
-            crate::filesystem::paths::validate_manifest_relative_path(&link.target_path, false)?;
+            validate_manifest_relative_path(&link.target_path, false)?;
             if !paths.contains(link.target_path.as_str()) {
                 return Err(crate::Error::manifest(format!(
                     "snapshot symlink '{}' has missing target '{}'",
@@ -116,7 +118,7 @@ pub(crate) fn validate_snapshot_entries(entries: &[SnapshotEntry]) -> crate::Res
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkRef {
-    pub chunk_hash: crate::artifact::hash::ChunkHash,
+    pub chunk_hash: ChunkHash,
     pub raw_size: u32,
 }
 

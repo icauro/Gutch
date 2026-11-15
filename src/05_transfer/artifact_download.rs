@@ -2,7 +2,13 @@
 use super::download::PendingArtifactDownload;
 use super::progress::{FetchTransferProgress, TransferPhaseCounters, TransferProgressReporter};
 use crate::Result;
+use crate::artifact::bundle::verify_bundle_identity_reader;
+use crate::artifact::reference::ArtifactRef;
+use crate::filesystem;
+use crate::filesystem::write_atomic_with;
 use crate::progress::{OperationControl, ProgressPhase};
+use crate::transfer::http::DownloadClient;
+use crate::transfer::http::download_url_streaming;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -11,7 +17,7 @@ use std::time::{Duration, Instant};
 const MAX_ARTIFACT_DOWNLOAD_ATTEMPTS: usize = 3;
 
 pub(crate) struct TransferDownloadRequest<'a> {
-    pub(crate) client: &'a crate::transfer::http::DownloadClient,
+    pub(crate) client: &'a DownloadClient,
     pub(crate) url: &'a str,
     pub(crate) control: &'a OperationControl,
     pub(crate) transfer_progress: &'a Arc<FetchTransferProgress>,
@@ -33,7 +39,7 @@ impl<'a> TransferDownloadRequest<'a> {
             self.counters,
             self.detail,
         );
-        crate::transfer::http::download_url_streaming(
+        download_url_streaming(
             self.client,
             self.url,
             self.control,
@@ -52,13 +58,9 @@ impl<'a> TransferDownloadRequest<'a> {
         Ok(bytes)
     }
 
-    pub(crate) fn download_to_path(
-        self,
-        path: &Path,
-        artifact: &crate::artifact::reference::ArtifactRef,
-    ) -> Result<()> {
+    pub(crate) fn download_to_path(self, path: &Path, artifact: &ArtifactRef) -> Result<()> {
         self.control.checkpoint()?;
-        crate::filesystem::write_atomic_with(path, |file| {
+        write_atomic_with(path, |file| {
             let reporter = TransferProgressReporter::new(
                 self.control,
                 self.transfer_progress,
@@ -67,7 +69,7 @@ impl<'a> TransferDownloadRequest<'a> {
                 self.counters,
                 self.detail,
             );
-            crate::transfer::http::download_url_streaming(
+            download_url_streaming(
                 self.client,
                 self.url,
                 self.control,
@@ -82,8 +84,8 @@ impl<'a> TransferDownloadRequest<'a> {
                     Ok(())
                 },
             )?;
-            if let crate::artifact::reference::ArtifactRef::Bundle { id } = artifact {
-                crate::artifact::bundle::verify_bundle_identity_reader(file, id)?;
+            if let ArtifactRef::Bundle { id } = artifact {
+                verify_bundle_identity_reader(file, id)?;
             }
             reporter.finish();
             Ok(())
@@ -92,7 +94,7 @@ impl<'a> TransferDownloadRequest<'a> {
 }
 
 pub(crate) fn download_pending_artifact(
-    download_client: &crate::transfer::http::DownloadClient,
+    download_client: &DownloadClient,
     artifact_download: &PendingArtifactDownload,
     control: &OperationControl,
     transfer_progress: &Arc<FetchTransferProgress>,
@@ -101,7 +103,7 @@ pub(crate) fn download_pending_artifact(
     let _artifact_span = control
         .profile_span_with_args("fetch.artifact.transfer", || artifact_download.trace_args());
     if let Some(parent) = artifact_download.artifact_path.parent() {
-        crate::filesystem::create_dir_all(parent)?;
+        filesystem::create_dir_all(parent)?;
     }
     transfer_progress.download_started();
     let result = (|| -> Result<()> {

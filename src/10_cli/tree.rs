@@ -3,7 +3,10 @@
 use std::path::PathBuf;
 
 use crate::cli::command_support::write_report;
+use crate::cli::output;
+use crate::cli::reporting::OptionalOutputPaths;
 use crate::cli::reporting::optional_output_paths;
+use crate::path_compare::PathComparisonResult;
 use crate::path_compare::compare_paths;
 
 pub(crate) fn compare(
@@ -16,8 +19,8 @@ pub(crate) fn compare(
     struct Report<'a> {
         command: &'static str,
         #[serde(flatten)]
-        result: &'a crate::path_compare::PathComparisonResult,
-        outputs: crate::cli::reporting::OptionalOutputPaths,
+        result: &'a PathComparisonResult,
+        outputs: OptionalOutputPaths,
     }
     write_report(
         &stats_json_out,
@@ -30,7 +33,7 @@ pub(crate) fn compare(
     )?;
 
     if stats.compare_passed {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "tree comparison passed: {} matched, {} expected files",
             stats.matched_file_count, stats.expected_file_count
         ));

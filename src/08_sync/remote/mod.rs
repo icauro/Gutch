@@ -23,6 +23,14 @@ mod link;
 mod provider;
 mod pull;
 mod push;
+use crate::artifact::hash::hash_hex;
+use crate::artifact::integrity::hash_file;
+use crate::filesystem;
+use crate::progress::emit_progress;
+use crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote;
+use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
+use crate::repo::snapshot_manifests::snapshot_blueprint_path;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
 pub use link::bind_remote_repo;
 pub use link::create_remote_repo;
 pub use link::inspect_repo_tag_references;
@@ -49,6 +57,9 @@ pub use pull::plan_pull_with_provider;
 pub use pull::pull_repo;
 pub use push::plan_push_with_provider;
 pub use push::push_repo;
+use std::fs;
+use std::sync::Arc;
+use std::time::SystemTime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ArtifactDecision {
     Identical,
@@ -57,7 +68,7 @@ enum ArtifactDecision {
 }
 
 fn repo_file_hash(bytes: &[u8]) -> String {
-    crate::artifact::hash::hash_hex(&blake3::hash(bytes))
+    hash_hex(&blake3::hash(bytes))
 }
 
 fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &str) -> Result<()> {
@@ -89,13 +100,13 @@ fn hashes_differ(local_hash: &str, remote_hash: &str) -> bool {
     remote_hash.is_empty() || local_hash != remote_hash
 }
 
-fn local_file_mtime(path: &Path) -> Option<std::time::SystemTime> {
-    std::fs::metadata(path).ok()?.modified().ok()
+fn local_file_mtime(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).ok()?.modified().ok()
 }
 
 fn remote_updated_at_is_newer_or_equal(
     remote_updated_at: &str,
-    local_modified: Option<std::time::SystemTime>,
+    local_modified: Option<SystemTime>,
 ) -> bool {
     let Ok(remote) = chrono::DateTime::parse_from_rfc3339(remote_updated_at) else {
         return true;
@@ -104,7 +115,7 @@ fn remote_updated_at_is_newer_or_equal(
     let Some(local_modified) = local_modified else {
         return true;
     };
-    std::time::SystemTime::from(remote_utc) >= local_modified
+    SystemTime::from(remote_utc) >= local_modified
 }
 
 fn decide_artifact(
@@ -112,7 +123,7 @@ fn decide_artifact(
     local_hash: String,
     remote_hash: &str,
     remote_updated_at: &str,
-    local_modified: Option<std::time::SystemTime>,
+    local_modified: Option<SystemTime>,
     policy: PullConflictPolicy,
 ) -> ArtifactDecision {
     if !local_exists || hashes_differ(&local_hash, remote_hash) {
@@ -142,7 +153,7 @@ fn local_repo_metadata_hash_b3(repo_paths: &RepoPaths) -> Result<String> {
     if !repo_paths.repo_metadata_path.exists() {
         return Ok(String::new());
     }
-    Ok(repo_file_hash(&crate::filesystem::read(
+    Ok(repo_file_hash(&filesystem::read(
         &repo_paths.repo_metadata_path,
     )?))
 }
@@ -151,57 +162,49 @@ fn local_chunk_map_hash_b3(repo_paths: &RepoPaths) -> Result<String> {
     if !repo_paths.chunk_map_path.exists() {
         return Ok(String::new());
     }
-    Ok(repo_file_hash(&crate::filesystem::read(
+    Ok(repo_file_hash(&filesystem::read(
         &repo_paths.chunk_map_path,
     )?))
 }
 
 fn local_snapshot_metadata_hash_b3(repo_paths: &RepoPaths, snapshot_id: &str) -> Result<String> {
-    let metadata_path =
-        crate::repo::snapshot_manifests::snapshot_metadata_path(repo_paths, snapshot_id)?;
-    let blueprint_path =
-        crate::repo::snapshot_manifests::snapshot_blueprint_path(repo_paths, snapshot_id)?;
+    let metadata_path = snapshot_metadata_path(repo_paths, snapshot_id)?;
+    let blueprint_path = snapshot_blueprint_path(repo_paths, snapshot_id)?;
     if !metadata_path.exists() || !blueprint_path.exists() {
         return Ok(String::new());
     }
     let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
-    Ok(repo_file_hash(
-        &crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote(&manifest)?,
-    ))
+    Ok(repo_file_hash(&serialize_snapshot_metadata_for_remote(
+        &manifest,
+    )?))
 }
 
 fn local_snapshot_product_metadata_hash_b3(
     repo_paths: &RepoPaths,
     snapshot_id: &str,
 ) -> Result<String> {
-    let metadata_path =
-        crate::repo::snapshot_manifests::snapshot_metadata_path(repo_paths, snapshot_id)?;
-    let blueprint_path =
-        crate::repo::snapshot_manifests::snapshot_blueprint_path(repo_paths, snapshot_id)?;
+    let metadata_path = snapshot_metadata_path(repo_paths, snapshot_id)?;
+    let blueprint_path = snapshot_blueprint_path(repo_paths, snapshot_id)?;
     if !metadata_path.exists() || !blueprint_path.exists() {
         return Ok(String::new());
     }
     let manifest = load_snapshot_manifest(repo_paths, snapshot_id)?;
-    let Some(bytes) =
-        crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote(&manifest)?
-    else {
+    let Some(bytes) = serialize_snapshot_product_metadata_for_remote(&manifest)? else {
         return Ok(String::new());
     };
     Ok(repo_file_hash(&bytes))
 }
 
 fn local_snapshot_blueprint_hash_b3(repo_paths: &RepoPaths, snapshot_id: &str) -> Result<String> {
-    let path = crate::repo::snapshot_manifests::snapshot_blueprint_path(repo_paths, snapshot_id)?;
+    let path = snapshot_blueprint_path(repo_paths, snapshot_id)?;
     if !path.exists() {
         return Ok(String::new());
     }
-    Ok(crate::artifact::hash::hash_hex(
-        &crate::artifact::integrity::hash_file(&path)?,
-    ))
+    Ok(hash_hex(&hash_file(&path)?))
 }
 
 struct RemoteProgress {
-    sink: Option<std::sync::Arc<dyn ProgressSink>>,
+    sink: Option<Arc<dyn ProgressSink>>,
     operation: OperationKind,
 }
 
@@ -222,7 +225,7 @@ impl RemoteProgress {
         detail: Option<String>,
         done: bool,
     ) {
-        crate::progress::emit_progress(
+        emit_progress(
             &self.sink,
             ProgressEvent {
                 feedback: None,

@@ -6,6 +6,8 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 
 use super::{ARGUMENT_FIELDS, Profiler};
+use std::fs::File;
+use std::str::from_utf8;
 
 #[derive(Debug)]
 pub(super) struct TraceText<const N: usize> {
@@ -23,7 +25,7 @@ impl<const N: usize> TraceText<N> {
         Self { bytes, len }
     }
     fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.bytes[..self.len]).unwrap_or("")
+        from_utf8(&self.bytes[..self.len]).unwrap_or("")
     }
 }
 impl<const N: usize> Serialize for TraceText<N> {
@@ -60,7 +62,7 @@ impl Serialize for TraceArguments {
 
 impl Profiler {
     pub(crate) fn write_trace(&self, path: &Path) -> crate::Result<()> {
-        let mut output = BufWriter::new(std::fs::File::create(path)?);
+        let mut output = BufWriter::new(File::create(path)?);
         output.write_all(b"{\"displayTimeUnit\":\"ms\",\"traceEvents\":[")?;
         let process_name = path
             .parent()

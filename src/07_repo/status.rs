@@ -11,12 +11,18 @@ use super::inventory::scan_artifact_inventory;
 use super::snapshot_tag_summary::summarize_snapshot_tags;
 use crate::Error;
 use crate::Result;
+use crate::artifact::hash::hash_hex;
+use crate::artifact::reference::ArtifactRef;
 use crate::manifest;
 use crate::manifest::REPO_METADATA_FILE;
+use crate::repo::artifacts::required_artifacts;
+use crate::repo::coordination;
 use crate::repo::index::load_chunk_index;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,7 +81,7 @@ pub fn read_repo_status(repo_root: &Path) -> Result<RepoStatus> {
     if !repo_root.is_dir() {
         return check_gutch_repo_unlocked(repo_root);
     }
-    crate::repo::coordination::read(repo_root, || check_gutch_repo_unlocked(repo_root))
+    coordination::read(repo_root, || check_gutch_repo_unlocked(repo_root))
 }
 
 fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
@@ -151,7 +157,7 @@ fn empty_repo_check_status(repo_path: String, exists: bool, error: Option<String
 fn check_snapshot_manifests(
     repo_paths: &RepoPaths,
     snapshots_root: &Path,
-    available_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
+    available_artifacts: &HashSet<ArtifactRef>,
 ) -> Result<Vec<RepoSnapshotStatus>> {
     if !snapshots_root.exists() {
         return Ok(Vec::new());
@@ -161,37 +167,23 @@ fn check_snapshot_manifests(
 
     let mut snapshots = Vec::new();
     for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
-        let manifest_path =
-            crate::repo::snapshot_manifests::snapshot_metadata_path(repo_paths, &snapshot_id)?;
+        let manifest_path = snapshot_metadata_path(repo_paths, &snapshot_id)?;
         let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
         let snapshot_metadata =
             Some(serde_json::to_value(manifest.metadata()).map_err(|error| {
                 Error::manifest(format!("failed to serialize snapshot metadata: {error}"))
             })?);
         let snapshot_product_metadata_hash_b3 =
-            crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote(
-                &manifest,
-            )?
-            .map(|bytes| crate::artifact::hash::hash_hex(&blake3::hash(&bytes)));
-        let required_artifacts =
-            crate::repo::artifacts::required_artifacts(&manifest, &chunk_index)?;
+            serialize_snapshot_product_metadata_for_remote(&manifest)?
+                .map(|bytes| hash_hex(&blake3::hash(&bytes)));
+        let required_artifacts = required_artifacts(&manifest, &chunk_index)?;
         let required_bundle_count = required_artifacts
             .iter()
-            .filter(|artifact| {
-                matches!(
-                    artifact,
-                    crate::artifact::reference::ArtifactRef::Bundle { .. }
-                )
-            })
+            .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
             .count();
         let missing_bundle_count = required_artifacts
             .iter()
-            .filter(|artifact| {
-                matches!(
-                    artifact,
-                    crate::artifact::reference::ArtifactRef::Bundle { .. }
-                )
-            })
+            .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
             .filter(|artifact| !available_artifacts.contains(*artifact))
             .count();
         let missing_artifact_count = required_artifacts

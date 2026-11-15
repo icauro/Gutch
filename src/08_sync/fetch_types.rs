@@ -4,6 +4,7 @@ use crate::transfer::types::{
     ArtifactDownload, ArtifactUrlProvider, TransferConcurrencyPolicy, TransferStats,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SnapshotFetchRequest {
@@ -15,7 +16,7 @@ pub struct SnapshotFetchRequest {
     pub blueprint_url: String,
     pub chunk_index_url: Option<String>,
     pub artifacts: Vec<ArtifactDownload>,
-    pub artifact_url_provider: Option<std::sync::Arc<dyn ArtifactUrlProvider>>,
+    pub artifact_url_provider: Option<Arc<dyn ArtifactUrlProvider>>,
     pub transfer_policy: TransferConcurrencyPolicy,
     pub control: OperationControl,
 }

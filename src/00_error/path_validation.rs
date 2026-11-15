@@ -1,5 +1,8 @@
 //! Typed filename-compatibility failure carried by [`super::Error`].
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PathViolation {
@@ -19,8 +22,8 @@ pub struct PathValidationFailure {
     pub violations: Vec<PathViolation>,
 }
 
-impl std::fmt::Display for PathValidationFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for PathValidationFailure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
             "{} rejected: {} filename compatibility violation(s).",

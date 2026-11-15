@@ -1,4 +1,7 @@
 use super::*;
+use crate::artifact::integrity::hash_file;
+use std::env::temp_dir;
+use std::fs;
 
 #[test]
 fn test_hash_chunk() {
@@ -37,10 +40,10 @@ fn test_chunk_hash_byte_roundtrip() {
 
 #[test]
 fn test_hash_file() {
-    let dir = std::env::temp_dir();
+    let dir = temp_dir();
     let path = dir.join("gutch_test_hash_file.tmp");
-    std::fs::write(&path, b"test content").unwrap();
-    let hash = crate::artifact::integrity::hash_file(&path).unwrap();
-    let _ = std::fs::remove_file(&path);
+    fs::write(&path, b"test content").unwrap();
+    let hash = hash_file(&path).unwrap();
+    let _ = fs::remove_file(&path);
     assert_eq!(hash, blake3::hash(b"test content"));
 }

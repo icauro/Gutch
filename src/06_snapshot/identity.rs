@@ -6,18 +6,19 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::hash::hash_hex;
 use crate::manifest::SnapshotEntry;
+use std::time::SystemTime;
 
 pub(crate) fn source_modified_at_from_directory(dir: &Path) -> Result<String> {
     Ok(format_system_time_utc(max_file_modified_time(dir)?))
 }
 
-pub(crate) fn format_system_time_utc(time: std::time::SystemTime) -> String {
+pub(crate) fn format_system_time_utc(time: SystemTime) -> String {
     chrono::DateTime::<chrono::Utc>::from(time)
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string()
 }
 
-fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
+fn max_file_modified_time(dir: &Path) -> Result<SystemTime> {
     if !dir.is_dir() {
         return Err(Error::manifest(format!(
             "source path is not a directory: {}",
@@ -25,7 +26,7 @@ fn max_file_modified_time(dir: &Path) -> Result<std::time::SystemTime> {
         )));
     }
 
-    let mut max_mtime = std::time::SystemTime::UNIX_EPOCH;
+    let mut max_mtime = SystemTime::UNIX_EPOCH;
     let mut found_file = false;
     for entry in walkdir::WalkDir::new(dir) {
         let entry = entry?;

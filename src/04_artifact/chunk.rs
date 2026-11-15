@@ -14,7 +14,11 @@ use std::time::Duration;
 
 use crate::artifact::hash::hash_hex;
 use crate::artifact::profiles::ChunkSizingProfile;
+use crate::artifact::profiles::Chunker;
 use crate::error::Result;
+use crate::progress::OperationControl;
+use std::fs::File;
+use std::path::Path;
 
 pub(crate) struct ChunkResult {
     pub(crate) size: u64,
@@ -99,16 +103,16 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
 }
 
 pub(crate) fn scan_file_chunks(
-    path: &std::path::Path,
+    path: &Path,
     inventory_size: u64,
     profile: &ChunkSizingProfile,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     match profile.chunker {
-        crate::artifact::profiles::Chunker::FastCdc => {
+        Chunker::FastCdc => {
             scan_with_boundary(path, inventory_size, control, BoundaryFinder::new(profile))
         }
-        crate::artifact::profiles::Chunker::Vram256 => {
+        Chunker::Vram256 => {
             let scalar = super::ram::Ram::new(
                 profile.avg_chunk_bytes as usize,
                 profile.max_chunk_bytes as usize,
@@ -119,7 +123,7 @@ pub(crate) fn scan_file_chunks(
                 scan_with_boundary(path, inventory_size, control, scalar)
             }
         }
-        crate::artifact::profiles::Chunker::Jc => scan_with_boundary(
+        Chunker::Jc => scan_with_boundary(
             path,
             inventory_size,
             control,
@@ -134,15 +138,15 @@ pub(crate) fn scan_file_chunks(
 }
 
 fn scan_with_boundary<C: ChunkBoundary>(
-    path: &std::path::Path,
+    path: &Path,
     inventory_size: u64,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     boundary: C,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     control.checkpoint()?;
     let max = boundary.max_size();
 
-    let file = std::fs::File::open(path)?;
+    let file = File::open(path)?;
     // The inventory already knows the size. Keep this path within the streaming
     // chunker's buffer bound, without another metadata query or a probing pass.
     let small_file_limit = (max as u64).min(1024 * 1024);
@@ -209,9 +213,9 @@ fn scan_with_boundary<C: ChunkBoundary>(
 }
 
 fn scan_small_file<C: ChunkBoundary>(
-    file: std::fs::File,
+    file: File,
     inventory_size: u64,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     boundary: C,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
     let started = ProfileInstant::detailed(control.profiler());

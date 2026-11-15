@@ -6,19 +6,25 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::artifact::bundle::BundleTableEntry;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::profiles::BundleSizingPreset;
 use crate::artifact::profiles::BundleSizingProfile;
 use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::ChunkSizingProfile;
+use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
 use crate::runtime::RuntimePlan;
 use crate::runtime::RuntimeResourceHints;
+use std::fs;
+use std::fs::File;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct BuildConfig<'a> {
@@ -32,7 +38,7 @@ pub struct BuildConfig<'a> {
     pub(crate) storage_mode: ArtifactStorageMode,
     pub(crate) runtime_hints: RuntimeResourceHints,
     pub(crate) artifact_staging_root: Option<PathBuf>,
-    pub(crate) control: crate::progress::OperationControl,
+    pub(crate) control: OperationControl,
 }
 
 impl<'a> BuildConfig<'a> {
@@ -48,7 +54,7 @@ impl<'a> BuildConfig<'a> {
             storage_mode: ArtifactStorageMode::default(),
             runtime_hints: RuntimeResourceHints::default(),
             artifact_staging_root: None,
-            control: crate::progress::OperationControl::default(),
+            control: OperationControl::default(),
         }
     }
 
@@ -76,7 +82,7 @@ impl<'a> BuildConfig<'a> {
         self
     }
 
-    pub fn with_chunker(mut self, chunker: crate::artifact::profiles::Chunker) -> Self {
+    pub fn with_chunker(mut self, chunker: Chunker) -> Self {
         self.chunk_profile = self.chunk_profile.with_chunker(chunker);
         self
     }
@@ -124,21 +130,18 @@ impl StagedArtifactFile {
     }
 
     #[cfg(test)]
-    pub(crate) fn path(&self) -> &std::path::Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
-    pub(crate) fn promote_to(&self, destination: &std::path::Path) -> crate::Result<()> {
-        std::fs::rename(&self.path, destination)?;
+    pub(crate) fn promote_to(&self, destination: &Path) -> crate::Result<()> {
+        fs::rename(&self.path, destination)?;
         Ok(())
     }
 
     /// Artifacts are content-addressed, so an existing destination already holds these bytes.
     /// Replacing it would fail on Windows while another reader has the file open.
-    pub(crate) fn promote_unless_present(
-        &self,
-        destination: &std::path::Path,
-    ) -> crate::Result<()> {
+    pub(crate) fn promote_unless_present(&self, destination: &Path) -> crate::Result<()> {
         if destination.exists() {
             self.discard();
             Ok(())
@@ -148,7 +151,7 @@ impl StagedArtifactFile {
     }
 
     pub(crate) fn discard(&self) {
-        let _ = std::fs::remove_file(&self.path);
+        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -163,7 +166,7 @@ pub struct BuiltBundle {
     pub bundle_id: String,
     pub(crate) staged_file: StagedArtifactFile,
     pub(crate) size: u64,
-    pub(crate) entries: Vec<crate::artifact::bundle::BundleTableEntry>,
+    pub(crate) entries: Vec<BundleTableEntry>,
 }
 
 impl BuiltBundle {}
@@ -199,7 +202,7 @@ impl ChunkPayload {
 /// Each packaging job owns its reader, so there are no shared cursors or locks.
 #[derive(Default)]
 pub(crate) struct ChunkPayloadReader {
-    current: Option<(Arc<PathBuf>, std::fs::File)>,
+    current: Option<(Arc<PathBuf>, File)>,
     position: Option<u64>,
 }
 
@@ -214,7 +217,7 @@ impl ChunkPayloadReader {
             // Close the previous handle before opening the next source.
             self.current = None;
             self.position = None;
-            let file = std::fs::File::open(payload.source.as_ref())?;
+            let file = File::open(payload.source.as_ref())?;
             self.current = Some((payload.source.clone(), file));
             self.position = Some(0);
         }

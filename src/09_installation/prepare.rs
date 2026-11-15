@@ -3,12 +3,27 @@
 use std::path::Path;
 
 use crate::Result;
+use crate::artifact::reference::ArtifactRef;
+use crate::filesystem::constraints::validate_paths;
+use crate::installation::contracts::SnapshotReconstructSource;
+use crate::installation::execute::jobs::ReconstructPipelinePlan;
+use crate::installation::plan::build_reconstruct_pipeline_plan;
+use crate::installation::source::VerifiedSource;
+use crate::installation::source::resolve_verified_source;
+use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
+use crate::repo::index::ChunkIndex;
 use crate::repo::paths::RepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::runtime::RuntimeResourceHints;
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 pub(super) struct LoadedRepoSnapshot {
     pub repo_paths: RepoPaths,
-    pub repo_manifest: crate::manifest::repo_manifest::RepoManifest,
+    pub repo_manifest: RepoManifest,
     pub snapshot_manifest: SnapshotManifest,
 }
 
@@ -16,10 +31,9 @@ pub(super) fn load_repo_snapshot_manifest(
     repo_root: &Path,
     snapshot_id: &str,
 ) -> Result<LoadedRepoSnapshot> {
-    let (repo_paths, repo_manifest) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
-    let snapshot_manifest =
-        crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, snapshot_id)?;
-    crate::filesystem::constraints::validate_paths(
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    let snapshot_manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
+    validate_paths(
         repo_manifest
             .constraints
             .as_ref()
@@ -39,17 +53,17 @@ pub(super) fn load_repo_snapshot_manifest(
 /// destination guards. Remote acquisition/publication remain with transfer.
 pub(crate) struct ReconstructionInputs<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
-    pub chunk_index: &'a crate::repo::index::ChunkIndex,
+    pub chunk_index: &'a ChunkIndex,
     pub repo_paths: &'a RepoPaths,
-    pub existing_artifacts: &'a std::collections::HashSet<crate::artifact::reference::ArtifactRef>,
-    pub source: Option<crate::installation::contracts::SnapshotReconstructSource<'a>>,
-    pub runtime_hints: &'a crate::runtime::RuntimeResourceHints,
-    pub control: &'a crate::progress::OperationControl,
+    pub existing_artifacts: &'a HashSet<ArtifactRef>,
+    pub source: Option<SnapshotReconstructSource<'a>>,
+    pub runtime_hints: &'a RuntimeResourceHints,
+    pub control: &'a OperationControl,
 }
 
 pub(crate) struct PreparedReconstruction {
-    pub plan: crate::installation::execute::jobs::ReconstructPipelinePlan,
-    pub source_directory: Option<std::path::PathBuf>,
+    pub plan: ReconstructPipelinePlan,
+    pub source_directory: Option<PathBuf>,
 }
 
 pub(crate) fn prepare_reconstruction(
@@ -59,22 +73,17 @@ pub(crate) fn prepare_reconstruction(
         .source
         .as_ref()
         .map(|source| source.destination_dir.to_path_buf());
-    let verified_source = crate::installation::source::resolve_verified_source(
-        inputs.source,
-        inputs.runtime_hints,
-        inputs.control,
-    )?;
+    let verified_source =
+        resolve_verified_source(inputs.source, inputs.runtime_hints, inputs.control)?;
     let _plan_span = inputs
         .control
         .profile_span("installation.reconstruct.prepare.plan");
-    let plan = crate::installation::plan::build_reconstruct_pipeline_plan(
+    let plan = build_reconstruct_pipeline_plan(
         inputs.snapshot_manifest,
         inputs.chunk_index,
         inputs.repo_paths,
         inputs.existing_artifacts,
-        verified_source
-            .as_ref()
-            .map(crate::installation::source::VerifiedSource::source),
+        verified_source.as_ref().map(VerifiedSource::source),
     )?;
     Ok(PreparedReconstruction {
         plan,

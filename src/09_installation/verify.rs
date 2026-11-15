@@ -4,11 +4,12 @@ use crate::Result;
 use crate::installation::contracts::{InstallationVerifyRequest, InstallationVerifyResult};
 use crate::installation::inspect::{VerifyRequest, classify_directory};
 use crate::installation::prepare::{LoadedRepoSnapshot, load_repo_snapshot_manifest};
+use crate::repo::coordination::read_with_control;
 
 pub fn verify_installation(request: InstallationVerifyRequest) -> Result<InstallationVerifyResult> {
     request.control.checkpoint()?;
     let root = request.repo_path.clone();
-    crate::repo::coordination::read_with_control(&root, &request.control.clone(), || {
+    read_with_control(&root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let LoadedRepoSnapshot {
             repo_paths,

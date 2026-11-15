@@ -2,6 +2,7 @@
 
 use crate::artifact::profiles::ArtifactStorageMode;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkIndex {
@@ -25,7 +26,7 @@ pub struct ChunkIndexEntry {
     pub chunk_ordinal: u32,
     pub raw_size: u32,
 }
-impl std::ops::Deref for ChunkIndexEntry {
+impl Deref for ChunkIndexEntry {
     type Target = IndexedArtifact;
     fn deref(&self) -> &Self::Target {
         &self.artifact

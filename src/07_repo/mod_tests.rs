@@ -20,8 +20,37 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::artifact::bundle::BundleBuilder;
+use crate::artifact::bundle::read_bundle;
+use crate::artifact::format::FORMAT_VERSION;
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::BundleSizingPreset;
+use crate::artifact::profiles::ChunkSizingPreset;
+use crate::artifact::profiles::CompressionKind;
+use crate::artifact::profiles::CompressionProfile;
+use crate::capture::build::types::BuiltBundle;
+use crate::capture::build::types::StagedArtifactFile;
 use crate::manifest;
+use crate::manifest::ChunkRef;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::ChunkIndexEntries;
+use crate::repo::index::ChunkIndexEntry;
+use crate::repo::paths::bundle_id_from_bundle_path;
+use crate::repo::paths::chunk_path_in_root;
+use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::verify::verify_gutch_repo_artifacts;
+use crate::runtime::build_thread_pool;
+use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::test_util::chunk_entries;
+use crate::test_util::index_manifest;
+use crate::test_util::loose_bytes;
+use std::env::temp_dir;
+use std::fs;
+use std::process;
+use std::slice::from_ref;
 
 fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::SnapshotTagSet {
     let mut tags = manifest::SnapshotTagSet::default();
@@ -33,7 +62,7 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::
 }
 
 fn test_hash(label: &str) -> String {
-    crate::artifact::hash::ChunkHash::of(label.as_bytes()).to_hex()
+    ChunkHash::of(label.as_bytes()).to_hex()
 }
 
 #[test]
@@ -51,22 +80,18 @@ fn existing_store_keeps_same_path_manifests_from_multiple_snapshots() {
             executable: false,
             read_only: false,
             full_file_hash: test_hash(content_label),
-            chunks: vec![crate::manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash(content_label))
-                    .unwrap(),
+            chunks: vec![ChunkRef {
+                chunk_hash: ChunkHash::parse_hex(&test_hash(content_label)).unwrap(),
                 raw_size: 9,
             }],
         });
-        manifest.snapshot_id =
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+        manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
         write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
-        crate::test_util::index_manifest(&paths, &manifest);
+        index_manifest(&paths, &manifest);
     }
 
-    let pool = crate::runtime::build_thread_pool(1, "gutch-test").unwrap();
-    let state =
-        load_capture_reuse_state(&paths, &pool, &crate::progress::OperationControl::default())
-            .unwrap();
+    let pool = build_thread_pool(1, "gutch-test").unwrap();
+    let state = load_capture_reuse_state(&paths, &pool, &OperationControl::default()).unwrap();
     let candidates = state.previous_file_manifests.get("game.bin").unwrap();
 
     assert_eq!(candidates.len(), 2);
@@ -90,8 +115,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
             full_file_hash: blake3::hash(b"").to_hex().to_string(),
             chunks: Vec::new(),
         });
-        snapshot.snapshot_id =
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot.entries);
+        snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
         write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
         snapshot_ids.push(snapshot.snapshot_id);
     }
@@ -174,12 +198,11 @@ fn local_repo_config_contains_only_the_remote_link() {
     write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
 
     let local_config: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&paths.local_repo_config_path).unwrap())
-            .unwrap();
+        serde_json::from_str(&fs::read_to_string(&paths.local_repo_config_path).unwrap()).unwrap();
     assert_eq!(local_config, serde_json::json!({"remote_repo_id": "99"}));
 
     let repo_metadata: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&paths.repo_metadata_path).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(&paths.repo_metadata_path).unwrap()).unwrap();
     assert!(repo_metadata.get("product_id").is_none());
     assert!(repo_metadata.get("product_metadata").is_none());
     assert!(repo_metadata.get("remote_repo_id").is_none());
@@ -190,14 +213,14 @@ fn payload_paths_are_extensionless_and_bundle_names_are_hashes() {
     let root = PathBuf::from("/test/repo");
     let chunk_hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
     assert_eq!(
-        crate::repo::paths::chunk_path_in_root(&root.join("chunks"), chunk_hash).unwrap(),
+        chunk_path_in_root(&root.join("chunks"), chunk_hash).unwrap(),
         root.join("chunks").join("ab").join(chunk_hash)
     );
     assert_eq!(
-        crate::repo::paths::bundle_id_from_bundle_path(Path::new(chunk_hash)),
+        bundle_id_from_bundle_path(Path::new(chunk_hash)),
         Some(chunk_hash.to_string())
     );
-    assert!(crate::repo::paths::bundle_id_from_bundle_path(Path::new("bundle.bundle")).is_none());
+    assert!(bundle_id_from_bundle_path(Path::new("bundle.bundle")).is_none());
 }
 
 #[test]
@@ -206,13 +229,13 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
     let paths = RepoPaths::from_repo_root(&root);
     let snapshot_id = "0123456789abcdef";
     assert_eq!(
-        crate::repo::snapshot_manifests::snapshot_metadata_path(&paths, snapshot_id).unwrap(),
+        snapshot_metadata_path(&paths, snapshot_id).unwrap(),
         root.join("snapshots")
             .join(snapshot_id)
             .join("snapshot_metadata.json")
     );
     assert_eq!(
-        crate::repo::snapshot_manifests::snapshot_blueprint_path(&paths, snapshot_id).unwrap(),
+        snapshot_blueprint_path(&paths, snapshot_id).unwrap(),
         root.join("snapshots")
             .join(snapshot_id)
             .join("snapshot_blueprint.gtcbin")
@@ -245,40 +268,38 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
         full_file_hash: "hash".into(),
         chunks: vec![
             manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("chunk-a"))
-                    .unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&test_hash("chunk-a")).unwrap(),
                 raw_size: 100,
             },
             manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("chunk-b"))
-                    .unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&test_hash("chunk-b")).unwrap(),
                 raw_size: 100,
             },
         ],
     });
 
-    let chunk_index = crate::repo::index::ChunkIndex {
+    let chunk_index = ChunkIndex {
         format_version: "1".into(),
 
-        entries: crate::test_util::chunk_entries(BTreeMap::from([
+        entries: chunk_entries(BTreeMap::from([
             (
                 test_hash("chunk-a"),
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     100,
                     0,
                     (test_hash("bundle-1")).into(),
                     100,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             ),
             (
                 test_hash("chunk-b"),
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     100,
                     0,
                     (test_hash("bundle-1")).into(),
                     100,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             ),
         ])),
@@ -291,14 +312,14 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
 
 #[test]
 fn check_gutch_repo_reports_snapshots() {
-    let root = std::env::temp_dir().join(format!(
+    let root = temp_dir().join(format!(
         "gutch_repo_inspect_test_{}_{}",
-        std::process::id(),
+        process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
     let repo_root = root.join("repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 
     ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
     let snapshot_id = test_hash("snapshot-one");
@@ -312,22 +333,20 @@ fn check_gutch_repo_reports_snapshots() {
         executable: true,
         read_only: false,
         full_file_hash: test_hash("game.exe"),
-        chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("game.exe"))
-                .unwrap(),
+        chunks: vec![ChunkRef {
+            chunk_hash: ChunkHash::parse_hex(&test_hash("game.exe")).unwrap(),
             raw_size: 42,
         }],
     });
 
-    manifest.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
 
     write_snapshot_manifest_artifacts(&repo_paths, &manifest).unwrap();
-    crate::test_util::index_manifest(&repo_paths, &manifest);
+    index_manifest(&repo_paths, &manifest);
     let bundle_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let bundle_path = crate::repo::paths::bundle_path(&repo_paths, bundle_id).unwrap();
-    std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
-    std::fs::write(bundle_path, b"bundle-a").unwrap();
+    let bundle_path = bundle_path(&repo_paths, bundle_id).unwrap();
+    fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+    fs::write(bundle_path, b"bundle-a").unwrap();
 
     let status = read_repo_status(&repo_root).unwrap();
 
@@ -338,7 +357,7 @@ fn check_gutch_repo_reports_snapshots() {
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -346,8 +365,8 @@ fn check_gutch_repo_treats_missing_artifact_roots_as_empty() {
     let temp = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(temp.path());
     ensure_gutch_repo_layout(&paths, "empty-artifacts").unwrap();
-    std::fs::remove_dir_all(&paths.bundles_root).unwrap();
-    std::fs::remove_dir_all(&paths.chunks_root).unwrap();
+    fs::remove_dir_all(&paths.bundles_root).unwrap();
+    fs::remove_dir_all(&paths.chunks_root).unwrap();
 
     let status = read_repo_status(temp.path()).unwrap();
 
@@ -365,19 +384,19 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
     let raw_bytes = b"loose artifact content";
     let chunk_hash = test_hash("loose artifact content");
-    let compression_profile = crate::artifact::profiles::CompressionProfile::default();
-    let compressed_bytes = crate::test_util::loose_bytes(raw_bytes, &compression_profile);
+    let compression_profile = CompressionProfile::default();
+    let compressed_bytes = loose_bytes(raw_bytes, &compression_profile);
     let chunk_path = chunk_path(&paths, &chunk_hash).unwrap();
-    std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
-    std::fs::write(&chunk_path, &compressed_bytes).unwrap();
+    fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
+    fs::write(&chunk_path, &compressed_bytes).unwrap();
 
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
     repo_manifest.set_artifact_profile(
-        crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
-        crate::artifact::profiles::CompressionKind::Zstd,
+        ChunkSizingPreset::Chunk128KiB,
+        CompressionKind::Zstd,
         Some(3),
-        crate::artifact::profiles::BundleSizingPreset::Bundle16MiB,
-        crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
+        BundleSizingPreset::Bundle16MiB,
+        ArtifactStorageMode::LooseChunks,
     );
     write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
 
@@ -393,25 +412,24 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         read_only: false,
         full_file_hash: chunk_hash.clone(),
         chunks: vec![manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_hash).unwrap(),
+            chunk_hash: ChunkHash::parse_hex(&chunk_hash).unwrap(),
             raw_size: raw_bytes.len() as u32,
         }],
     });
-    snapshot.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot.entries);
+    snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
     write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
-    let index = crate::repo::index::ChunkIndex {
-        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
+    let index = ChunkIndex {
+        format_version: FORMAT_VERSION.to_string(),
 
-        entries: crate::test_util::chunk_entries(BTreeMap::from([(
+        entries: chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
-            crate::repo::index::ChunkIndexEntry::new(
+            ChunkIndexEntry::new(
                 compressed_bytes.len() as u32,
                 0,
                 (chunk_hash).into(),
                 raw_bytes.len() as u32,
-                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
+                ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };
@@ -422,10 +440,10 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     assert_eq!(status.snapshots[0].required_artifact_count, 1);
     assert_eq!(status.snapshots[0].missing_artifact_count, 0);
 
-    let verification = crate::repo::verify::verify_gutch_repo_artifacts(
+    let verification = verify_gutch_repo_artifacts(
         temp.path(),
         Some(&snapshot.snapshot_id),
-        crate::repo::verify::RepoArtifactVerification::Identity,
+        RepoArtifactVerification::Identity,
     )
     .unwrap();
     assert!(verification.ok);
@@ -435,46 +453,46 @@ fn check_and_verify_report_loose_chunk_artifacts() {
 
 #[test]
 fn chunk_index_write_and_load_roundtrip() {
-    let root = std::env::temp_dir().join("gutch_chunk_index_test");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
+    let root = temp_dir().join("gutch_chunk_index_test");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
     let paths = RepoPaths::from_repo_root(&root);
 
     let mut entries = BTreeMap::new();
     entries.insert(
         test_hash("chunk-a"),
-        crate::repo::index::ChunkIndexEntry::new(
+        ChunkIndexEntry::new(
             80,
             0,
             (test_hash("bundle-1")).into(),
             100,
-            crate::artifact::profiles::ArtifactStorageMode::Bundled,
+            ArtifactStorageMode::Bundled,
         ),
     );
     entries.insert(
         test_hash("chunk-b"),
-        crate::repo::index::ChunkIndexEntry::new(
+        ChunkIndexEntry::new(
             80,
             0,
             (test_hash("bundle-1")).into(),
             100,
-            crate::artifact::profiles::ArtifactStorageMode::Bundled,
+            ArtifactStorageMode::Bundled,
         ),
     );
     entries.insert(
         test_hash("chunk-c"),
-        crate::repo::index::ChunkIndexEntry::new(
+        ChunkIndexEntry::new(
             40,
             0,
             (test_hash("bundle-2")).into(),
             100,
-            crate::artifact::profiles::ArtifactStorageMode::Bundled,
+            ArtifactStorageMode::Bundled,
         ),
     );
-    let index = crate::repo::index::ChunkIndex {
+    let index = ChunkIndex {
         format_version: "1".to_string(),
 
-        entries: crate::test_util::chunk_entries(entries),
+        entries: chunk_entries(entries),
     };
     write_chunk_index(&paths, &index).unwrap();
     assert!(paths.chunk_map_path.exists());
@@ -498,68 +516,58 @@ fn chunk_index_write_and_load_roundtrip() {
     );
     assert!(!loaded.entries.contains_key("nonexistent"));
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn chunk_index_load_empty_when_file_missing() {
-    let root = std::env::temp_dir().join("gutch_chunk_index_empty_test");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
+    let root = temp_dir().join("gutch_chunk_index_empty_test");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
     let paths = RepoPaths::from_repo_root(&root);
 
     let loaded = load_chunk_index(&paths).unwrap();
     assert!(loaded.entries.is_empty());
     assert_eq!(loaded.format_version, "1");
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn incremental_chunk_index_matches_rebuilt_bundle_index() {
-    let root = std::env::temp_dir().join("gutch_incremental_chunk_index_test");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = temp_dir().join("gutch_incremental_chunk_index_test");
+    let _ = fs::remove_dir_all(&root);
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    let chunk_hash = crate::artifact::hash::ChunkHash::of(b"hello");
-    let mut builder = crate::artifact::bundle::BundleBuilder::new(
-        crate::artifact::profiles::CompressionProfile::default(),
-    );
+    let chunk_hash = ChunkHash::of(b"hello");
+    let mut builder = BundleBuilder::new(CompressionProfile::default());
     builder.add_chunk(chunk_hash, b"hello".to_vec());
     let (bundle_id, data) = builder.build_with_id().unwrap();
     let staged_path = root.join("staged-bundle");
-    std::fs::write(&staged_path, &data).unwrap();
-    let reader = crate::artifact::bundle::read_bundle(
-        &data,
-        &crate::artifact::profiles::CompressionProfile::default(),
-    )
-    .unwrap();
-    let built_bundle = crate::capture::build::types::BuiltBundle {
+    fs::write(&staged_path, &data).unwrap();
+    let reader = read_bundle(&data, &CompressionProfile::default()).unwrap();
+    let built_bundle = BuiltBundle {
         bundle_id: bundle_id.clone(),
-        staged_file: crate::capture::build::types::StagedArtifactFile::new(staged_path),
+        staged_file: StagedArtifactFile::new(staged_path),
         size: data.len() as u64,
         entries: reader.entries().to_vec(),
     };
 
-    let mut incremental = crate::repo::index::ChunkIndex {
-        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
+    let mut incremental = ChunkIndex {
+        format_version: FORMAT_VERSION.to_string(),
 
-        entries: crate::repo::index::ChunkIndexEntries::new(),
+        entries: ChunkIndexEntries::new(),
     };
-    add_built_bundles_to_chunk_index(&mut incremental, std::slice::from_ref(&built_bundle))
-        .unwrap();
+    add_built_bundles_to_chunk_index(&mut incremental, from_ref(&built_bundle)).unwrap();
 
     let bundle_path = bundle_path(&paths, &bundle_id).unwrap();
-    std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
-    std::fs::copy(built_bundle.staged_file.path(), bundle_path).unwrap();
-    let pool = crate::runtime::build_thread_pool(1, "gutch-test").unwrap();
-    let rebuilt = rebuild_chunk_index_from_bundles_with_pool(
-        &paths,
-        &crate::artifact::profiles::CompressionProfile::default(),
-        &pool,
-    )
-    .unwrap();
+    fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+    fs::copy(built_bundle.staged_file.path(), bundle_path).unwrap();
+    let pool = build_thread_pool(1, "gutch-test").unwrap();
+    let rebuilt =
+        rebuild_chunk_index_from_bundles_with_pool(&paths, &CompressionProfile::default(), &pool)
+            .unwrap();
 
     assert_eq!(incremental.entries, rebuilt.entries);
     assert_eq!(
@@ -570,13 +578,13 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
         Some(bundle_id.as_str())
     );
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn inspect_repo_shows_snapshot_tags() {
-    let root = std::env::temp_dir().join("gutch_inspect_tags_test");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = temp_dir().join("gutch_inspect_tags_test");
+    let _ = fs::remove_dir_all(&root);
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
@@ -591,16 +599,14 @@ fn inspect_repo_shows_snapshot_tags() {
         executable: true,
         read_only: false,
         full_file_hash: test_hash("game.bin"),
-        chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("game.bin"))
-                .unwrap(),
+        chunks: vec![ChunkRef {
+            chunk_hash: ChunkHash::parse_hex(&test_hash("game.bin")).unwrap(),
             raw_size: 100,
         }],
     });
-    manifest.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
-    crate::test_util::index_manifest(&paths, &manifest);
+    index_manifest(&paths, &manifest);
 
     let status = read_repo_status(&root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
@@ -608,13 +614,13 @@ fn inspect_repo_shows_snapshot_tags() {
     assert_eq!(status.snapshots[0].version_tag, "2.0.0");
     assert_eq!(status.snapshots[0].os, "linux");
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
-    let root = std::env::temp_dir().join("gutch_snapshot_blueprint_roundtrip");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = temp_dir().join("gutch_snapshot_blueprint_roundtrip");
+    let _ = fs::remove_dir_all(&root);
     let paths = RepoPaths::from_repo_root(&root);
     ensure_gutch_repo_layout(&paths, "base").unwrap();
 
@@ -632,24 +638,22 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         full_file_hash: test_hash("game.exe"),
         chunks: vec![
             manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_one).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&chunk_one).unwrap(),
                 raw_size: 100,
             },
             manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_two).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&chunk_two).unwrap(),
                 raw_size: 200,
             },
         ],
     });
 
-    manifest.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
 
     write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
-    crate::test_util::index_manifest(&paths, &manifest);
+    index_manifest(&paths, &manifest);
     let local_json =
-        std::fs::read_to_string(snapshot_metadata_path(&paths, &manifest.snapshot_id).unwrap())
-            .unwrap();
+        fs::read_to_string(snapshot_metadata_path(&paths, &manifest.snapshot_id).unwrap()).unwrap();
     let local_value: serde_json::Value = serde_json::from_str(&local_json).unwrap();
     assert!(local_value.get("source_modified_at").is_none());
     assert!(local_value.get("files").is_none());
@@ -674,5 +678,5 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         chunk_two
     );
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }

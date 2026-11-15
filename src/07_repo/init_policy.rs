@@ -8,9 +8,12 @@ use serde::Serialize;
 use super::read_repo_status;
 use crate::Error;
 use crate::Result;
+use crate::filesystem;
+use crate::manifest::constraints::RepositoryConstraints;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::paths::write_gutch_repo_manifest;
+use std::fs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,7 +56,7 @@ pub struct RepoInitAssessment {
 #[derive(Debug, Clone, Default)]
 pub struct RepoInitOptions {
     pub force: bool,
-    pub constraints: crate::manifest::constraints::RepositoryConstraints,
+    pub constraints: RepositoryConstraints,
 }
 
 pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
@@ -90,7 +93,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
         });
     }
 
-    let entry_count = std::fs::read_dir(repo_root)?
+    let entry_count = fs::read_dir(repo_root)?
         .filter_map(|entry| entry.ok())
         .count();
     let paths = RepoPaths::from_repo_root(repo_root);
@@ -169,7 +172,7 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<()>
         return Err(repo_init_needs_confirmation_error(&assessment));
     }
 
-    std::fs::create_dir_all(repo_root)?;
+    fs::create_dir_all(repo_root)?;
     super::coordination::write(repo_root, || {
         if !options.force && repo_root.join("repo_metadata.json").exists() {
             return Err(Error::manifest(
@@ -234,20 +237,20 @@ pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
     let paths = RepoPaths::from_repo_root(repo_root);
     for (_, artifact) in super::inventory::list_repo_artifact_paths(&paths)? {
         if !super::coordination::defer_artifact_deletion(&artifact)? {
-            std::fs::remove_file(artifact)?;
+            fs::remove_file(artifact)?;
         }
     }
     if paths.snapshots_root.exists() {
-        crate::filesystem::remove_dir_all(&paths.snapshots_root)?;
+        filesystem::remove_dir_all(&paths.snapshots_root)?;
     }
     if paths.repo_metadata_path.exists() {
-        crate::filesystem::remove_file(&paths.repo_metadata_path)?;
+        filesystem::remove_file(&paths.repo_metadata_path)?;
     }
     if paths.local_repo_config_path.exists() {
-        crate::filesystem::remove_file(&paths.local_repo_config_path)?;
+        filesystem::remove_file(&paths.local_repo_config_path)?;
     }
     if paths.chunk_map_path.exists() {
-        crate::filesystem::remove_file(&paths.chunk_map_path)?;
+        filesystem::remove_file(&paths.chunk_map_path)?;
     }
     Ok(())
 }

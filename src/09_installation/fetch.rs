@@ -1,10 +1,16 @@
 //! Combined download and reconstruction, preserving one repository lock and pipeline.
 use crate::Result;
+use crate::artifact::reference::ArtifactRef;
 use crate::installation::contracts::{InstallationReconstructResult, SnapshotReconstructSource};
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
+use crate::installation::execute::publish::Publication;
 use crate::installation::prepare::{ReconstructionInputs, prepare_reconstruction};
+use crate::installation::staging::prepare_installation_destination;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::repo::coordination::write_with_control;
+use crate::repo::paths::RepoPaths;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch::{
     build_fetch_result, prepare_snapshot_fetch, publish_fetched_snapshot,
@@ -13,6 +19,7 @@ use crate::sync::fetch::{
 use crate::sync::fetch_types::{SnapshotFetchRequest, SnapshotFetchResult};
 use crate::transfer::http::build_download_client;
 use crate::transfer::progress::FetchTransferProgress;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -42,8 +49,8 @@ pub fn fetch_and_reconstruct_snapshot(
 ) -> Result<SnapshotFetchAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
     let operation_root = request.fetch_request.repo_path.to_path_buf();
-    std::fs::create_dir_all(&operation_root)?;
-    crate::repo::coordination::write_with_control(
+    fs::create_dir_all(&operation_root)?;
+    write_with_control(
         &operation_root,
         &request.fetch_request.control.clone(),
         || {
@@ -61,7 +68,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 &progress,
                 &transfer_progress,
             )?;
-            let _promotion_lock = crate::installation::staging::prepare_installation_destination(
+            let _promotion_lock = prepare_installation_destination(
                 &prepared.snapshot_manifest,
                 &request.destination_dir,
                 request.staging_dir.as_deref(),
@@ -97,8 +104,7 @@ pub fn fetch_and_reconstruct_snapshot(
 
             let (reconstruct_result, _) = apply_reconstruct_pipeline(
                 ReconstructPipelineApplyRequest {
-                    publication:
-                        crate::installation::execute::publish::Publication::ReplaceDirectory,
+                    publication: Publication::ReplaceDirectory,
                     repo_root: &prepared.repo_paths.repo_root,
                     compression_profile: prepared.compression_profile.clone(),
                     snapshot_manifest: &prepared.snapshot_manifest,
@@ -126,12 +132,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 pending_artifact_downloads.len(),
                 pending_artifact_downloads
                     .iter()
-                    .filter(|download| {
-                        matches!(
-                            download.artifact,
-                            crate::artifact::reference::ArtifactRef::Bundle { .. }
-                        )
-                    })
+                    .filter(|download| matches!(download.artifact, ArtifactRef::Bundle { .. }))
                     .count(),
                 transfer_stats,
             );
@@ -146,13 +147,10 @@ pub fn fetch_and_reconstruct_snapshot(
 
 fn resolve_snapshot_source(
     request: &SnapshotFetchAndReconstructRequest,
-    repo_paths: &crate::repo::paths::RepoPaths,
+    repo_paths: &RepoPaths,
 ) -> Result<ResolvedSnapshotSource> {
     let source_manifest = match request.source_snapshot_id.as_ref() {
-        Some(source_snapshot_id) => Some(crate::repo::snapshot_manifests::load_snapshot_manifest(
-            repo_paths,
-            source_snapshot_id,
-        )?),
+        Some(source_snapshot_id) => Some(load_snapshot_manifest(repo_paths, source_snapshot_id)?),
         None => None,
     };
     let source_destination_dir = source_manifest.as_ref().map(|_| {

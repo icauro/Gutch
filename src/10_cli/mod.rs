@@ -32,8 +32,14 @@ pub(crate) use arguments::TreeCommands;
 
 pub(crate) use command_support::prompt_yes_no;
 
-pub(crate) type Profile = Option<Arc<crate::profiling::Profiler>>;
+pub(crate) type Profile = Option<Arc<Profiler>>;
 
+use crate::filesystem::write_json;
+use crate::profiling::ProfileMode;
+use crate::profiling::Profiler;
+use crate::progress::OperationControl;
+use crate::sync::remote::RemoteRepositoryCommandProvider;
+use std::ffi::OsString;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -51,7 +57,7 @@ pub(crate) fn verbose_output_enabled() -> bool {
 pub fn requires_remote_provider<I, T>(args: I) -> bool
 where
     I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
+    T: Into<OsString> + Clone,
 {
     use clap::Parser;
 
@@ -76,18 +82,18 @@ where
 pub fn run_from_args<I, T>(args: I) -> crate::Result<()>
 where
     I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
+    T: Into<OsString> + Clone,
 {
     run_from_args_with_remote_provider(args, None)
 }
 
 pub fn run_from_args_with_remote_provider<I, T>(
     args: I,
-    remote_provider: Option<&dyn crate::sync::remote::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()>
 where
     I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
+    T: Into<OsString> + Clone,
 {
     run_from_args_with_remote_provider_named(args, remote_provider, "gutch")
 }
@@ -98,12 +104,12 @@ where
 /// present the same commands under their own executable name.
 pub fn run_from_args_with_remote_provider_named<I, T>(
     args: I,
-    remote_provider: Option<&dyn crate::sync::remote::RemoteRepositoryCommandProvider>,
+    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
     bin_name: &str,
 ) -> crate::Result<()>
 where
     I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
+    T: Into<OsString> + Clone,
 {
     use clap::CommandFactory;
     use clap::FromArgMatches;
@@ -128,16 +134,15 @@ where
     set_verbose_output_enabled(cli.verbose);
     let profile_out = cli.profile_out.clone();
     let error_json_out = cli.error_json_out.clone();
-    if (cli.profile == crate::profiling::ProfileMode::Off && profile_out.is_some())
-        || (cli.profile == crate::profiling::ProfileMode::Detailed && profile_out.is_none())
+    if (cli.profile == ProfileMode::Off && profile_out.is_some())
+        || (cli.profile == ProfileMode::Detailed && profile_out.is_none())
     {
         return Err(crate::Error::manifest(
             "--profile detailed requires --profile-dir; off forbids profile output",
         ));
     }
     let mode = cli.profile;
-    let profiler = (mode != crate::profiling::ProfileMode::Off)
-        .then(|| Arc::new(crate::profiling::Profiler::new(mode)));
+    let profiler = (mode != ProfileMode::Off).then(|| Arc::new(Profiler::new(mode)));
     output::begin(&cli)?;
     let command_result = {
         let _command_span = profiler
@@ -149,8 +154,8 @@ where
     let command_result = command_result.and(output_result);
     if let (Err(error), Some(path)) = (&command_result, error_json_out) {
         let details = error.diagnostic_report();
-        if let Err(export_error) = reporting::ensure_parent_directory(&path)
-            .and_then(|_| crate::filesystem::write_json(&path, &details))
+        if let Err(export_error) =
+            reporting::ensure_parent_directory(&path).and_then(|_| write_json(&path, &details))
         {
             eprintln!("Error details could not be saved: {export_error}");
         }
@@ -173,11 +178,11 @@ where
     }
 }
 
-pub(crate) fn control_with_profile(profile: &Profile) -> crate::progress::OperationControl {
+pub(crate) fn control_with_profile(profile: &Profile) -> OperationControl {
     profile
         .as_ref()
-        .map_or_else(crate::progress::OperationControl::default, |profiler| {
-            crate::progress::OperationControl::default().with_profiler(Arc::clone(profiler))
+        .map_or_else(OperationControl::default, |profiler| {
+            OperationControl::default().with_profiler(Arc::clone(profiler))
         })
 }
 

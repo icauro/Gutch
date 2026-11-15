@@ -1,20 +1,43 @@
 use super::*;
+use crate::artifact::bundle::BundleBuilder;
+use crate::artifact::format::FORMAT_VERSION;
+use crate::artifact::hash::ChunkHash;
 use crate::artifact::hash::hash_hex;
+use crate::artifact::loose::write_loose_chunk;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::CompressionKind;
+use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::reference::ArtifactRef;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::installation::execute::job_io::verify_reconstructed_output_file;
 use crate::installation::execute::jobs::*;
+use crate::installation::execute::publish::Publication;
 use crate::installation::plan::*;
 use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::SnapshotTagSet;
+use crate::progress::ProgressSink;
 use crate::progress::{OperationControl, ProgressEvent, ProgressPhase};
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::ChunkIndexEntry;
+use crate::repo::paths::RepoPaths;
+use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::runtime::RuntimeResourceHints;
+use crate::test_util::chunk_entries;
+use crate::test_util::loose_bytes;
+use crate::test_util::temp_path;
 use crate::transfer::download::PendingArtifactDownload;
+use crate::transfer::http::build_download_client;
 use crate::transfer::progress::FetchTransferProgress;
+use crate::transfer::types::TransferConcurrencyPolicy;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::fs;
+use std::net::TcpListener;
+use std::num::NonZeroU64;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 #[test]
 fn output_verification_checks_size_without_rereading_chunk_verified_bytes() {
@@ -23,16 +46,16 @@ fn output_verification_checks_size_without_rereading_chunk_verified_bytes() {
     let file_plan = ReconstructPipelineFile {
         path: "file.bin".into(),
         size: 4,
-        full_file_hash: crate::artifact::hash::ChunkHash::of(b"data"),
+        full_file_hash: ChunkHash::of(b"data"),
     };
     let control = OperationControl::default();
     // Writers already hash-checked every chunk, so equal-size bytes pass here;
     // explicit `verify` remains the check for damage after the write.
-    std::fs::write(&path, b"DATA").unwrap();
+    fs::write(&path, b"DATA").unwrap();
     let verification = verify_reconstructed_output_file(&file_plan, &path, &control).unwrap();
     assert_eq!(verification.bytes, 4);
     for wrong_size in [&b"dat"[..], b"data!"] {
-        std::fs::write(&path, wrong_size).unwrap();
+        fs::write(&path, wrong_size).unwrap();
         assert!(matches!(
             verify_reconstructed_output_file(&file_plan, &path, &control),
             Err(Error::Reconstruct(_))
@@ -65,25 +88,25 @@ fn snapshot_manifest_with_chunk(
         read_only: false,
         full_file_hash: full_file_hash.to_string(),
         chunks: vec![ChunkRef {
-            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_hash).unwrap(),
+            chunk_hash: ChunkHash::parse_hex(&chunk_hash).unwrap(),
             raw_size: 4,
         }],
     });
     manifest
 }
 
-fn bundled_chunk_index() -> crate::repo::index::ChunkIndex {
-    crate::repo::index::ChunkIndex {
+fn bundled_chunk_index() -> ChunkIndex {
+    ChunkIndex {
         format_version: "1".to_string(),
 
-        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
+        entries: chunk_entries(BTreeMap::from([(
             test_hash(b"game"),
-            crate::repo::index::ChunkIndexEntry::new(
+            ChunkIndexEntry::new(
                 4,
                 0,
                 ("bundle-a".to_string()).into(),
                 4,
-                crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                ArtifactStorageMode::Bundled,
             ),
         )])),
     }
@@ -104,12 +127,11 @@ fn snapshot_manifest_with_two_chunks(
         full_file_hash: full_file_hash.to_string(),
         chunks: vec![
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&first_chunk_hash).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&first_chunk_hash).unwrap(),
                 raw_size: 4,
             },
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&second_chunk_hash)
-                    .unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&second_chunk_hash).unwrap(),
                 raw_size: 4,
             },
         ],
@@ -119,17 +141,17 @@ fn snapshot_manifest_with_two_chunks(
 
 #[test]
 fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
-    let source_root = crate::test_util::temp_path("gutch_pipeline_copy_source");
-    let destination = crate::test_util::temp_path("gutch_pipeline_copy_destination");
-    let _ = std::fs::remove_dir_all(&source_root);
-    let _ = std::fs::remove_dir_all(&destination);
-    std::fs::create_dir_all(&source_root).unwrap();
-    std::fs::write(source_root.join("game.exe"), b"game").unwrap();
+    let source_root = temp_path("gutch_pipeline_copy_source");
+    let destination = temp_path("gutch_pipeline_copy_destination");
+    let _ = fs::remove_dir_all(&source_root);
+    let _ = fs::remove_dir_all(&destination);
+    fs::create_dir_all(&source_root).unwrap();
+    fs::write(source_root.join("game.exe"), b"game").unwrap();
     let source_manifest = snapshot_manifest_with_file("source", &test_hash(b"game"));
     let snapshot_manifest = snapshot_manifest_with_file("snapshot", &test_hash(b"game"));
-    let repo_root = crate::test_util::temp_path("gutch_pipeline_copy_repo");
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
+    let repo_root = temp_path("gutch_pipeline_copy_repo");
+    let _ = fs::remove_dir_all(&repo_root);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
 
     let plan = build_reconstruct_pipeline_plan(
         &snapshot_manifest,
@@ -154,9 +176,9 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
+            publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: crate::artifact::profiles::CompressionProfile::default(),
+            compression_profile: CompressionProfile::default(),
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
@@ -164,37 +186,34 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &HashSet::new(),
             pending_artifact_downloads: &[],
-            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::OperationControl::default(),
+            transfer_policy: TransferConcurrencyPolicy::default(),
+            control: &OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
         plan,
     )
     .unwrap();
-    assert_eq!(
-        std::fs::read(destination.join("game.exe")).unwrap(),
-        b"game"
-    );
+    assert_eq!(fs::read(destination.join("game.exe")).unwrap(), b"game");
 
-    let _ = std::fs::remove_dir_all(&source_root);
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&destination);
+    let _ = fs::remove_dir_all(&source_root);
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
 fn pipeline_plan_reconstructs_changed_source_file_from_bundles() {
-    let source_root = crate::test_util::temp_path("gutch_pipeline_rebuild_source");
-    let _ = std::fs::remove_dir_all(&source_root);
-    std::fs::create_dir_all(&source_root).unwrap();
-    std::fs::write(source_root.join("game.exe"), b"old!").unwrap();
+    let source_root = temp_path("gutch_pipeline_rebuild_source");
+    let _ = fs::remove_dir_all(&source_root);
+    fs::create_dir_all(&source_root).unwrap();
+    fs::write(source_root.join("game.exe"), b"old!").unwrap();
     let source_manifest =
         snapshot_manifest_with_chunk("source", &test_hash(b"old!"), test_hash(b"old!"));
     let snapshot_manifest =
         snapshot_manifest_with_chunk("snapshot", &test_hash(b"game"), test_hash(b"game"));
-    let repo_root = crate::test_util::temp_path("gutch_pipeline_rebuild_repo");
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
+    let repo_root = temp_path("gutch_pipeline_rebuild_repo");
+    let _ = fs::remove_dir_all(&repo_root);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
 
     let plan = build_reconstruct_pipeline_plan(
         &snapshot_manifest,
@@ -212,16 +231,16 @@ fn pipeline_plan_reconstructs_changed_source_file_from_bundles() {
     assert_eq!(plan.reused_source_chunk_count, 0);
     assert!(matches!(plan.jobs[0], ReconstructJob::Artifact(_)));
 
-    let _ = std::fs::remove_dir_all(&source_root);
-    let _ = std::fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&source_root);
+    let _ = fs::remove_dir_all(&repo_root);
 }
 
 #[test]
 fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
-    let source_root = crate::test_util::temp_path("gutch_pipeline_mixed_source");
-    let _ = std::fs::remove_dir_all(&source_root);
-    std::fs::create_dir_all(&source_root).unwrap();
-    std::fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
+    let source_root = temp_path("gutch_pipeline_mixed_source");
+    let _ = fs::remove_dir_all(&source_root);
+    fs::create_dir_all(&source_root).unwrap();
+    fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
 
     let shared_chunk_hash = test_hash(b"game");
     let source_only_chunk_hash = test_hash(b"old!");
@@ -238,20 +257,20 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
         shared_chunk_hash.clone(),
         snapshot_only_chunk_hash.clone(),
     );
-    let repo_root = crate::test_util::temp_path("gutch_pipeline_mixed_repo");
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
-    let chunk_index = crate::repo::index::ChunkIndex {
+    let repo_root = temp_path("gutch_pipeline_mixed_repo");
+    let _ = fs::remove_dir_all(&repo_root);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
+    let chunk_index = ChunkIndex {
         format_version: "1".to_string(),
 
-        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
+        entries: chunk_entries(BTreeMap::from([(
             snapshot_only_chunk_hash,
-            crate::repo::index::ChunkIndexEntry::new(
+            ChunkIndexEntry::new(
                 4,
                 0,
                 ("bundle-b".to_string()).into(),
                 4,
-                crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                ArtifactStorageMode::Bundled,
             ),
         )])),
     };
@@ -281,38 +300,35 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
             .any(|job| matches!(job, ReconstructJob::Artifact(_)))
     );
 
-    let _ = std::fs::remove_dir_all(&source_root);
-    let _ = std::fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&source_root);
+    let _ = fs::remove_dir_all(&repo_root);
 }
 
 #[test]
 fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
-    let source_root = crate::test_util::temp_path("gutch_pipeline_mixed_loose_source");
-    let repo_root = crate::test_util::temp_path("gutch_pipeline_mixed_loose_repo");
-    let destination = crate::test_util::temp_path("gutch_pipeline_mixed_loose_destination");
-    let _ = std::fs::remove_dir_all(&source_root);
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&destination);
-    std::fs::create_dir_all(&source_root).unwrap();
-    std::fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
-    crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "mixed-loose-test").unwrap();
+    let source_root = temp_path("gutch_pipeline_mixed_loose_source");
+    let repo_root = temp_path("gutch_pipeline_mixed_loose_repo");
+    let destination = temp_path("gutch_pipeline_mixed_loose_destination");
+    let _ = fs::remove_dir_all(&source_root);
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&destination);
+    fs::create_dir_all(&source_root).unwrap();
+    fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
+    ensure_gutch_repo_layout(&repo_paths, "mixed-loose-test").unwrap();
 
     let shared_chunk_hash = test_hash(b"game");
     let source_only_chunk_hash = test_hash(b"old!");
     let replacement_chunk_hash = test_hash(b"new!");
-    let compression_profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
-        crate::artifact::profiles::CompressionKind::Zstd,
-        Some(3),
-    );
-    let replacement_artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
+    let compression_profile = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(3));
+    let replacement_artifact = ArtifactRef::LooseChunk {
         hash: replacement_chunk_hash.clone(),
     };
     let replacement_path = replacement_artifact.local_path(&repo_paths).unwrap();
-    std::fs::create_dir_all(replacement_path.parent().unwrap()).unwrap();
-    std::fs::write(
+    fs::create_dir_all(replacement_path.parent().unwrap()).unwrap();
+    fs::write(
         &replacement_path,
-        crate::test_util::loose_bytes(b"new!", &compression_profile),
+        loose_bytes(b"new!", &compression_profile),
     )
     .unwrap();
 
@@ -328,17 +344,17 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
         shared_chunk_hash.clone(),
         replacement_chunk_hash.clone(),
     );
-    let chunk_index = crate::repo::index::ChunkIndex {
+    let chunk_index = ChunkIndex {
         format_version: "1".to_string(),
 
-        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
+        entries: chunk_entries(BTreeMap::from([(
             replacement_chunk_hash.clone(),
-            crate::repo::index::ChunkIndexEntry::new(
-                std::fs::metadata(&replacement_path).unwrap().len() as u32,
+            ChunkIndexEntry::new(
+                fs::metadata(&replacement_path).unwrap().len() as u32,
                 0,
                 (replacement_chunk_hash.clone()).into(),
                 4,
-                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
+                ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };
@@ -366,14 +382,14 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     assert!(plan.jobs.iter().any(|job| matches!(
         job,
         ReconstructJob::Artifact(ReconstructArtifactJob {
-            artifact: crate::artifact::reference::ArtifactRef::LooseChunk { .. },
+            artifact: ArtifactRef::LooseChunk { .. },
             ..
         })
     )));
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
+            publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile,
             snapshot_manifest: &snapshot_manifest,
@@ -382,63 +398,53 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
             source_destination_dir: Some(source_root.clone()),
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(2),
-                memory_budget_bytes: std::num::NonZeroU64::new(137 * 1024 * 1024),
+                memory_budget_bytes: NonZeroU64::new(137 * 1024 * 1024),
             },
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
-            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::OperationControl::default(),
+            transfer_policy: TransferConcurrencyPolicy::default(),
+            control: &OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
         plan,
     )
     .unwrap();
-    assert_eq!(
-        std::fs::read(destination.join("game.exe")).unwrap(),
-        b"gamenew!"
-    );
+    assert_eq!(fs::read(destination.join("game.exe")).unwrap(), b"gamenew!");
 
-    let _ = std::fs::remove_dir_all(&source_root);
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&destination);
+    let _ = fs::remove_dir_all(&source_root);
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
 fn pipeline_reconstructs_from_loose_chunk_artifact() {
-    let repo_root = crate::test_util::temp_path("gutch_pipeline_loose_repo");
-    let destination = crate::test_util::temp_path("gutch_pipeline_loose_destination");
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&destination);
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
-    crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
+    let repo_root = temp_path("gutch_pipeline_loose_repo");
+    let destination = temp_path("gutch_pipeline_loose_destination");
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&destination);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
+    ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
 
     let chunk_hash = test_hash(b"game");
-    let artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
+    let artifact = ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
     };
     let chunk_path = artifact.local_path(&repo_paths).unwrap();
-    std::fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
-    let compression_profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
-        crate::artifact::profiles::CompressionKind::Zstd,
-        Some(3),
-    );
-    std::fs::write(
-        &chunk_path,
-        crate::test_util::loose_bytes(b"game", &compression_profile),
-    )
-    .unwrap();
-    let chunk_index = crate::repo::index::ChunkIndex {
+    fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
+    let compression_profile = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(3));
+    fs::write(&chunk_path, loose_bytes(b"game", &compression_profile)).unwrap();
+    let chunk_index = ChunkIndex {
         format_version: "1".to_string(),
 
-        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([(
+        entries: chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
-            crate::repo::index::ChunkIndexEntry::new(
-                std::fs::metadata(&chunk_path).unwrap().len() as u32,
+            ChunkIndexEntry::new(
+                fs::metadata(&chunk_path).unwrap().len() as u32,
                 0,
                 (chunk_hash.clone()).into(),
                 4,
-                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
+                ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };
@@ -459,12 +465,9 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     assert_eq!(plan.required_artifacts, existing_artifacts);
     let result = apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
+            publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
-            compression_profile: crate::artifact::profiles::CompressionProfile::for_algorithm(
-                crate::artifact::profiles::CompressionKind::Zstd,
-                Some(3),
-            ),
+            compression_profile: CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(3)),
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
@@ -472,8 +475,8 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
-            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::OperationControl::default(),
+            transfer_policy: TransferConcurrencyPolicy::default(),
+            control: &OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
@@ -482,22 +485,19 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     .unwrap();
 
     assert_eq!(result.0.reconstruct_result.required_artifact_count, 1);
-    assert_eq!(
-        std::fs::read(destination.join("game.exe")).unwrap(),
-        b"game"
-    );
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&destination);
+    assert_eq!(fs::read(destination.join("game.exe")).unwrap(), b"game");
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
 fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
-    let repo_root = crate::test_util::temp_path("gutch_pipeline_bundled_repo");
-    let destination = crate::test_util::temp_path("gutch_pipeline_bundled_destination");
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&destination);
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
-    crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "bundled-test").unwrap();
+    let repo_root = temp_path("gutch_pipeline_bundled_repo");
+    let destination = temp_path("gutch_pipeline_bundled_destination");
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&destination);
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
+    ensure_gutch_repo_layout(&repo_paths, "bundled-test").unwrap();
 
     let first = b"1111";
     let second = b"2222";
@@ -505,22 +505,19 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let first_hash = test_hash(first);
     let second_hash = test_hash(second);
     let third_hash = test_hash(third);
-    let compression_profile = crate::artifact::profiles::CompressionProfile::default();
-    let mut builder = crate::artifact::bundle::BundleBuilder::new(compression_profile.clone());
-    builder.add_chunk(crate::artifact::hash::ChunkHash::of(first), first.to_vec());
-    builder.add_chunk(
-        crate::artifact::hash::ChunkHash::of(second),
-        second.to_vec(),
-    );
-    builder.add_chunk(crate::artifact::hash::ChunkHash::of(third), third.to_vec());
+    let compression_profile = CompressionProfile::default();
+    let mut builder = BundleBuilder::new(compression_profile.clone());
+    builder.add_chunk(ChunkHash::of(first), first.to_vec());
+    builder.add_chunk(ChunkHash::of(second), second.to_vec());
+    builder.add_chunk(ChunkHash::of(third), third.to_vec());
     let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
     let bundle_size = bundle_bytes.len() as u32;
-    let bundle = crate::artifact::reference::ArtifactRef::Bundle {
+    let bundle = ArtifactRef::Bundle {
         id: bundle_id.clone().into(),
     };
     let bundle_path = bundle.local_path(&repo_paths).unwrap();
-    std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
-    std::fs::write(bundle_path, bundle_bytes).unwrap();
+    fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+    fs::write(bundle_path, bundle_bytes).unwrap();
 
     let mut snapshot_manifest =
         SnapshotManifest::new("bundled-snapshot".to_string(), SnapshotTagSet::default());
@@ -532,11 +529,11 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         full_file_hash: test_hash(b"11112222"),
         chunks: vec![
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&first_hash).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&first_hash).unwrap(),
                 raw_size: 4,
             },
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&second_hash).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&second_hash).unwrap(),
                 raw_size: 4,
             },
         ],
@@ -549,47 +546,47 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
         full_file_hash: test_hash(b"33331111"),
         chunks: vec![
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&third_hash).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&third_hash).unwrap(),
                 raw_size: 4,
             },
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&first_hash).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&first_hash).unwrap(),
                 raw_size: 4,
             },
         ],
     });
-    let chunk_index = crate::repo::index::ChunkIndex {
+    let chunk_index = ChunkIndex {
         format_version: "1".to_string(),
 
-        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([
+        entries: chunk_entries(BTreeMap::from([
             (
                 first_hash,
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     bundle_size,
                     0,
                     (bundle_id.clone()).into(),
                     4,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             ),
             (
                 second_hash,
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     bundle_size,
                     0,
                     (bundle_id.clone()).into(),
                     4,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             ),
             (
                 third_hash,
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     bundle_size,
                     0,
                     bundle_id.into(),
                     4,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             ),
         ])),
@@ -607,13 +604,13 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     assert!(matches!(
         &plan.jobs[0],
         ReconstructJob::Artifact(job)
-            if matches!(job.artifact, crate::artifact::reference::ArtifactRef::Bundle { .. })
+            if matches!(job.artifact, ArtifactRef::Bundle { .. })
                 && job.chunks.len() == 3
     ));
 
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
+            publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile,
             snapshot_manifest: &snapshot_manifest,
@@ -622,12 +619,12 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             source_destination_dir: None,
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(2),
-                memory_budget_bytes: std::num::NonZeroU64::new(137 * 1024 * 1024),
+                memory_budget_bytes: NonZeroU64::new(137 * 1024 * 1024),
             },
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
-            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::OperationControl::default(),
+            transfer_policy: TransferConcurrencyPolicy::default(),
+            control: &OperationControl::default(),
             download_client: None,
             transfer_progress: None,
         },
@@ -636,15 +633,15 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     .unwrap();
 
     assert_eq!(
-        std::fs::read(destination.join("first.bin")).unwrap(),
+        fs::read(destination.join("first.bin")).unwrap(),
         b"11112222"
     );
     assert_eq!(
-        std::fs::read(destination.join("second.bin")).unwrap(),
+        fs::read(destination.join("second.bin")).unwrap(),
         b"33331111"
     );
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&destination);
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&destination);
 }
 
 #[test]
@@ -652,7 +649,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     #[derive(Debug, Default)]
     struct RecordedProgress(Mutex<Vec<String>>);
 
-    impl crate::progress::ProgressSink for RecordedProgress {
+    impl ProgressSink for RecordedProgress {
         fn emit(&self, event: ProgressEvent) {
             if event.phase == ProgressPhase::Reconstruct
                 && event.message.starts_with("Reconstructing ")
@@ -665,31 +662,31 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     let workspace = tempfile::tempdir().unwrap();
     let repo_root = workspace.path().join("repo");
     let destination = workspace.path().join("output");
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
-    crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "readiness-test").unwrap();
-    let compression = crate::artifact::profiles::CompressionProfile::default();
-    let mut chunk_entries = BTreeMap::new();
+    let repo_paths = RepoPaths::from_repo_root(&repo_root);
+    ensure_gutch_repo_layout(&repo_paths, "readiness-test").unwrap();
+    let compression = CompressionProfile::default();
+    let mut entries_by_hash = BTreeMap::new();
     let mut existing_artifacts = HashSet::new();
     let mut chunk_refs = Vec::new();
     for bytes in [b"first".as_slice(), b"second".as_slice()] {
-        let hash = crate::artifact::hash::ChunkHash::of(bytes);
-        let mut builder = crate::artifact::bundle::BundleBuilder::new(compression.clone());
+        let hash = ChunkHash::of(bytes);
+        let mut builder = BundleBuilder::new(compression.clone());
         builder.add_chunk(hash, bytes.to_vec());
         let (bundle_id, bundle_bytes) = builder.build_with_id().unwrap();
-        let artifact = crate::artifact::reference::ArtifactRef::Bundle {
+        let artifact = ArtifactRef::Bundle {
             id: bundle_id.clone().into(),
         };
         let artifact_path = artifact.local_path(&repo_paths).unwrap();
-        std::fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
-        std::fs::write(&artifact_path, &bundle_bytes).unwrap();
-        chunk_entries.insert(
+        fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        fs::write(&artifact_path, &bundle_bytes).unwrap();
+        entries_by_hash.insert(
             hash.to_hex(),
-            crate::repo::index::ChunkIndexEntry::new(
+            ChunkIndexEntry::new(
                 bundle_bytes.len() as u32,
                 0,
                 bundle_id.into(),
                 bytes.len() as u32,
-                crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                ArtifactStorageMode::Bundled,
             ),
         );
         chunk_refs.push(ChunkRef {
@@ -698,9 +695,9 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
         });
         existing_artifacts.insert(artifact);
     }
-    let chunk_index = crate::repo::index::ChunkIndex {
+    let chunk_index = ChunkIndex {
         format_version: "1".to_string(),
-        entries: crate::test_util::chunk_entries(chunk_entries),
+        entries: chunk_entries(entries_by_hash),
     };
     let mut snapshot = SnapshotManifest::new("readiness".to_string(), SnapshotTagSet::default());
     // Bundle one completes the first file, but only supplies the dependent file's
@@ -736,7 +733,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     let control = OperationControl::default().with_replaced_progress(progress.clone());
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
+            publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: compression,
             snapshot_manifest: &snapshot,
@@ -749,7 +746,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
             },
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
-            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
+            transfer_policy: TransferConcurrencyPolicy::default(),
             control: &control,
             download_client: None,
             transfer_progress: None,
@@ -767,12 +764,9 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
             "Reconstructing files (2/2)",
         ],
     );
+    assert_eq!(fs::read(destination.join("a-ready.bin")).unwrap(), b"first",);
     assert_eq!(
-        std::fs::read(destination.join("a-ready.bin")).unwrap(),
-        b"first",
-    );
-    assert_eq!(
-        std::fs::read(destination.join("b-dependent.bin")).unwrap(),
+        fs::read(destination.join("b-dependent.bin")).unwrap(),
         b"firstsecond",
     );
 }
@@ -784,17 +778,17 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     let workspace = tempfile::tempdir().unwrap();
     let repo_root = workspace.path().join("repo");
     let destination = workspace.path().join("output");
-    let paths = crate::repo::paths::RepoPaths::from_repo_root(&repo_root);
-    let compression = crate::artifact::profiles::CompressionProfile::default();
+    let paths = RepoPaths::from_repo_root(&repo_root);
+    let compression = CompressionProfile::default();
     let chunk_hash = test_hash(b"game");
-    let artifact = crate::artifact::reference::ArtifactRef::LooseChunk {
+    let artifact = ArtifactRef::LooseChunk {
         hash: chunk_hash.clone(),
     };
-    let payload = crate::test_util::loose_bytes(b"game", &compression);
+    let payload = loose_bytes(b"game", &compression);
     let compressed_size = payload.len() as u64;
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/chunk", listener.local_addr().unwrap());
-    let server = std::thread::spawn(move || {
+    let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let mut request = [0; 4096];
         let request_bytes = stream.read(&mut request).unwrap();
@@ -815,17 +809,17 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         file.path = format!("copy-{index}.bin");
         snapshot.push_file(file);
     }
-    let index = crate::repo::index::ChunkIndex {
+    let index = ChunkIndex {
         format_version: "1".into(),
 
-        entries: crate::test_util::chunk_entries(BTreeMap::from([(
+        entries: chunk_entries(BTreeMap::from([(
             chunk_hash.clone(),
-            crate::repo::index::ChunkIndexEntry::new(
+            ChunkIndexEntry::new(
                 compressed_size as u32,
                 0,
                 (chunk_hash.clone()).into(),
                 4,
-                crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
+                ArtifactStorageMode::LooseChunks,
             ),
         )])),
     };
@@ -841,7 +835,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     }];
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
-            publication: crate::installation::execute::publish::Publication::ReplaceDirectory,
+            publication: Publication::ReplaceDirectory,
             repo_root: &repo_root,
             compression_profile: compression,
             snapshot_manifest: &snapshot,
@@ -854,9 +848,9 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
             },
             existing_artifacts: &HashSet::new(),
             pending_artifact_downloads: &pending,
-            transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
-            control: &crate::progress::OperationControl::default(),
-            download_client: Some(&crate::transfer::http::build_download_client().unwrap()),
+            transfer_policy: TransferConcurrencyPolicy::default(),
+            control: &OperationControl::default(),
+            download_client: Some(&build_download_client().unwrap()),
             transfer_progress: Some(&Arc::new(FetchTransferProgress::default())),
         },
         plan,
@@ -864,10 +858,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
     .unwrap();
     server.join().unwrap();
     for file in snapshot.files() {
-        assert_eq!(
-            std::fs::read(destination.join(&file.path)).unwrap(),
-            b"game"
-        );
+        assert_eq!(fs::read(destination.join(&file.path)).unwrap(), b"game");
     }
 }
 
@@ -879,7 +870,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
 
     let bytes = b"game";
     let hash = ChunkHash::of(bytes);
-    let profile = crate::artifact::profiles::CompressionProfile::default();
+    let profile = CompressionProfile::default();
     for bundled in [false, true] {
         for (corrupt, fail_output, wrong_size) in [
             (false, false, false),
@@ -893,19 +884,15 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
             let directory = tempfile::tempdir().unwrap();
             let artifact_path = directory.path().join("artifact");
             let (artifact, mut encoded) = if bundled {
-                let mut builder = crate::artifact::bundle::BundleBuilder::new(profile.clone());
+                let mut builder = BundleBuilder::new(profile.clone());
                 builder.add_chunk(hash, bytes.to_vec());
                 let (id, encoded) = builder.build_with_id().unwrap();
-                (
-                    crate::artifact::reference::ArtifactRef::Bundle { id: id.into() },
-                    encoded,
-                )
+                (ArtifactRef::Bundle { id: id.into() }, encoded)
             } else {
                 let mut encoded = Vec::new();
-                crate::artifact::loose::write_loose_chunk(&mut encoded, hash, bytes, &profile)
-                    .unwrap();
+                write_loose_chunk(&mut encoded, hash, bytes, &profile).unwrap();
                 (
-                    crate::artifact::reference::ArtifactRef::LooseChunk {
+                    ArtifactRef::LooseChunk {
                         hash: hash.to_hex(),
                     },
                     encoded,
@@ -914,7 +901,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
             if corrupt {
                 *encoded.last_mut().unwrap() ^= 1;
             }
-            std::fs::write(&artifact_path, &encoded).unwrap();
+            fs::write(&artifact_path, &encoded).unwrap();
             // Shared whole-file targets, a prefix, a suffix, and a differing full hash.
             let files = [
                 (4, hash),
@@ -939,7 +926,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
             );
             if fail_output {
                 // The final target stays buffered until artifact completion.
-                std::fs::create_dir(&paths[0]).unwrap();
+                fs::create_dir(&paths[0]).unwrap();
             }
             let sizes = Arc::new(files.iter().map(|file| file.size).collect::<Vec<_>>());
             let handles = OutputHandleCache::new(paths.clone(), sizes, &[1; 5], 4);
@@ -977,7 +964,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
             );
             if !(corrupt || fail_output || wrong_size) {
                 for index in [0, 1] {
-                    assert_eq!(std::fs::read(&paths[index]).unwrap(), bytes);
+                    assert_eq!(fs::read(&paths[index]).unwrap(), bytes);
                     verify_reconstructed_output_file(&files[index], &paths[index], &control)
                         .unwrap();
                 }
@@ -989,8 +976,8 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
 #[test]
 fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     let directory = tempfile::tempdir().unwrap();
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(directory.path());
-    let chunk_hash = |bytes: &[u8]| crate::artifact::hash::ChunkHash::of(bytes);
+    let repo_paths = RepoPaths::from_repo_root(directory.path());
+    let chunk_hash = |bytes: &[u8]| ChunkHash::of(bytes);
     let make_file = |path: &str, pieces: &[&[u8]]| FileManifest {
         path: path.into(),
         size: pieces.iter().map(|piece| piece.len() as u64).sum(),
@@ -1026,8 +1013,8 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     snapshot.push_file(make_file("last.bin", &[b"newC", b"newA", b"newC", b"newB"]));
     let first_bundle = test_hash(b"first bundle");
     let second_bundle = test_hash(b"second bundle");
-    let index = crate::repo::index::ChunkIndex {
-        format_version: crate::artifact::format::FORMAT_VERSION.into(),
+    let index = ChunkIndex {
+        format_version: FORMAT_VERSION.into(),
         entries: [
             (b"newA", &first_bundle, 0),
             (b"newB", &first_bundle, 1),
@@ -1037,12 +1024,12 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
         .map(|(bytes, bundle, ordinal)| {
             (
                 chunk_hash(bytes),
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     128,
                     ordinal,
                     bundle.as_str().into(),
                     4,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             )
         })
@@ -1050,7 +1037,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
     };
     for first_bundle_cached in [false, true] {
         let existing = if first_bundle_cached {
-            HashSet::from([crate::artifact::reference::ArtifactRef::Bundle {
+            HashSet::from([ArtifactRef::Bundle {
                 id: first_bundle.clone().into(),
             }])
         } else {
@@ -1079,10 +1066,10 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
             HashSet::from([first_bundle.as_str(), second_bundle.as_str()])
         );
         assert_eq!(plan.reused_source_chunk_count, 11);
-        let first_artifact = crate::artifact::reference::ArtifactRef::Bundle {
+        let first_artifact = ArtifactRef::Bundle {
             id: first_bundle.as_str().into(),
         };
-        let second_artifact = crate::artifact::reference::ArtifactRef::Bundle {
+        let second_artifact = ArtifactRef::Bundle {
             id: second_bundle.as_str().into(),
         };
         if first_bundle_cached {
@@ -1212,7 +1199,7 @@ fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
     use crate::artifact::profiles::ArtifactStorageMode;
     use crate::artifact::reference::ArtifactRef;
     let workspace = tempfile::tempdir().unwrap();
-    let paths = crate::repo::paths::RepoPaths::from_repo_root(workspace.path());
+    let paths = RepoPaths::from_repo_root(workspace.path());
     let hash = ChunkHash::of(b"game");
     for mode in [
         ArtifactStorageMode::Bundled,
@@ -1222,9 +1209,9 @@ fn repeated_chunk_planning_preserves_targets_dependencies_and_size_checks() {
             ArtifactStorageMode::Bundled => "ab".repeat(32),
             ArtifactStorageMode::LooseChunks => hash.to_hex(),
         };
-        let entry = crate::repo::index::ChunkIndexEntry::new(128, 0, id.into(), 4, mode);
+        let entry = ChunkIndexEntry::new(128, 0, id.into(), 4, mode);
         let artifact = ArtifactRef::from_chunk_entry(&hash, &entry);
-        let index = crate::repo::index::ChunkIndex {
+        let index = ChunkIndex {
             format_version: "1".into(),
             entries: [(hash, entry)].into_iter().collect(),
         };

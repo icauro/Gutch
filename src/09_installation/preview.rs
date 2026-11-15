@@ -1,7 +1,20 @@
 //! Streamed installation change previews. Execution always reinspects its inputs.
 use crate::Result;
 use crate::installation::contracts::InstallationRequest;
+use crate::installation::contracts::SnapshotReconstructSource;
+use crate::installation::execute::jobs::ReconstructJob;
+use crate::installation::inspect::VerifyMode;
 use crate::installation::install::InstallationPublication;
+use crate::installation::plan::build_reconstruct_pipeline_plan;
+use crate::installation::plan::inspect_installation_changes;
+use crate::installation::prepare::LoadedRepoSnapshot;
+use crate::installation::prepare::load_repo_snapshot_manifest;
+use crate::installation::source::resolve_verified_source;
+use crate::installation::staging::validate_installation_paths;
+use crate::repo::artifacts::required_artifacts;
+use crate::repo::coordination::read_with_control;
+use crate::repo::index::load_chunk_index;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 
@@ -59,31 +72,28 @@ pub fn visit_installation_plan(
     inspection: InstallationInspection,
     visitor: &mut dyn FnMut(InstallationPlanEvent) -> Result<()>,
 ) -> Result<InstallationPlanSummary> {
-    crate::repo::coordination::read_with_control(&request.repo_path, &request.control, || {
+    read_with_control(&request.repo_path, &request.control, || {
         request.control.checkpoint()?;
-        crate::installation::staging::validate_installation_paths(
+        validate_installation_paths(
             &request.destination_dir,
             request.staging_dir.as_deref(),
             &request.repo_path,
         )?;
-        let crate::installation::prepare::LoadedRepoSnapshot {
+        let LoadedRepoSnapshot {
             repo_paths: paths,
             snapshot_manifest: target,
             ..
-        } = crate::installation::prepare::load_repo_snapshot_manifest(
-            &request.repo_path,
-            &request.snapshot_id,
-        )?;
-        let index = crate::repo::index::load_chunk_index(&paths)?;
+        } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        let index = load_chunk_index(&paths)?;
         let verified = inspection == InstallationInspection::Content;
-        let changes = crate::installation::plan::inspect_installation_changes(
+        let changes = inspect_installation_changes(
             &target,
             Some(&index),
             &request.destination_dir,
             if verified {
-                crate::installation::inspect::VerifyMode::Fast
+                VerifyMode::Fast
             } else {
-                crate::installation::inspect::VerifyMode::MetadataOnly
+                VerifyMode::MetadataOnly
             },
             &request.runtime_hints,
             &request.control,
@@ -169,33 +179,33 @@ pub fn visit_installation_plan(
         let source_manifest = request
             .source_snapshot_id
             .as_ref()
-            .map(|id| crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, id))
+            .map(|id| load_snapshot_manifest(&paths, id))
             .transpose()?;
         let source_directory = request
             .source_dir
             .as_deref()
             .unwrap_or(&request.destination_dir);
         let source = if verified {
-            crate::installation::source::resolve_verified_source(
-                source_manifest.as_ref().map(|manifest| {
-                    crate::installation::contracts::SnapshotReconstructSource {
+            resolve_verified_source(
+                source_manifest
+                    .as_ref()
+                    .map(|manifest| SnapshotReconstructSource {
                         snapshot_manifest: manifest,
                         destination_dir: source_directory,
-                    }
-                }),
+                    }),
                 &request.runtime_hints,
                 &request.control,
             )?
         } else {
             None
         };
-        let artifacts = crate::repo::artifacts::required_artifacts(execution_manifest, &index)?;
+        let artifacts = required_artifacts(execution_manifest, &index)?;
         let existing = artifacts
             .iter()
             .filter(|artifact| artifact.local_path(&paths).is_ok_and(|path| path.is_file()))
             .cloned()
             .collect();
-        let jobs = crate::installation::plan::build_reconstruct_pipeline_plan(
+        let jobs = build_reconstruct_pipeline_plan(
             execution_manifest,
             &index,
             &paths,
@@ -206,13 +216,10 @@ pub fn visit_installation_plan(
             .jobs
             .iter()
             .map(|job| match job {
-                crate::installation::execute::jobs::ReconstructJob::SourceChunk(job) => {
+                ReconstructJob::SourceChunk(job) => {
                     u64::from(job.raw_size) * job.targets().count() as u64
                 }
-                crate::installation::execute::jobs::ReconstructJob::CopySourceFile {
-                    file_index,
-                    ..
-                } => jobs.files[*file_index].size,
+                ReconstructJob::CopySourceFile { file_index, .. } => jobs.files[*file_index].size,
                 _ => 0,
             })
             .sum();

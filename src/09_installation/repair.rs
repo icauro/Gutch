@@ -7,10 +7,19 @@ use crate::installation::contracts::InstallationRepairPlanResult;
 use crate::installation::contracts::InstallationRepairRequest;
 use crate::installation::contracts::InstallationRepairResult;
 
+use crate::installation::contracts::InstallationRequest;
+use crate::installation::inspect::VerifyMode;
+use crate::installation::install::ExtraFilePolicy;
+use crate::installation::install::InstallationPublication;
+use crate::installation::install::install_snapshot_from_repo;
 use crate::installation::plan::inspect_installation_changes;
+use crate::installation::prepare::LoadedRepoSnapshot;
+use crate::installation::prepare::load_repo_snapshot_manifest;
+use crate::repo::coordination::read_with_control;
+use crate::repo::index::load_chunk_index;
 pub fn repair_installation(request: InstallationRepairRequest) -> Result<InstallationRepairResult> {
-    let result = crate::installation::install::install_snapshot_from_repo(
-        crate::installation::contracts::InstallationRequest {
+    let result = install_snapshot_from_repo(
+        InstallationRequest {
             repo_path: request.repo_path,
             snapshot_id: request.snapshot_id,
             destination_dir: request.destination_dir,
@@ -20,11 +29,11 @@ pub fn repair_installation(request: InstallationRepairRequest) -> Result<Install
             runtime_hints: request.runtime_hints,
             control: request.control,
         },
-        crate::installation::install::InstallationPublication::Selective {
+        InstallationPublication::Selective {
             extra_files: if request.remove_added_files {
-                crate::installation::install::ExtraFilePolicy::Remove
+                ExtraFilePolicy::Remove
             } else {
-                crate::installation::install::ExtraFilePolicy::Preserve
+                ExtraFilePolicy::Preserve
             },
         },
     )?;
@@ -43,22 +52,19 @@ pub fn plan_installation_repair(
 ) -> Result<InstallationRepairPlanResult> {
     request.control.checkpoint()?;
     let operation_root = request.repo_path.to_path_buf();
-    crate::repo::coordination::read_with_control(&operation_root, &request.control.clone(), || {
+    read_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
-        let crate::installation::prepare::LoadedRepoSnapshot {
+        let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest,
             ..
-        } = crate::installation::prepare::load_repo_snapshot_manifest(
-            &request.repo_path,
-            &request.snapshot_id,
-        )?;
-        let chunk_index = crate::repo::index::load_chunk_index(&repo_paths)?;
+        } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        let chunk_index = load_chunk_index(&repo_paths)?;
         let repair_plan = inspect_installation_changes(
             &snapshot_manifest,
             Some(&chunk_index),
             &request.destination_dir,
-            crate::installation::inspect::VerifyMode::Fast,
+            VerifyMode::Fast,
             &request.runtime_hints,
             &request.control,
             None,

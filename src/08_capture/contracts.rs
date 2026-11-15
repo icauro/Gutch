@@ -1,6 +1,13 @@
 //! Capture requests, plans and typed outcomes.
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::BundleSizingPreset;
+use crate::artifact::profiles::ChunkSizingPreset;
+use crate::artifact::profiles::Chunker;
+use crate::artifact::profiles::CompressionKind;
+use crate::capture::build::types::BuildTimings;
 use crate::error::capture_outcome::SnapshotCaptureOutcome;
 use crate::manifest::SnapshotTagSet;
+use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -22,14 +29,14 @@ pub struct SnapshotCaptureRequest {
     pub repo_root: PathBuf,
     pub source_dir: PathBuf,
     pub explicit_tags: SnapshotTagSet,
-    pub chunk_profile: crate::artifact::profiles::ChunkSizingPreset,
-    pub chunker: crate::artifact::profiles::Chunker,
-    pub bundle_profile: crate::artifact::profiles::BundleSizingPreset,
-    pub compression_algorithm: crate::artifact::profiles::CompressionKind,
+    pub chunk_profile: ChunkSizingPreset,
+    pub chunker: Chunker,
+    pub bundle_profile: BundleSizingPreset,
+    pub compression_algorithm: CompressionKind,
     pub compression_level: Option<i32>,
-    pub storage_mode: crate::artifact::profiles::ArtifactStorageMode,
+    pub storage_mode: ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
-    pub control: crate::progress::OperationControl,
+    pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]
@@ -50,5 +57,5 @@ pub struct SnapshotCaptureResult {
     pub generated_chunk_count: usize,
     pub reused_chunk_count: usize,
     pub new_chunk_count: usize,
-    pub(crate) build_timings: crate::capture::build::types::BuildTimings,
+    pub(crate) build_timings: BuildTimings,
 }

@@ -16,7 +16,7 @@ use crate::repo::paths::RepoPaths;
 
 pub(crate) fn empty_chunk_index() -> ChunkIndex {
     ChunkIndex {
-        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: ChunkIndexEntries::new(),
     }
@@ -36,7 +36,7 @@ pub(crate) fn preserve_local_chunk_locations(
     incoming: &mut ChunkIndex,
 ) -> Result<()> {
     for (hash, entry) in load_chunk_index(paths)?.entries {
-        let artifact = crate::artifact::reference::ArtifactRef::from_chunk_entry(&hash, &entry);
+        let artifact = ArtifactRef::from_chunk_entry(&hash, &entry);
         let artifact_is_cached = artifact.local_path(paths)?.is_file();
         let preserve_local_entry = artifact_is_cached || incoming.entries.get_hash(&hash).is_none();
         if preserve_local_entry {
@@ -57,15 +57,13 @@ pub fn required_bundle_ids(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: &ChunkIndex,
 ) -> Result<HashSet<String>> {
-    Ok(
-        crate::repo::artifacts::required_artifacts(snapshot_manifest, chunk_index)?
-            .into_iter()
-            .filter_map(|artifact| match artifact {
-                crate::artifact::reference::ArtifactRef::Bundle { id } => Some(id.to_string()),
-                crate::artifact::reference::ArtifactRef::LooseChunk { .. } => None,
-            })
-            .collect(),
-    )
+    Ok(required_artifacts(snapshot_manifest, chunk_index)?
+        .into_iter()
+        .filter_map(|artifact| match artifact {
+            ArtifactRef::Bundle { id } => Some(id.to_string()),
+            ArtifactRef::LooseChunk { .. } => None,
+        })
+        .collect())
 }
 
 pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
@@ -82,7 +80,7 @@ pub(crate) fn collect_file_paths(root: &Path) -> Result<Vec<PathBuf>> {
 
 pub fn rebuild_chunk_index_from_bundles_with_pool(
     paths: &RepoPaths,
-    compression_profile: &crate::artifact::profiles::CompressionProfile,
+    compression_profile: &CompressionProfile,
     pool: &rayon::ThreadPool,
 ) -> Result<ChunkIndex> {
     let bundle_paths = collect_file_paths(&paths.bundles_root)?;
@@ -97,15 +95,15 @@ pub fn rebuild_chunk_index_from_bundles_with_pool(
 
 fn read_bundle_index_entries(
     path: &Path,
-    compression_profile: &crate::artifact::profiles::CompressionProfile,
+    compression_profile: &CompressionProfile,
 ) -> Result<Vec<(String, ChunkIndexEntry)>> {
     let Some(bundle_id) = bundle_id_from_bundle_path(path) else {
         return Ok(Vec::new());
     };
     let shared_bundle_id = smol_str::SmolStr::new(&bundle_id);
-    let artifact_size = crate::artifact::format::size_u32(std::fs::metadata(path)?.len())?;
-    let file = std::fs::File::open(path)?;
-    let reader = crate::artifact::bundle::BundleReader::open(file, compression_profile)?;
+    let artifact_size = size_u32(fs::metadata(path)?.len())?;
+    let file = File::open(path)?;
+    let reader = BundleReader::open(file, compression_profile)?;
     Ok(reader
         .entries()
         .iter()
@@ -128,7 +126,7 @@ fn read_bundle_index_entries(
 fn build_chunk_index_from_bundle_entries(
     bundle_entries: Vec<Vec<(String, ChunkIndexEntry)>>,
 ) -> Result<ChunkIndex> {
-    let mut entries = std::collections::BTreeMap::new();
+    let mut entries = BTreeMap::new();
     for bundle_entries in bundle_entries {
         for (chunk_hash, entry) in bundle_entries {
             entries.insert(ChunkHash::parse_hex(&chunk_hash)?, entry);
@@ -136,7 +134,7 @@ fn build_chunk_index_from_bundle_entries(
     }
 
     Ok(ChunkIndex {
-        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
+        format_version: FORMAT_VERSION.to_string(),
 
         entries: entries.into_iter().collect(),
     })
@@ -149,8 +147,17 @@ pub(crate) fn write_chunk_index(paths: &RepoPaths, index: &ChunkIndex) -> Result
 pub(crate) mod binary_codec;
 mod entries;
 mod records;
+use crate::artifact::bundle::BundleReader;
+use crate::artifact::format::FORMAT_VERSION;
+use crate::artifact::format::size_u32;
+use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::reference::ArtifactRef;
+use crate::repo::artifacts::required_artifacts;
 pub use entries::ChunkIndexEntries;
 pub use records::{ChunkIndex, ChunkIndexEntry};
+use std::collections::BTreeMap;
+use std::fs;
+use std::fs::File;
 
 #[cfg(test)]
 mod cache_merge_tests {

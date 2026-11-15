@@ -1,17 +1,43 @@
+use crate::artifact::hash::ChunkHash;
 use crate::artifact::hash::hash_hex;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::filesystem;
+use crate::filesystem::set_read_only;
+use crate::installation::InstallationRepairPlanRequest;
+use crate::installation::InstallationRepairRequest;
+use crate::installation::execute::entries::prepare_snapshot_entries;
+use crate::installation::repair::plan_installation_repair;
 use crate::installation::repair_installation;
 use crate::installation::resolve_snapshot_state;
 use crate::manifest;
+use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
+use crate::manifest::SnapshotEntry;
 use crate::manifest::SnapshotTagSet;
+use crate::manifest::launch::ResolvedLaunchAction;
+use crate::manifest::launch::ResolvedLaunchConfiguration;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::ChunkIndexEntry;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
+use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::runtime::RuntimeResourceHints;
+use crate::snapshot::identity::compute_snapshot_id_from_entries;
 use crate::sync::fetch;
 use crate::sync::fetch_types::SnapshotFetchRequest;
+use crate::test_util::chunk_entries;
+use crate::test_util::temp_path;
 use crate::transfer::types::ArtifactDownload;
+use crate::transfer::types::TransferConcurrencyPolicy;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
     let mut manifest =
@@ -29,8 +55,7 @@ fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
             })
             .collect(),
     );
-    manifest.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
     manifest
 }
 
@@ -38,10 +63,10 @@ fn test_hash(label: &str) -> String {
     hash_hex(&blake3::hash(label.as_bytes()))
 }
 
-fn write_repair_test_repo(root: &std::path::Path, manifest: &SnapshotManifest) {
+fn write_repair_test_repo(root: &Path, manifest: &SnapshotManifest) {
     let paths = RepoPaths::from_repo_root(root);
-    crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
-    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, manifest).unwrap();
+    ensure_gutch_repo_layout(&paths, "test").unwrap();
+    write_snapshot_manifest_artifacts(&paths, manifest).unwrap();
 }
 
 #[test]
@@ -58,7 +83,7 @@ fn artifact_download_deserializes_artifact_response() {
 fn artifact_url_provider_rejects_unexpected_artifact_ids() {
     let required_artifact_ids = HashSet::from(["bundle-a".to_string()]);
     let request = SnapshotFetchRequest {
-        repo_path: std::path::PathBuf::from("C:\\repo"),
+        repo_path: PathBuf::from("C:\\repo"),
         snapshot_id: "snapshot".to_string(),
         repo_metadata_url: None,
         metadata_url: "https://example.com/metadata".to_string(),
@@ -66,16 +91,16 @@ fn artifact_url_provider_rejects_unexpected_artifact_ids() {
         blueprint_url: "https://example.com/blueprint".to_string(),
         chunk_index_url: None,
         artifacts: Vec::new(),
-        artifact_url_provider: Some(std::sync::Arc::new(
-            |_artifact_ids: &[String], _control: &crate::progress::OperationControl| {
+        artifact_url_provider: Some(Arc::new(
+            |_artifact_ids: &[String], _control: &OperationControl| {
                 Ok(vec![ArtifactDownload {
                     artifact_id: "bundle-b".to_string(),
                     url: "https://example.com/bundle-b".to_string(),
                 }])
             },
         )),
-        control: crate::progress::OperationControl::default(),
-        transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
+        control: OperationControl::default(),
+        transfer_policy: TransferConcurrencyPolicy::default(),
     };
 
     let error = fetch::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
@@ -87,7 +112,7 @@ fn artifact_url_provider_rejects_unexpected_artifact_ids() {
 fn direct_bundle_urls_reject_duplicate_artifact_ids() {
     let required_artifact_ids = HashSet::from(["bundle-a".to_string()]);
     let request = SnapshotFetchRequest {
-        repo_path: std::path::PathBuf::from("C:\\repo"),
+        repo_path: PathBuf::from("C:\\repo"),
         snapshot_id: "snapshot".to_string(),
         repo_metadata_url: None,
         metadata_url: "https://example.com/metadata".to_string(),
@@ -105,8 +130,8 @@ fn direct_bundle_urls_reject_duplicate_artifact_ids() {
             },
         ],
         artifact_url_provider: None,
-        control: crate::progress::OperationControl::default(),
-        transfer_policy: crate::transfer::types::TransferConcurrencyPolicy::default(),
+        control: OperationControl::default(),
+        transfer_policy: TransferConcurrencyPolicy::default(),
     };
 
     let error = fetch::fetch_artifact_urls(&request, &required_artifact_ids, &HashSet::new())
@@ -116,10 +141,10 @@ fn direct_bundle_urls_reject_duplicate_artifact_ids() {
 
 #[test]
 fn resolved_snapshot_state_uses_product_runtime() {
-    let root = crate::test_util::temp_path("gutch_resolved_snapshot_launch_state");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = temp_path("gutch_resolved_snapshot_launch_state");
+    let _ = fs::remove_dir_all(&root);
     let paths = RepoPaths::from_repo_root(&root);
-    crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
+    ensure_gutch_repo_layout(&paths, "test").unwrap();
     let mut tags = SnapshotTagSet::default();
     tags.insert("os", "windows").unwrap();
     tags.insert("arch", "x86_64").unwrap();
@@ -130,28 +155,25 @@ fn resolved_snapshot_state_uses_product_runtime() {
         executable: true,
         read_only: false,
         full_file_hash: test_hash("Game.exe"),
-        chunks: vec![crate::manifest::ChunkRef {
-            chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&test_hash("Game.exe"))
-                .unwrap(),
+        chunks: vec![ChunkRef {
+            chunk_hash: ChunkHash::parse_hex(&test_hash("Game.exe")).unwrap(),
             raw_size: 1,
         }],
     });
-    snapshot.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot.entries);
-    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+    snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
+    write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
 
-    snapshot.launch = Some(crate::manifest::launch::ResolvedLaunchConfiguration {
+    snapshot.launch = Some(ResolvedLaunchConfiguration {
         primary: None,
-        actions: vec![crate::manifest::launch::ResolvedLaunchAction {
+        actions: vec![ResolvedLaunchAction {
             name: "Play".into(),
             executable: "Game.exe".into(),
             arguments: vec!["--snapshot".into()],
             working_directory: None,
         }],
     });
-    snapshot.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&snapshot.entries);
-    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
+    snapshot.snapshot_id = compute_snapshot_id_from_entries(&snapshot.entries);
+    write_snapshot_manifest_artifacts(&paths, &snapshot).unwrap();
     let resolved = resolve_snapshot_state(&root, &snapshot.snapshot_id).unwrap();
     assert_eq!(
         resolved.launch.unwrap().actions[0].arguments,
@@ -159,29 +181,29 @@ fn resolved_snapshot_state_uses_product_runtime() {
     );
     assert!(!resolved.snapshot_metadata_hash_b3.is_empty());
 
-    let _ = std::fs::remove_dir_all(root);
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
 fn repair_snapshot_ops_keeps_added_files_when_requested() {
-    let root = crate::test_util::temp_path("gutch_repair_keep_added_files");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = temp_path("gutch_repair_keep_added_files");
+    let _ = fs::remove_dir_all(&root);
     let destination_dir = root.join("destination");
     let staging_dir = root.join("staging");
-    std::fs::create_dir_all(&destination_dir).unwrap();
-    std::fs::write(destination_dir.join("game.dat"), b"").unwrap();
-    std::fs::write(destination_dir.join("mod.txt"), b"user data").unwrap();
+    fs::create_dir_all(&destination_dir).unwrap();
+    fs::write(destination_dir.join("game.dat"), b"").unwrap();
+    fs::write(destination_dir.join("mod.txt"), b"user data").unwrap();
     let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_installation(crate::installation::InstallationRepairRequest {
+    let result = repair_installation(InstallationRepairRequest {
         repo_path: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
         remove_added_files: false,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::OperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap()
     .repair_result;
@@ -189,29 +211,29 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
     assert_eq!(result.extra_file_count, 1);
     assert_eq!(result.removed_extra_file_count, 0);
     assert!(destination_dir.join("mod.txt").exists());
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn repair_snapshot_ops_full_repair_deletes_added_files() {
-    let root = crate::test_util::temp_path("gutch_repair_delete_added_files");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = temp_path("gutch_repair_delete_added_files");
+    let _ = fs::remove_dir_all(&root);
     let destination_dir = root.join("destination");
     let staging_dir = root.join("staging");
-    std::fs::create_dir_all(destination_dir.join("mods")).unwrap();
-    std::fs::write(destination_dir.join("game.dat"), b"").unwrap();
-    std::fs::write(destination_dir.join("mods").join("mod.txt"), b"user data").unwrap();
+    fs::create_dir_all(destination_dir.join("mods")).unwrap();
+    fs::write(destination_dir.join("game.dat"), b"").unwrap();
+    fs::write(destination_dir.join("mods").join("mod.txt"), b"user data").unwrap();
     let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_installation(crate::installation::InstallationRepairRequest {
+    let result = repair_installation(InstallationRepairRequest {
         repo_path: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::OperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap()
     .repair_result;
@@ -220,40 +242,40 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
     assert_eq!(result.removed_extra_file_count, 2);
     assert!(!destination_dir.join("mods").exists());
     assert!(!destination_dir.join("mods").join("mod.txt").exists());
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn repair_plan_only_requires_bundles_for_affected_files() {
-    let root = crate::test_util::temp_path("gutch_repair_plan_bundle_subset");
-    let _ = std::fs::remove_dir_all(&root);
+    let root = temp_path("gutch_repair_plan_bundle_subset");
+    let _ = fs::remove_dir_all(&root);
     let paths = RepoPaths::from_repo_root(&root);
-    crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
+    ensure_gutch_repo_layout(&paths, "test").unwrap();
 
     let chunk_a = test_hash("chunk-a");
     let chunk_b = test_hash("chunk-b");
-    let chunk_index = crate::repo::index::ChunkIndex {
+    let chunk_index = ChunkIndex {
         format_version: "1".to_string(),
 
-        entries: crate::test_util::chunk_entries(std::collections::BTreeMap::from([
+        entries: chunk_entries(BTreeMap::from([
             (
                 chunk_a.clone(),
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     4,
                     0,
                     test_hash("bundle-a").into(),
                     4,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             ),
             (
                 chunk_b.clone(),
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     4,
                     0,
                     test_hash("bundle-b").into(),
                     4,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             ),
         ])),
@@ -269,7 +291,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             read_only: false,
             full_file_hash: test_hash("game"),
             chunks: vec![manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_a).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&chunk_a).unwrap(),
                 raw_size: 4,
             }],
         },
@@ -280,64 +302,60 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
             read_only: false,
             full_file_hash: test_hash("data"),
             chunks: vec![manifest::ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&chunk_b).unwrap(),
+                chunk_hash: ChunkHash::parse_hex(&chunk_b).unwrap(),
                 raw_size: 4,
             }],
         },
     ]);
-    manifest.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
-    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
+    write_snapshot_manifest_artifacts(&paths, &manifest).unwrap();
 
     let destination_dir = root.join("destination");
-    std::fs::create_dir_all(&destination_dir).unwrap();
-    std::fs::write(destination_dir.join("game.exe"), b"bad!").unwrap();
-    std::fs::write(destination_dir.join("data.bin"), b"data").unwrap();
+    fs::create_dir_all(&destination_dir).unwrap();
+    fs::write(destination_dir.join("game.exe"), b"bad!").unwrap();
+    fs::write(destination_dir.join("data.bin"), b"data").unwrap();
 
-    let plan = crate::installation::repair::plan_installation_repair(
-        crate::installation::InstallationRepairPlanRequest {
-            repo_path: root.clone(),
-            snapshot_id: manifest.snapshot_id.clone(),
-            destination_dir: destination_dir.clone(),
-            remove_added_files: false,
-            runtime_hints: RuntimeResourceHints::default(),
-            control: crate::progress::OperationControl::default(),
-        },
-    )
+    let plan = plan_installation_repair(InstallationRepairPlanRequest {
+        repo_path: root.clone(),
+        snapshot_id: manifest.snapshot_id.clone(),
+        destination_dir: destination_dir.clone(),
+        remove_added_files: false,
+        runtime_hints: RuntimeResourceHints::default(),
+        control: OperationControl::default(),
+    })
     .unwrap();
 
     assert_eq!(plan.missing_file_count, 0);
     assert_eq!(plan.corrupt_file_count, 1);
     assert_eq!(plan.required_artifact_ids, vec![test_hash("bundle-a")]);
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn repair_restores_manifest_file_attributes() {
     let root = tempfile::tempdir().unwrap();
     let destination = root.path().join("destination");
-    std::fs::create_dir_all(&destination).unwrap();
-    std::fs::write(destination.join("game.dat"), b"").unwrap();
+    fs::create_dir_all(&destination).unwrap();
+    fs::write(destination.join("game.dat"), b"").unwrap();
     let mut manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
-    if let crate::manifest::SnapshotEntry::File(file) = &mut manifest.entries[0] {
+    if let SnapshotEntry::File(file) = &mut manifest.entries[0] {
         file.read_only = true;
         file.executable = true;
     }
-    manifest.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
-    repair_installation(crate::installation::InstallationRepairRequest {
+    repair_installation(InstallationRepairRequest {
         repo_path: root.path().to_path_buf(),
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
         staging_dir: None,
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::OperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap();
-    let permissions = std::fs::metadata(destination.join("game.dat"))
+    let permissions = fs::metadata(destination.join("game.dat"))
         .unwrap()
         .permissions();
     assert!(permissions.readonly());
@@ -346,7 +364,7 @@ fn repair_restores_manifest_file_attributes() {
         use std::os::unix::fs::PermissionsExt;
         assert_ne!(permissions.mode() & 0o111, 0);
     }
-    crate::filesystem::remove_dir_all(&destination).unwrap();
+    filesystem::remove_dir_all(&destination).unwrap();
 }
 
 #[test]
@@ -359,22 +377,18 @@ fn symlink_in_implicit_directory_gets_its_parent_created() {
         },
     ));
     let output = tempfile::tempdir().unwrap();
-    crate::installation::execute::entries::prepare_snapshot_entries(
-        &manifest,
-        output.path(),
-        &crate::progress::OperationControl::default(),
-        None,
-    )
-    .unwrap();
+    prepare_snapshot_entries(&manifest, output.path(), &OperationControl::default(), None).unwrap();
     assert!(output.path().join("nested").is_dir());
 }
 
 #[cfg(unix)]
 #[test]
 fn clearing_read_only_restores_only_the_owner_write_bit() {
+    use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
-    let mut permissions = std::fs::Permissions::from_mode(0o444);
-    crate::filesystem::set_read_only(&mut permissions, false);
+
+    let mut permissions = Permissions::from_mode(0o444);
+    set_read_only(&mut permissions, false);
     assert_eq!(permissions.mode() & 0o777, 0o644);
 }
 
@@ -383,10 +397,10 @@ fn repair_restores_files_inside_read_only_directories() {
     let root = tempfile::tempdir().unwrap();
     let destination = root.path().join("destination");
     let data_directory = destination.join("data");
-    std::fs::create_dir_all(&data_directory).unwrap();
-    let mut permissions = std::fs::metadata(&data_directory).unwrap().permissions();
+    fs::create_dir_all(&data_directory).unwrap();
+    let mut permissions = fs::metadata(&data_directory).unwrap().permissions();
     permissions.set_readonly(true);
-    std::fs::set_permissions(&data_directory, permissions).unwrap();
+    fs::set_permissions(&data_directory, permissions).unwrap();
     let mut manifest = test_snapshot_manifest(vec![("data/game.dat", b"")]);
     manifest.entries.push(manifest::SnapshotEntry::Directory(
         manifest::DirectoryManifest {
@@ -394,25 +408,24 @@ fn repair_restores_files_inside_read_only_directories() {
             read_only: true,
         },
     ));
-    manifest.snapshot_id =
-        crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = compute_snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
 
-    repair_installation(crate::installation::InstallationRepairRequest {
+    repair_installation(InstallationRepairRequest {
         repo_path: root.path().to_path_buf(),
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
         staging_dir: None,
         remove_added_files: true,
         runtime_hints: RuntimeResourceHints::default(),
-        control: crate::progress::OperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap();
 
     assert!(data_directory.join("game.dat").is_file());
-    let permissions = std::fs::metadata(&data_directory).unwrap().permissions();
+    let permissions = fs::metadata(&data_directory).unwrap().permissions();
     assert!(permissions.readonly());
     let mut permissions = permissions;
-    crate::filesystem::set_read_only(&mut permissions, false);
-    std::fs::set_permissions(&data_directory, permissions).unwrap();
+    set_read_only(&mut permissions, false);
+    fs::set_permissions(&data_directory, permissions).unwrap();
 }

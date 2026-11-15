@@ -1,6 +1,9 @@
 use super::*;
+use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::ChunkSizingProfile;
+use crate::progress::OperationControl;
 use crate::test_util;
+use std::fs;
 
 #[test]
 fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
@@ -20,8 +23,8 @@ fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
                 seed as u8
             })
             .collect();
-        std::fs::write(&path, &data).unwrap();
-        for preset in crate::artifact::profiles::ChunkSizingPreset::value_variants() {
+        fs::write(&path, &data).unwrap();
+        for preset in ChunkSizingPreset::value_variants() {
             let profile = ChunkSizingProfile::for_preset(*preset);
             let expected = chunk_bytes(&data, &profile);
             let (actual, _) =
@@ -42,7 +45,7 @@ fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
 fn small_file_scan_rejects_growth_and_truncation_since_inventory() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
-    std::fs::write(&path, b"bytes").unwrap();
+    fs::write(&path, b"bytes").unwrap();
     for inventory_size in [0, 4, 6, 1024] {
         assert!(
             scan_file_chunks(
@@ -111,7 +114,7 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
     test_util::recreate_dir(&dir);
     let path = dir.join("sample.bin");
     let data = b"streaming chunk comparison payload ".repeat(4000);
-    std::fs::write(&path, &data).unwrap();
+    fs::write(&path, &data).unwrap();
 
     let profile = ChunkSizingProfile::default();
     let in_memory = chunk_bytes(&data, &profile);
@@ -119,7 +122,7 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::OperationControl::default(),
+        &OperationControl::default(),
     )
     .unwrap();
     let streaming = scan.chunks;
@@ -134,7 +137,7 @@ fn test_chunk_file_streaming_matches_in_memory_chunking() {
         assert_eq!(left.size, right.size);
     }
 
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -143,14 +146,14 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
     test_util::recreate_dir(&dir);
     let path = dir.join("sample.bin");
     let data = b"streaming full file hash payload ".repeat(4000);
-    std::fs::write(&path, &data).unwrap();
+    fs::write(&path, &data).unwrap();
 
     let profile = ChunkSizingProfile::default();
     let (scan, timings) = scan_file_chunks(
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::OperationControl::default(),
+        &OperationControl::default(),
     )
     .unwrap();
 
@@ -163,7 +166,7 @@ fn test_chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
     assert_eq!(timings.hash_judgment_bytes, data.len() as u64);
     assert!(!scan.chunks.is_empty());
 
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -172,21 +175,21 @@ fn repeated_chunk_scans_have_identical_boundaries() {
     test_util::recreate_dir(&dir);
     let path = dir.join("sample.bin");
     let data = b"parallel chunk hashing payload with varied boundaries ".repeat(150_000);
-    std::fs::write(&path, &data).unwrap();
+    fs::write(&path, &data).unwrap();
 
     let profile = ChunkSizingProfile::default();
     let serial = scan_file_chunks(
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::OperationControl::default(),
+        &OperationControl::default(),
     )
     .unwrap();
     let parallel = scan_file_chunks(
         &path,
         data.len() as u64,
         &profile,
-        &crate::progress::OperationControl::default(),
+        &OperationControl::default(),
     )
     .unwrap();
 
@@ -200,7 +203,7 @@ fn repeated_chunk_scans_have_identical_boundaries() {
         assert_eq!(serial_chunk.size, parallel_chunk.size);
     }
 
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -221,7 +224,7 @@ fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
         .collect();
     for size in [0, 1, 32768, 524288, 524289, 1048576, data.len()] {
         let bytes = &data[..size];
-        std::fs::write(&path, bytes).unwrap();
+        fs::write(&path, bytes).unwrap();
         for preset in ChunkSizingPreset::value_variants() {
             let profile = ChunkSizingProfile::for_preset(*preset).with_chunker(Chunker::Jc);
             let boundary = JumpChunker::new(
@@ -249,7 +252,7 @@ fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
 fn streaming_scan_rejects_source_that_differs_from_inventory_size() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("source");
-    std::fs::write(&path, vec![7u8; 3 * 1024 * 1024]).unwrap();
+    fs::write(&path, vec![7u8; 3 * 1024 * 1024]).unwrap();
     let profile = ChunkSizingProfile::default();
     let stale_inventory_size = 2 * 1024 * 1024;
     assert!(scan_file_chunks(&path, stale_inventory_size, &profile, &Default::default()).is_err());

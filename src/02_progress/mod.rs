@@ -8,6 +8,10 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::Result;
+use crate::profiling::ProfileSpan;
+use crate::profiling::Profiler;
+use std::collections::BTreeMap;
+use std::fmt::Debug;
 
 /// Identifies which gutch operation is emitting progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -113,7 +117,7 @@ pub struct ProgressEvent {
 }
 
 /// Trait for receiving progress events. Implemented by CLI (indicatif) and Tauri (event emitter).
-pub trait ProgressSink: Send + Sync + std::fmt::Debug {
+pub trait ProgressSink: Send + Sync + Debug {
     fn emit(&self, event: ProgressEvent);
 }
 
@@ -121,7 +125,7 @@ pub trait ProgressSink: Send + Sync + std::fmt::Debug {
 ///
 /// Gutch deliberately does not own the mutable signal or depend on an async runtime. Long-running
 /// engine code observes this hook only at consistency-safe checkpoints.
-pub trait CancellationHook: Send + Sync + std::fmt::Debug {
+pub trait CancellationHook: Send + Sync + Debug {
     fn is_cancelled(&self) -> bool;
 }
 
@@ -130,7 +134,7 @@ pub trait CancellationHook: Send + Sync + std::fmt::Debug {
 pub struct OperationControl {
     progress: Option<Arc<dyn ProgressSink>>,
     cancellation: Option<Arc<dyn CancellationHook>>,
-    profiler: Option<Arc<crate::profiling::Profiler>>,
+    profiler: Option<Arc<Profiler>>,
     feedback: Option<Arc<feedback::LiveProgress>>,
 }
 
@@ -178,7 +182,7 @@ impl OperationControl {
         self
     }
 
-    pub fn with_profiler(mut self, profiler: Arc<crate::profiling::Profiler>) -> Self {
+    pub fn with_profiler(mut self, profiler: Arc<Profiler>) -> Self {
         if let Some(feedback) = &self.feedback {
             feedback.with_profiler(profiler.clone());
         }
@@ -196,21 +200,21 @@ impl OperationControl {
         }
     }
 
-    pub(crate) fn profile_span(&self, name: &'static str) -> Option<crate::profiling::ProfileSpan> {
+    pub(crate) fn profile_span(&self, name: &'static str) -> Option<ProfileSpan> {
         self.profiler
             .as_ref()
             .and_then(|profiler| profiler.span(name))
     }
 
-    pub(crate) fn profiler(&self) -> Option<&crate::profiling::Profiler> {
+    pub(crate) fn profiler(&self) -> Option<&Profiler> {
         self.profiler.as_deref()
     }
 
     pub(crate) fn profile_span_with_args(
         &self,
         name: &'static str,
-        args: impl FnOnce() -> std::collections::BTreeMap<String, serde_json::Value>,
-    ) -> Option<crate::profiling::ProfileSpan> {
+        args: impl FnOnce() -> BTreeMap<String, serde_json::Value>,
+    ) -> Option<ProfileSpan> {
         self.profiler
             .as_ref()
             .and_then(|profiler| profiler.span_with_args(name, args))
@@ -219,7 +223,7 @@ impl OperationControl {
     pub(crate) fn profile_event_with_args(
         &self,
         name: &'static str,
-        args: impl FnOnce() -> std::collections::BTreeMap<String, serde_json::Value>,
+        args: impl FnOnce() -> BTreeMap<String, serde_json::Value>,
     ) {
         if let Some(profiler) = &self.profiler {
             profiler.event_with_args(name, args);
@@ -245,7 +249,7 @@ impl OperationControl {
 }
 
 /// Helper to emit if a sink is present.
-pub(crate) fn emit_progress(sink: &Option<std::sync::Arc<dyn ProgressSink>>, event: ProgressEvent) {
+pub(crate) fn emit_progress(sink: &Option<Arc<dyn ProgressSink>>, event: ProgressEvent) {
     if let Some(s) = sink {
         s.emit(event);
     }

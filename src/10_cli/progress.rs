@@ -4,23 +4,27 @@ use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::cli::verbose_output_enabled;
+use crate::progress::LiveFeedback;
 use crate::progress::OperationKind;
 use crate::progress::ProgressEvent;
 use crate::progress::ProgressSink;
 use indicatif::ProgressBar;
 use indicatif::ProgressDrawTarget;
 use indicatif::ProgressStyle;
+use std::io;
+use std::sync::Mutex;
 
 /// Unified CLI progress sink that handles all gutch operations via indicatif.
 #[derive(Debug)]
 pub(crate) struct CliProgressSink {
     bar: ProgressBar,
-    latest: std::sync::Mutex<Option<crate::progress::LiveFeedback>>,
+    latest: Mutex<Option<LiveFeedback>>,
 }
 
 impl CliProgressSink {
     pub(crate) fn new() -> Arc<Self> {
-        let bar = if crate::cli::verbose_output_enabled() || !std::io::stderr().is_terminal() {
+        let bar = if verbose_output_enabled() || !io::stderr().is_terminal() {
             ProgressBar::hidden()
         } else {
             ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr())
@@ -30,7 +34,7 @@ impl CliProgressSink {
         bar.enable_steady_tick(Duration::from_millis(100));
         Arc::new(Self {
             bar,
-            latest: std::sync::Mutex::new(None),
+            latest: Mutex::new(None),
         })
     }
 
@@ -106,7 +110,7 @@ impl Drop for CliProgressSink {
     }
 }
 
-fn render_feedback(feedback: &crate::progress::LiveFeedback) -> String {
+fn render_feedback(feedback: &LiveFeedback) -> String {
     let rate = |value: Option<f64>| {
         value
             .map(|n| format!("{:.1}", n / 1048576.0))

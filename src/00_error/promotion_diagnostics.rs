@@ -1,5 +1,9 @@
 //! Failure-time observations for recoverable directory publication.
 use serde::Serialize;
+use std::env::consts::OS;
+use std::fs;
+use std::fs::Metadata;
+use std::io;
 use std::path::Path;
 use std::time::Instant;
 
@@ -11,7 +15,7 @@ pub struct DiagnosticIoError {
 }
 
 impl DiagnosticIoError {
-    pub(crate) fn capture(error: &std::io::Error) -> Self {
+    pub(crate) fn capture(error: &io::Error) -> Self {
         Self {
             kind: format!("{:?}", error.kind()),
             raw_os_error: error.raw_os_error(),
@@ -31,10 +35,10 @@ pub struct PromotionPathObservation {
 
 impl PromotionPathObservation {
     pub(crate) fn capture(path: &Path) -> Self {
-        Self::from_metadata(path, std::fs::symlink_metadata(path))
+        Self::from_metadata(path, fs::symlink_metadata(path))
     }
 
-    fn from_metadata(path: &Path, metadata: std::io::Result<std::fs::Metadata>) -> Self {
+    fn from_metadata(path: &Path, metadata: io::Result<Metadata>) -> Self {
         let mut observation = Self {
             // Diagnostic paths remain serializable even when the native path is not UTF-8.
             path: path.to_string_lossy().into_owned(),
@@ -49,7 +53,7 @@ impl PromotionPathObservation {
                 observation.read_only = Some(metadata.permissions().readonly());
                 observation.is_directory = Some(metadata.is_dir());
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 observation.exists = Some(false);
             }
             Err(error) => observation.inspection_error = Some(DiagnosticIoError::capture(&error)),
@@ -66,7 +70,7 @@ pub struct PromotionRecoveryAttempt {
 }
 
 impl PromotionRecoveryAttempt {
-    pub(crate) fn capture(operation: &'static str, result: std::io::Result<()>) -> Self {
+    pub(crate) fn capture(operation: &'static str, result: io::Result<()>) -> Self {
         Self {
             operation,
             succeeded: result.is_ok(),
@@ -93,13 +97,13 @@ impl DirectoryPromotionDiagnostic {
     pub(crate) fn capture(
         phase: &'static str,
         started: Instant,
-        error: &std::io::Error,
+        error: &io::Error,
         staging: &Path,
         destination: &Path,
         backup: &Path,
     ) -> Self {
         Self {
-            platform: std::env::consts::OS,
+            platform: OS,
             observed_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             phase,
             elapsed_ms: started.elapsed().as_millis(),
@@ -116,7 +120,7 @@ impl DirectoryPromotionDiagnostic {
         use std::io::Write;
         // Reporting must never turn a committed publication into an error, including
         // when the caller's stderr is closed. Routine successful publication is silent.
-        let mut stderr = std::io::stderr().lock();
+        let mut stderr = io::stderr().lock();
         let _ = writeln!(
             stderr,
             "Warning: directory promotion committed; cleanup failed"

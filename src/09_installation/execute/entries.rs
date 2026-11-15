@@ -1,6 +1,7 @@
 //! Creates directories and symlinks before writing and finalizes entry attributes after.
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,8 +11,18 @@ use rayon::prelude::*;
 
 use crate::Error;
 use crate::Result;
+use crate::filesystem;
+use crate::filesystem::paths::ManifestPathResolver;
+use crate::filesystem::set_read_only;
+use crate::manifest::DirectoryManifest;
+use crate::manifest::FileManifest;
+use crate::manifest::SnapshotEntry;
+use crate::manifest::SymlinkManifest;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::manifest::validate_snapshot_entries;
+use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
+use std::io::ErrorKind;
 
 pub(crate) fn prepare_snapshot_entries(
     snapshot_manifest: &SnapshotManifest,
@@ -22,17 +33,17 @@ pub(crate) fn prepare_snapshot_entries(
     {
         let _validate_span =
             control.profile_span("installation.reconstruct.prepare.entries.validate");
-        crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
+        validate_snapshot_entries(&snapshot_manifest.entries)?;
     }
     {
         let _root_span =
             control.profile_span("installation.reconstruct.prepare.entries.create_root");
-        crate::filesystem::create_dir_all(output_dir)?;
+        filesystem::create_dir_all(output_dir)?;
     }
     let path_resolver = {
         let _resolver_span =
             control.profile_span("installation.reconstruct.prepare.entries.path_resolver");
-        crate::filesystem::paths::ManifestPathResolver::new(output_dir)?
+        ManifestPathResolver::new(output_dir)?
     };
     {
         let _directories_span =
@@ -50,22 +61,17 @@ pub(crate) fn prepare_snapshot_entries(
 fn resolve_snapshot_file_paths(
     snapshot_manifest: &SnapshotManifest,
     control: &OperationControl,
-    path_resolver: &crate::filesystem::paths::ManifestPathResolver,
+    path_resolver: &ManifestPathResolver,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<Vec<PathBuf>> {
     let files = snapshot_manifest.files().collect::<Vec<_>>();
     let _resolve_paths_span = control.profile_span_with_args(
         "installation.reconstruct.prepare.outputs.resolve_paths",
-        || {
-            std::collections::BTreeMap::from([(
-                "path_count".to_string(),
-                serde_json::json!(files.len()),
-            )])
-        },
+        || BTreeMap::from([("path_count".to_string(), serde_json::json!(files.len()))]),
     );
     // Bound trace volume while keeping enough batches for workers to share the work.
     // Indexed batch collection preserves manifest file order and error ordering.
-    let resolve_batch = |batch: &[&crate::manifest::FileManifest]| {
+    let resolve_batch = |batch: &[&FileManifest]| {
         let _batch_span = control
             .profile_span_with_args("installation.worker.resolve_output_paths", || {
                 BTreeMap::from([("path_count".into(), serde_json::json!(batch.len()))])
@@ -86,19 +92,19 @@ fn resolve_snapshot_file_paths(
 fn create_snapshot_directories(
     snapshot_manifest: &SnapshotManifest,
     control: &OperationControl,
-    path_resolver: &crate::filesystem::paths::ManifestPathResolver,
+    path_resolver: &ManifestPathResolver,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
     let mut directories = BTreeMap::<String, Option<bool>>::new();
     for entry in &snapshot_manifest.entries {
-        if let crate::manifest::SnapshotEntry::Directory(directory) = entry {
+        if let SnapshotEntry::Directory(directory) = entry {
             add_manifest_directory_prefixes(&mut directories, &directory.path);
             directories.insert(directory.path.clone(), Some(directory.read_only));
         }
     }
     for entry in &snapshot_manifest.entries {
         // Files and symlinks may rely on implicit parent directories.
-        if matches!(entry, crate::manifest::SnapshotEntry::Directory(_)) {
+        if matches!(entry, SnapshotEntry::Directory(_)) {
             continue;
         }
         let parent = entry.path().rsplit_once('/').map(|(parent, _)| parent);
@@ -152,9 +158,9 @@ fn add_manifest_directory_prefixes(directories: &mut BTreeMap<String, Option<boo
 }
 
 fn create_snapshot_directory(path: &Path) -> Result<()> {
-    match std::fs::create_dir(path) {
+    match fs::create_dir(path) {
         Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
             if std::fs::metadata(path)
                 .map_err(|e| Error::io_context("checking output directory", path, e))?
                 .is_dir()
@@ -198,12 +204,12 @@ pub(crate) fn finalize_snapshot_entries(
     metadata_worker_count: usize,
     reconstruct_pool: Option<&ThreadPool>,
 ) -> Result<()> {
-    let path_resolver = crate::filesystem::paths::ManifestPathResolver::new(output_dir)?;
+    let path_resolver = ManifestPathResolver::new(output_dir)?;
     let symlinks = snapshot_manifest
         .entries
         .iter()
         .filter_map(|entry| match entry {
-            crate::manifest::SnapshotEntry::Symlink(link) => Some(link),
+            SnapshotEntry::Symlink(link) => Some(link),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -237,7 +243,7 @@ pub(crate) fn finalize_snapshot_entries(
             {
                 let target_is_directory = snapshot_manifest.entries.iter().any(|target| {
                     target.path() == link.target_path
-                        && matches!(target, crate::manifest::SnapshotEntry::Directory(_))
+                        && matches!(target, SnapshotEntry::Directory(_))
                 });
                 let result = if target_is_directory {
                     std::os::windows::fs::symlink_dir(&link_text, &link_path)
@@ -292,16 +298,14 @@ pub(crate) fn finalize_snapshot_entries(
     let directory_count = snapshot_manifest
         .entries
         .iter()
-        .filter(|entry| matches!(entry, crate::manifest::SnapshotEntry::Directory(_)))
+        .filter(|entry| matches!(entry, SnapshotEntry::Directory(_)))
         .count();
     let mut directories_by_depth = BTreeMap::<usize, Vec<_>>::new();
     for directory in snapshot_manifest
         .entries
         .iter()
         .filter_map(|entry| match entry {
-            crate::manifest::SnapshotEntry::Directory(directory) if directory.read_only => {
-                Some(directory)
-            }
+            SnapshotEntry::Directory(directory) if directory.read_only => Some(directory),
             _ => None,
         })
     {
@@ -340,8 +344,8 @@ pub(crate) fn finalize_snapshot_entries(
                     .map_err(|e| Error::io_context("reading directory permissions", &path, e))?
                     .permissions();
                 if permissions.readonly() != directory.read_only {
-                    crate::filesystem::set_read_only(&mut permissions, directory.read_only);
-                    std::fs::set_permissions(&path, permissions)
+                    set_read_only(&mut permissions, directory.read_only);
+                    fs::set_permissions(&path, permissions)
                         .map_err(|e| Error::io_context("setting entry permissions", &path, e))?;
                 }
                 Ok(())
@@ -372,13 +376,13 @@ where
 }
 
 fn run_finalize_directory_levels<F>(
-    levels: &BTreeMap<usize, Vec<&crate::manifest::DirectoryManifest>>,
+    levels: &BTreeMap<usize, Vec<&DirectoryManifest>>,
     worker_count: usize,
     reconstruct_pool: Option<&ThreadPool>,
     work: F,
 ) -> Result<()>
 where
-    F: Fn(&crate::manifest::DirectoryManifest) -> Result<()> + Send + Sync,
+    F: Fn(&DirectoryManifest) -> Result<()> + Send + Sync,
 {
     for directories in levels.values().rev() {
         if should_parallelize_finalize(directories.len(), worker_count)
@@ -407,8 +411,8 @@ fn finalize_phase_trace_args(
     changed_entries: usize,
     worker_count: usize,
     parallel: bool,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
+) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
         (
             "total_entries".to_string(),
             serde_json::json!(total_entries),
@@ -428,8 +432,8 @@ fn finalize_phase_trace_args(
 fn prepare_directory_trace_args(
     path: &str,
     read_only: Option<bool>,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
+) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
         ("path".to_string(), serde_json::json!(path)),
         (
             "depth".to_string(),
@@ -443,10 +447,8 @@ fn prepare_directory_trace_args(
     ])
 }
 
-fn finalize_symlink_trace_args(
-    link: &crate::manifest::SymlinkManifest,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
+fn finalize_symlink_trace_args(link: &SymlinkManifest) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
         ("path".to_string(), serde_json::json!(link.path)),
         (
             "target_path".to_string(),
@@ -455,19 +457,17 @@ fn finalize_symlink_trace_args(
     ])
 }
 
-fn finalize_file_trace_args(
-    file: &crate::manifest::FileManifest,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profiling::file_trace_args(&file.path, file.size);
+fn finalize_file_trace_args(file: &FileManifest) -> BTreeMap<String, serde_json::Value> {
+    let mut args = file_trace_args(&file.path, file.size);
     args.insert("read_only".to_string(), serde_json::json!(file.read_only));
     args.insert("executable".to_string(), serde_json::json!(file.executable));
     args
 }
 
 fn finalize_directory_trace_args(
-    directory: &crate::manifest::DirectoryManifest,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
+    directory: &DirectoryManifest,
+) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
         ("path".to_string(), serde_json::json!(directory.path)),
         (
             "read_only".to_string(),
@@ -499,10 +499,10 @@ pub(crate) fn apply_entry_permissions(
     #[cfg(not(unix))]
     let _ = executable;
     if permissions.readonly() != read_only {
-        crate::filesystem::set_read_only(&mut permissions, read_only);
+        set_read_only(&mut permissions, read_only);
     }
     if permissions != original {
-        std::fs::set_permissions(path, permissions)
+        fs::set_permissions(path, permissions)
             .map_err(|e| Error::io_context("setting entry permissions", path, e))?;
     }
     Ok(())

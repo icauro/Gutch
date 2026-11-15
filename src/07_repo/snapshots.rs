@@ -7,11 +7,17 @@ use serde::Serialize;
 
 use crate::manifest::SnapshotTagSet;
 use crate::progress;
+use crate::progress::OperationControl;
 use crate::progress::OperationKind;
 use crate::progress::ProgressEvent;
 use crate::progress::ProgressPhase;
 use crate::repo::Result;
 use crate::repo::cleanup::remove_snapshot_from_repo;
+use crate::repo::coordination;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+use std::collections::BTreeMap;
 
 /// Result of explicitly retagging one exact snapshot ID.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -25,10 +31,10 @@ pub struct RetagSnapshotResult {
 pub fn delete_repo_snapshot_and_cleanup(
     repo_root: &Path,
     snapshot_id: &str,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<usize> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         control.checkpoint()?;
         // Total matches cleanup_orphan_artifacts_in_repo.
         const TOTAL: usize = 1000;
@@ -83,8 +89,7 @@ pub fn retag_snapshot_by_id(
     snapshot_id: &str,
     new_tags: SnapshotTagSet,
 ) -> Result<RetagSnapshotResult> {
-    let replacements =
-        std::collections::BTreeMap::from([(snapshot_id.to_owned(), new_tags.normalized()?)]);
+    let replacements = BTreeMap::from([(snapshot_id.to_owned(), new_tags.normalized()?)]);
     Ok(retag_snapshots(repo_root, replacements)?.remove(0))
 }
 
@@ -92,14 +97,14 @@ pub fn retag_snapshot_by_id(
 /// snapshots also participate in parity validation.
 pub fn plan_snapshot_tag_updates(
     repo_root: &Path,
-    replacements: &std::collections::BTreeMap<String, SnapshotTagSet>,
+    replacements: &BTreeMap<String, SnapshotTagSet>,
 ) -> Result<Vec<RetagSnapshotResult>> {
-    crate::repo::coordination::read(repo_root, || {
-        let (paths, repository) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+    coordination::read(repo_root, || {
+        let (paths, repository) = load_gutch_repo_manifest(repo_root)?;
         let mut results = Vec::new();
-        let mut normalized = std::collections::BTreeMap::new();
+        let mut normalized = BTreeMap::new();
         for (id, tags) in replacements {
-            let manifest = crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, id)?;
+            let manifest = load_snapshot_manifest(&paths, id)?;
             let tags = tags.normalized()?;
             normalized.insert(id.clone(), tags.clone());
             results.push(RetagSnapshotResult {
@@ -121,18 +126,15 @@ pub fn plan_snapshot_tag_updates(
 /// A failing rule or write restores every snapshot's previous metadata.
 pub fn retag_snapshots(
     repo_root: &Path,
-    replacements: std::collections::BTreeMap<String, SnapshotTagSet>,
+    replacements: BTreeMap<String, SnapshotTagSet>,
 ) -> Result<Vec<RetagSnapshotResult>> {
-    crate::repo::coordination::write(repo_root, || {
+    coordination::write(repo_root, || {
         let changes = plan_snapshot_tag_updates(repo_root, &replacements)?;
-        let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+        let (paths, _) = load_gutch_repo_manifest(repo_root)?;
         for change in &changes {
-            let mut manifest = crate::repo::snapshot_manifests::load_snapshot_manifest(
-                &paths,
-                &change.snapshot_id,
-            )?;
+            let mut manifest = load_snapshot_manifest(&paths, &change.snapshot_id)?;
             manifest.snapshot_tags = change.new_tags.clone();
-            crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(&paths, &manifest)?;
+            write_snapshot_manifest_artifacts(&paths, &manifest)?;
         }
         Ok(changes)
     })

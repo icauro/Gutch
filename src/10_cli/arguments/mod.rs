@@ -13,10 +13,22 @@ pub(crate) use snapshot::{SnapshotCommands, SnapshotTagsCommands};
 
 use std::path::PathBuf;
 
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::BundleSizingPreset;
+use crate::artifact::profiles::ChunkSizingPreset;
+use crate::artifact::profiles::Chunker;
+use crate::artifact::profiles::CompressionKind;
+use crate::profiling::ProfileMode;
+use crate::runtime::RuntimeResourceHints;
+use crate::transfer::types::DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM;
+use crate::transfer::types::DEFAULT_TRANSFER_CONCURRENCY;
+use crate::transfer::types::TransferConcurrencyPolicy;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
+use std::env::current_dir;
+use std::num::NonZeroU64;
 
 pub(crate) fn parse_cli_path(value: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(value);
@@ -26,7 +38,7 @@ pub(crate) fn parse_cli_path(value: &str) -> Result<PathBuf, String> {
     if path.is_absolute() {
         Ok(path)
     } else {
-        std::env::current_dir()
+        current_dir()
             .map(|cwd| cwd.join(path))
             .map_err(|error| error.to_string())
     }
@@ -42,12 +54,12 @@ pub(crate) struct RuntimeArgs {
 }
 
 impl RuntimeArgs {
-    pub(crate) fn hints(self) -> crate::runtime::RuntimeResourceHints {
-        crate::runtime::RuntimeResourceHints {
+    pub(crate) fn hints(self) -> RuntimeResourceHints {
+        RuntimeResourceHints {
             jobs: self.jobs,
             memory_budget_bytes: self
                 .memory_budget_mib
-                .and_then(|mib| std::num::NonZeroU64::new(mib * 1024 * 1024)),
+                .and_then(|mib| NonZeroU64::new(mib * 1024 * 1024)),
         }
     }
 }
@@ -68,27 +80,22 @@ pub(crate) struct TransferArgs {
     pub(crate) policy: TransferPolicyArg,
     #[arg(
         long = "transfer-concurrency",
-        default_value_t = crate::transfer::types::DEFAULT_TRANSFER_CONCURRENCY
+        default_value_t = DEFAULT_TRANSFER_CONCURRENCY
     )]
     pub(crate) concurrency: usize,
     #[arg(
         long = "transfer-max-concurrency",
-        default_value_t = crate::transfer::types::DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM
+        default_value_t = DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM
     )]
     pub(crate) maximum: usize,
 }
 
 impl TransferArgs {
-    pub(crate) fn policy(self) -> crate::transfer::types::TransferConcurrencyPolicy {
+    pub(crate) fn policy(self) -> TransferConcurrencyPolicy {
         match self.policy {
-            TransferPolicyArg::Fixed => {
-                crate::transfer::types::TransferConcurrencyPolicy::fixed(self.concurrency)
-            }
+            TransferPolicyArg::Fixed => TransferConcurrencyPolicy::fixed(self.concurrency),
             TransferPolicyArg::Adaptive => {
-                crate::transfer::types::TransferConcurrencyPolicy::adaptive(
-                    self.concurrency,
-                    self.maximum,
-                )
+                TransferConcurrencyPolicy::adaptive(self.concurrency, self.maximum)
             }
         }
     }
@@ -98,19 +105,19 @@ impl TransferArgs {
 pub(crate) struct ArtifactBuildProfileArgs {
     /// Content-defined chunker; JC uses the pinned Plakar-compatible variant.
     #[arg(long, value_enum, default_value_t = crate::artifact::profiles::Chunker::FastCdc)]
-    pub(crate) chunker: crate::artifact::profiles::Chunker,
+    pub(crate) chunker: Chunker,
     /// Chunk sizing preset (algorithm-specific target, not a fixed chunk size).
     #[arg(short = 'C', long = "chunk-preset", value_enum, default_value_t = crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB)]
-    pub(crate) chunk_profile: crate::artifact::profiles::ChunkSizingPreset,
+    pub(crate) chunk_profile: ChunkSizingPreset,
     /// Bundle sizing preset.
     #[arg(short = 'B', long = "bundle-preset", value_enum, default_value_t = crate::artifact::profiles::BundleSizingPreset::Bundle8MiB)]
-    pub(crate) bundle_profile: crate::artifact::profiles::BundleSizingPreset,
+    pub(crate) bundle_profile: BundleSizingPreset,
     #[arg(long = "compression-algorithm", value_enum, default_value_t = crate::artifact::profiles::CompressionKind::Zstd)]
-    pub(crate) compression_algorithm: crate::artifact::profiles::CompressionKind,
+    pub(crate) compression_algorithm: CompressionKind,
     #[arg(long = "compression-level")]
     pub(crate) compression_level: Option<i32>,
     #[arg(long = "storage-mode", value_enum, default_value_t = crate::artifact::profiles::ArtifactStorageMode::Bundled)]
-    pub(crate) storage_mode: crate::artifact::profiles::ArtifactStorageMode,
+    pub(crate) storage_mode: ArtifactStorageMode,
 }
 
 #[derive(Parser)]
@@ -128,7 +135,7 @@ pub(crate) struct Cli {
 
     /// Diagnostic profiling: off, coarse summary, or sampled detailed timelines.
     #[arg(long, global = true, value_enum, default_value_t = crate::profiling::ProfileMode::Off)]
-    pub(crate) profile: crate::profiling::ProfileMode,
+    pub(crate) profile: ProfileMode,
     /// Absolute report directory; required for detailed, optional for summary.
     #[arg(long = "profile-dir", global = true, value_parser = parse_cli_path)]
     pub(crate) profile_out: Option<PathBuf>,

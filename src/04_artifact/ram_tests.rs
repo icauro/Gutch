@@ -1,5 +1,7 @@
 use super::*;
+use crate::artifact::chunk::scan_file_chunks;
 use crate::artifact::chunk_stream::ChunkStream;
+use std::fs;
 use std::io::{Cursor, Read};
 
 // Literal scalar reference matching the pinned DedupBench RAM cutpoint rule.
@@ -83,18 +85,13 @@ fn streaming_and_capture_preserve_ram_boundaries_and_hashes() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("source");
     for size in [0, 511, 524289, 1_048_577, data.len()] {
-        std::fs::write(&path, &data[..size]).unwrap();
+        fs::write(&path, &data[..size]).unwrap();
         for &preset in ChunkSizingPreset::value_variants() {
             let profile = ChunkSizingProfile::for_preset(preset).with_chunker(Chunker::Vram256);
             let window = profile.avg_chunk_bytes as usize;
             let maximum = profile.max_chunk_bytes as usize;
-            let (scan, _) = crate::artifact::chunk::scan_file_chunks(
-                &path,
-                size as u64,
-                &profile,
-                &Default::default(),
-            )
-            .unwrap();
+            let (scan, _) =
+                scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
             let mut stream = ChunkStream::with_boundary(
                 ShortRead(Cursor::new(data[..size].to_vec())),
                 Ram::new(window, maximum),

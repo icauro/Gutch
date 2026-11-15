@@ -1,12 +1,18 @@
 //! Staging directories and the path guards that keep destination, staging and
 //! repository apart.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::filesystem;
+use crate::filesystem::directory::lock_directory_promotion;
+use crate::filesystem::directory::recover_directory_promotion;
+use crate::filesystem::paths::validate_destination_paths;
 use crate::filesystem::paths::{require_disjoint_paths, resolve_operation_path};
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::{Error, Result};
+use std::fs::File;
 
 pub(crate) fn default_snapshot_staging_dir(destination_dir: &Path, snapshot_id: &str) -> PathBuf {
     let destination_name = destination_dir
@@ -32,10 +38,10 @@ impl SnapshotStaging {
 
 impl Drop for SnapshotStaging {
     fn drop(&mut self) {
-        let _ = crate::filesystem::remove_dir_all(self.directory.path());
+        let _ = filesystem::remove_dir_all(self.directory.path());
         if let Some(parent) = &self.created_parent {
             // Remove only an empty parent created by this operation.
-            let _ = std::fs::remove_dir(parent);
+            let _ = fs::remove_dir(parent);
         }
     }
 }
@@ -65,7 +71,7 @@ pub(crate) fn create_snapshot_staging(
         });
     }
     let created_parent = (!staging_parent.exists()).then(|| staging_parent.to_path_buf());
-    crate::filesystem::create_dir_all(staging_parent)?;
+    filesystem::create_dir_all(staging_parent)?;
     let directory = tempfile::Builder::new()
         .prefix(".gutch-operation-")
         .tempdir_in(staging_parent)
@@ -88,14 +94,14 @@ pub(crate) fn prepare_installation_destination(
     staging: Option<&Path>,
     repository_path: &Path,
     control: &OperationControl,
-) -> Result<std::fs::File> {
-    crate::filesystem::paths::validate_destination_paths(
+) -> Result<File> {
+    validate_destination_paths(
         destination,
         snapshot_manifest.entries.iter().map(|entry| entry.path()),
     )?;
     validate_installation_paths(destination, staging, repository_path)?;
-    let lock = crate::filesystem::directory::lock_directory_promotion(destination, control)?;
-    crate::filesystem::directory::recover_directory_promotion(destination)?;
+    let lock = lock_directory_promotion(destination, control)?;
+    recover_directory_promotion(destination)?;
     Ok(lock)
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifact::hash::ChunkHash;
 
 #[test]
 fn test_file_manifest_serialization() {
@@ -10,11 +11,11 @@ fn test_file_manifest_serialization() {
         full_file_hash: "01".repeat(32),
         chunks: vec![
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::from_bytes([2; 32]),
+                chunk_hash: ChunkHash::from_bytes([2; 32]),
                 raw_size: 8192,
             },
             ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::from_bytes([3; 32]),
+                chunk_hash: ChunkHash::from_bytes([3; 32]),
                 raw_size: 4153,
             },
         ],

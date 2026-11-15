@@ -6,25 +6,32 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::Result;
+use crate::progress::OperationControl;
+use std::num::NonZeroU64;
+use std::sync::Arc;
+use std::sync::Condvar;
+use std::sync::Mutex;
+use std::thread::available_parallelism;
+use std::time::Duration;
 
 const FALLBACK_MEMORY_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Shared per-operation admission for payload and codec working memory.
 pub(crate) struct MemoryBudget {
     limit: u64,
-    available: std::sync::Mutex<u64>,
-    changed: std::sync::Condvar,
+    available: Mutex<u64>,
+    changed: Condvar,
 }
 pub(crate) struct MemoryPermit {
-    budget: std::sync::Arc<MemoryBudget>,
+    budget: Arc<MemoryBudget>,
     bytes: u64,
 }
 impl MemoryBudget {
     pub(crate) fn new(limit: u64) -> Self {
         Self {
             limit,
-            available: std::sync::Mutex::new(limit),
-            changed: std::sync::Condvar::new(),
+            available: Mutex::new(limit),
+            changed: Condvar::new(),
         }
     }
     fn validate_request(&self, bytes: u64) -> Result<()> {
@@ -36,10 +43,7 @@ impl MemoryBudget {
         }
         Ok(())
     }
-    pub(crate) fn try_acquire(
-        self: &std::sync::Arc<Self>,
-        bytes: u64,
-    ) -> Result<Option<MemoryPermit>> {
+    pub(crate) fn try_acquire(self: &Arc<Self>, bytes: u64) -> Result<Option<MemoryPermit>> {
         self.validate_request(bytes)?;
         let mut available = self.available.lock().map_err(memory_budget_poisoned)?;
         if *available < bytes {
@@ -52,9 +56,9 @@ impl MemoryBudget {
         }))
     }
     pub(crate) fn acquire(
-        self: &std::sync::Arc<Self>,
+        self: &Arc<Self>,
         bytes: u64,
-        control: &crate::progress::OperationControl,
+        control: &OperationControl,
     ) -> Result<MemoryPermit> {
         self.validate_request(bytes)?;
         let mut available = self.available.lock().map_err(memory_budget_poisoned)?;
@@ -64,7 +68,7 @@ impl MemoryBudget {
             control.checkpoint()?;
             available = self
                 .changed
-                .wait_timeout(available, std::time::Duration::from_millis(50))
+                .wait_timeout(available, Duration::from_millis(50))
                 .map_err(memory_budget_poisoned)?
                 .0;
         }
@@ -90,7 +94,7 @@ impl Drop for MemoryPermit {
 pub struct RuntimeResourceHints {
     pub jobs: Option<usize>,
     /// Shared payload/codec admission budget; None selects 25% of usable RAM.
-    pub memory_budget_bytes: Option<std::num::NonZeroU64>,
+    pub memory_budget_bytes: Option<NonZeroU64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +115,7 @@ pub(crate) fn build_thread_pool(
 }
 
 pub(crate) fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
-    let logical_workers = std::thread::available_parallelism()
+    let logical_workers = available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1)
         .max(1);
@@ -126,7 +130,7 @@ pub(crate) fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
         worker_count,
         memory_budget_bytes: hints
             .memory_budget_bytes
-            .map(std::num::NonZeroU64::get)
+            .map(NonZeroU64::get)
             .unwrap_or_else(automatic_memory_budget),
     }
 }

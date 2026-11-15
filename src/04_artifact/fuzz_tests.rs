@@ -1,7 +1,18 @@
 //! Native property/fuzz targets: normal cargo tests sample inputs; cargo bolero uses instrumentation.
+use crate::artifact::format::CHUNK_INDEX_MAGIC;
+use crate::artifact::format::SNAPSHOT_BLUEPRINT_MAGIC;
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::loose::read_loose_header;
+use crate::artifact::metadata;
 use crate::artifact::profiles::{CompressionKind, CompressionProfile};
 use crate::artifact::{bundle, compression};
+use crate::filesystem::paths::validate_manifest_relative_path;
+use crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes;
+use crate::manifest::blueprint_columns;
+use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
+use crate::snapshot::identity::compute_snapshot_id_from_entries;
 use std::io::{Cursor, Read};
+use std::str::from_utf8;
 
 #[test]
 fn fuzz_binary_decoders() {
@@ -15,8 +26,8 @@ fn fuzz_binary_decoders() {
         if bytes.len() > 65536 {
             return;
         }
-        let _ = crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes(bytes);
-        let _ = crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(bytes);
+        let _ = read_snapshot_blueprint_bytes(bytes);
+        let _ = load_chunk_index_binary_from_bytes(bytes);
         // Recompute framing so mutations reach the column parsers instead of
         // stopping at the envelope's integrity check on every generated input.
         let split = bytes.len() / 3;
@@ -25,15 +36,12 @@ fn fuzz_binary_decoders() {
             bytes[split..split * 2].to_vec(),
             bytes[split * 2..].to_vec(),
         ];
-        let _ = crate::manifest::blueprint_columns::decode(&groups);
-        if let Ok(encoded) = crate::artifact::metadata::encode(
-            crate::artifact::format::CHUNK_INDEX_MAGIC,
-            &groups[..2],
-        ) {
-            let _ = crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&encoded);
+        let _ = blueprint_columns::decode(&groups);
+        if let Ok(encoded) = metadata::encode(CHUNK_INDEX_MAGIC, &groups[..2]) {
+            let _ = load_chunk_index_binary_from_bytes(&encoded);
         }
         let _ = bundle::read_bundle(bytes, &CompressionProfile::default());
-        let _ = crate::artifact::loose::read_loose_header(&mut Cursor::new(bytes));
+        let _ = read_loose_header(&mut Cursor::new(bytes));
         for kind in [
             CompressionKind::None,
             CompressionKind::Lz4,
@@ -43,8 +51,8 @@ fn fuzz_binary_decoders() {
                 let _ = reader.take(65537).read_to_end(&mut Vec::new());
             }
         }
-        if let Ok(path) = std::str::from_utf8(bytes) {
-            let _ = crate::filesystem::paths::validate_manifest_relative_path(path, false);
+        if let Ok(path) = from_utf8(bytes) {
+            let _ = validate_manifest_relative_path(path, false);
         }
     });
 }
@@ -71,7 +79,7 @@ fn fuzz_bundle_roundtrip() {
             level: None,
             ..Default::default()
         };
-        let hash = crate::artifact::hash::ChunkHash::from_bytes(*blake3::hash(bytes).as_bytes());
+        let hash = ChunkHash::from_bytes(*blake3::hash(bytes).as_bytes());
         let mut builder = bundle::BundleBuilder::new(profile.clone());
         builder.add_chunk(hash, bytes.to_vec());
         let (id, encoded) = builder.build_with_id().unwrap();
@@ -104,7 +112,7 @@ fn fuzz_blueprint_roundtrip() {
         let chunks = bytes
             .chunks(1 + usize::from(properties))
             .map(|chunk| ChunkRef {
-                chunk_hash: crate::artifact::hash::ChunkHash::of(chunk),
+                chunk_hash: ChunkHash::of(chunk),
                 raw_size: chunk.len() as u32,
             })
             .collect();
@@ -126,28 +134,20 @@ fn fuzz_blueprint_roundtrip() {
                 target_path: "目录/λ🙂".into(),
             }),
         ];
-        let groups = crate::manifest::blueprint_columns::encode(&entries).unwrap();
-        let encoded = crate::artifact::metadata::encode(
-            crate::artifact::format::SNAPSHOT_BLUEPRINT_MAGIC,
-            &groups,
-        )
-        .unwrap();
-        let restored =
-            crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes(&encoded).unwrap();
+        let groups = blueprint_columns::encode(&entries).unwrap();
+        let encoded = metadata::encode(SNAPSHOT_BLUEPRINT_MAGIC, &groups).unwrap();
+        let restored = read_snapshot_blueprint_bytes(&encoded).unwrap();
         assert_eq!(
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&entries),
-            crate::snapshot::identity::compute_snapshot_id_from_entries(&restored)
+            compute_snapshot_id_from_entries(&entries),
+            compute_snapshot_id_from_entries(&restored)
         );
-        assert_eq!(
-            crate::manifest::blueprint_columns::encode(&restored).unwrap(),
-            groups
-        );
+        assert_eq!(blueprint_columns::encode(&restored).unwrap(), groups);
         let mut mutated = groups;
         let group = usize::from(properties) % mutated.len();
         if !mutated[group].is_empty() {
             let offset = bytes.len() % mutated[group].len();
             mutated[group][offset] ^= 1;
-            let _ = crate::manifest::blueprint_columns::decode(&mutated);
+            let _ = blueprint_columns::decode(&mutated);
         }
     });
 }

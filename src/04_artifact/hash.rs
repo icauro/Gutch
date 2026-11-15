@@ -1,6 +1,8 @@
 //! Chunk content hashes and their hex form.
 
 use crate::error::Result;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChunkHash([u8; 32]);
@@ -63,8 +65,8 @@ impl<'de> serde::Deserialize<'de> for ChunkHash {
     }
 }
 
-impl std::fmt::Display for ChunkHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for ChunkHash {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(blake3::Hash::from_bytes(self.0).to_hex().as_str())
     }
 }
@@ -79,14 +81,16 @@ pub fn hash_hex(hash: &blake3::Hash) -> String {
 
 #[cfg(test)]
 pub(crate) fn hex_decode(hex: &str) -> Result<Vec<u8>> {
+    use crate::error::Error;
+
     if !hex.len().is_multiple_of(2) {
-        return Err(crate::error::Error::verify("hex string has odd length"));
+        return Err(Error::verify("hex string has odd length"));
     }
     (0..hex.len())
         .step_by(2)
         .map(|i| {
             u8::from_str_radix(&hex[i..i + 2], 16)
-                .map_err(|e| crate::error::Error::verify(format!("invalid hex: {}", e)))
+                .map_err(|e| Error::verify(format!("invalid hex: {}", e)))
         })
         .collect()
 }

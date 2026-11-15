@@ -2,11 +2,19 @@
 use super::{create_dir_all, read, write};
 use crate::Error;
 use crate::error::promotion_diagnostics::{DirectoryPromotionDiagnostic, PromotionRecoveryAttempt};
+use crate::progress::OperationControl;
+use std::fs;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::fs::TryLockError;
 use std::path::Path;
+use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 use std::time::Instant;
 pub(crate) fn replace_directory(staging_dir: &Path, destination_dir: &Path) -> Result<(), Error> {
     replace_directory_with_cleanup(staging_dir, destination_dir, |backup| {
-        std::fs::remove_dir_all(backup)
+        fs::remove_dir_all(backup)
     })
 }
 
@@ -19,8 +27,8 @@ fn replace_directory_with_cleanup(
     let warning = replace_directory_with_operations(
         staging_dir,
         destination_dir,
-        |from, to| std::fs::rename(from, to),
-        |staging| std::fs::remove_dir_all(staging),
+        |from, to| fs::rename(from, to),
+        |staging| fs::remove_dir_all(staging),
         remove_backup,
     )?;
     if let Some(warning) = warning {
@@ -139,7 +147,7 @@ fn replace_directory_with_operations(
         // the next promotion can retry without reporting this install as failed.
         match remove_backup(backup) {
             Ok(()) => {
-                if let Err(error) = std::fs::remove_file(backup.with_extension("owner")) {
+                if let Err(error) = fs::remove_file(backup.with_extension("owner")) {
                     let mut diagnostic = DirectoryPromotionDiagnostic::capture(
                         "remove_backup_marker",
                         started,
@@ -217,20 +225,19 @@ fn attach_promotion_diagnostic(
 /// Held across staging and promotion, after the operation's path checks.
 pub(crate) fn lock_directory_promotion(
     destination: &Path,
-    control: &crate::progress::OperationControl,
-) -> Result<std::fs::File, Error> {
+    control: &OperationControl,
+) -> Result<File, Error> {
     let backup = promotion_backup_path(destination)?;
     let lock_path = backup.with_extension("lock");
     if let Some(parent) = lock_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)?;
     }
-    if std::fs::symlink_metadata(&lock_path).is_ok_and(|metadata| metadata.file_type().is_symlink())
-    {
+    if fs::symlink_metadata(&lock_path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(Error::manifest(
             "promotion lock must not be a symbolic link",
         ));
     }
-    let file = std::fs::OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
@@ -242,10 +249,8 @@ pub(crate) fn lock_directory_promotion(
         control.checkpoint()?;
         match file.try_lock() {
             Ok(()) => break,
-            Err(std::fs::TryLockError::WouldBlock) => {
-                std::thread::sleep(std::time::Duration::from_millis(25))
-            }
-            Err(std::fs::TryLockError::Error(error)) => {
+            Err(TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(25)),
+            Err(TryLockError::Error(error)) => {
                 return Err(Error::io_context(
                     "locking directory promotion",
                     &lock_path,
@@ -257,7 +262,7 @@ pub(crate) fn lock_directory_promotion(
     Ok(file)
 }
 
-fn promotion_backup_path(destination: &Path) -> Result<std::path::PathBuf, Error> {
+fn promotion_backup_path(destination: &Path) -> Result<PathBuf, Error> {
     let parent = destination
         .parent()
         .ok_or_else(|| Error::manifest("destination has no parent"))?;
@@ -300,16 +305,16 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
     if !read(&backup.with_extension("owner")).is_ok_and(|owner| owner == b"GUTCH_PROMOTION_V1") {
         return Err(Error::manifest("unowned promotion backup exists"));
     }
-    if std::fs::symlink_metadata(&backup)?.file_type().is_symlink() {
+    if fs::symlink_metadata(&backup)?.file_type().is_symlink() {
         return Err(Error::manifest(
             "promotion backup must not be a symbolic link",
         ));
     }
     if destination.exists() {
-        std::fs::remove_dir_all(&backup)
+        fs::remove_dir_all(&backup)
             .map_err(|e| Error::io_context("removing recovered promotion backup", &backup, e))?;
     } else {
-        std::fs::rename(&backup, destination).map_err(|error| {
+        fs::rename(&backup, destination).map_err(|error| {
             Error::io_context(
                 format!("recovering backup {}", backup.display()),
                 destination,
@@ -317,7 +322,7 @@ pub(crate) fn recover_directory_promotion(destination: &Path) -> Result<(), Erro
             )
         })?;
     }
-    std::fs::remove_file(backup.with_extension("owner"))?;
+    fs::remove_file(backup.with_extension("owner"))?;
     Ok(())
 }
 

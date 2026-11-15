@@ -1,6 +1,23 @@
 //! Deterministic test data: seeded files, sources and repository fixtures.
 
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::loose::write_loose_chunk;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::CompressionProfile;
+use crate::manifest::SnapshotManifest;
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::ChunkIndexEntries;
+use crate::repo::index::ChunkIndexEntry;
+use crate::repo::index::write_chunk_index;
+use crate::repo::paths::RepoPaths;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::env::temp_dir;
+use std::fs;
+use std::fs::File;
 use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 
 pub enum Seed {
     Binary,
@@ -37,7 +54,7 @@ impl Rng {
     }
 }
 
-pub fn make_file(path: std::path::PathBuf, size: usize, seed: Seed) {
+pub fn make_file(path: PathBuf, size: usize, seed: Seed) {
     let mut random_generator = Rng::new(match &seed {
         Seed::Binary => 0xdead,
         Seed::Audio => 0xbeef,
@@ -80,17 +97,17 @@ pub fn make_file(path: std::path::PathBuf, size: usize, seed: Seed) {
         }
         Seed::Config => {
             let generated_text = generate_config_json(size);
-            std::fs::write(&path, generated_text.as_bytes()).unwrap();
+            fs::write(&path, generated_text.as_bytes()).unwrap();
             return;
         }
         Seed::Text => {
             let generated_text = generate_text(size);
-            std::fs::write(&path, generated_text.as_bytes()).unwrap();
+            fs::write(&path, generated_text.as_bytes()).unwrap();
             return;
         }
     };
 
-    let mut output_file = std::fs::File::create(&path).unwrap();
+    let mut output_file = File::create(&path).unwrap();
     let mut written = 0usize;
     while written < size {
         let take = pattern.len().min(size - written);
@@ -135,7 +152,7 @@ fn generate_text(size: usize) -> String {
     output_text
 }
 
-pub fn dir_size(dir: &std::path::Path) -> u64 {
+pub fn dir_size(dir: &Path) -> u64 {
     walkdir::WalkDir::new(dir)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -144,19 +161,17 @@ pub fn dir_size(dir: &std::path::Path) -> u64 {
         .sum()
 }
 
-pub fn temp_path(name: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(name)
+pub fn temp_path(name: &str) -> PathBuf {
+    temp_dir().join(name)
 }
 
-pub fn recreate_dir(path: &std::path::Path) {
-    let _ = std::fs::remove_dir_all(path);
-    std::fs::create_dir_all(path).unwrap();
+pub fn recreate_dir(path: &Path) {
+    let _ = fs::remove_dir_all(path);
+    fs::create_dir_all(path).unwrap();
 }
 
-pub(crate) fn chunk_entries(
-    mut entries: std::collections::BTreeMap<String, crate::repo::index::ChunkIndexEntry>,
-) -> crate::repo::index::ChunkIndexEntries {
-    let mut ordinals = std::collections::HashMap::new();
+pub(crate) fn chunk_entries(mut entries: BTreeMap<String, ChunkIndexEntry>) -> ChunkIndexEntries {
+    let mut ordinals = HashMap::new();
     for entry in entries.values_mut() {
         let ordinal = ordinals.entry(entry.bundle_id.clone()).or_insert(0u32);
         entry.chunk_ordinal = *ordinal;
@@ -164,54 +179,37 @@ pub(crate) fn chunk_entries(
     }
     entries
         .into_iter()
-        .map(|(hash, entry)| {
-            (
-                crate::artifact::hash::ChunkHash::parse_hex(&hash).unwrap(),
-                entry,
-            )
-        })
+        .map(|(hash, entry)| (ChunkHash::parse_hex(&hash).unwrap(), entry))
         .collect()
 }
 
-pub(crate) fn loose_bytes(
-    bytes: &[u8],
-    profile: &crate::artifact::profiles::CompressionProfile,
-) -> Vec<u8> {
+pub(crate) fn loose_bytes(bytes: &[u8], profile: &CompressionProfile) -> Vec<u8> {
     let mut encoded = Vec::new();
-    crate::artifact::loose::write_loose_chunk(
-        &mut encoded,
-        crate::artifact::hash::ChunkHash::of(bytes),
-        bytes,
-        profile,
-    )
-    .unwrap();
+    write_loose_chunk(&mut encoded, ChunkHash::of(bytes), bytes, profile).unwrap();
     encoded
 }
 
 /// Populate declared locations for metadata-only fixtures; these tests never decode artifacts.
-pub fn index_manifest(
-    paths: &crate::repo::paths::RepoPaths,
-    manifest: &crate::manifest::SnapshotManifest,
-) {
+pub fn index_manifest(paths: &RepoPaths, manifest: &SnapshotManifest) {
     let entries = manifest
         .files()
         .flat_map(|file| &file.chunks)
         .map(|chunk| {
             (
                 chunk.chunk_hash,
-                crate::repo::index::ChunkIndexEntry::new(
+                ChunkIndexEntry::new(
                     chunk.raw_size,
                     0,
                     chunk.chunk_hash.to_hex().into(),
                     chunk.raw_size,
-                    crate::artifact::profiles::ArtifactStorageMode::Bundled,
+                    ArtifactStorageMode::Bundled,
                 ),
             )
         })
         .collect();
-    crate::repo::index::write_chunk_index(
+    write_chunk_index(
         paths,
-        &crate::repo::index::ChunkIndex {
+        &ChunkIndex {
             format_version: "1".into(),
             entries,
         },

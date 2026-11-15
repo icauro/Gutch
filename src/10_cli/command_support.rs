@@ -11,6 +11,15 @@ use crate::cli::reporting::OptionalOutputPaths;
 use crate::cli::reporting::ReconstructTimingsSummary;
 use crate::cli::reporting::VerifyTimingsSummary;
 use crate::cli::reporting::write_stats_json_output;
+use crate::manifest::SnapshotManifest;
+use crate::manifest::repo_manifest::RepoManifest;
+use crate::profiling::Profiler;
+use crate::repo::paths::RepoPaths;
+use crate::repo::read::load_gutch_repo_manifest;
+use crate::repo::read::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::transfer::types::ArtifactDownload;
+use std::path::Path;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SnapshotCaptureStats {
@@ -167,23 +176,17 @@ pub(crate) struct SnapshotFetchReconstructStats {
 pub(crate) fn write_report<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
-    profile: Option<&crate::profiling::Profiler>,
+    profile: Option<&Profiler>,
 ) -> crate::Result<()> {
     write_stats_json_output(stats_json_out, stats, profile)
 }
 
 pub(crate) fn load_snapshot_manifest_from_repo(
-    repo_root: &std::path::Path,
+    repo_root: &Path,
     snapshot_id: &str,
-) -> crate::Result<(
-    crate::repo::paths::RepoPaths,
-    crate::manifest::repo_manifest::RepoManifest,
-    PathBuf,
-    crate::manifest::SnapshotManifest,
-)> {
-    let (repo_paths, repo_manifest) = crate::repo::read::load_gutch_repo_manifest(repo_root)?;
-    let manifest_path =
-        crate::repo::snapshot_manifests::snapshot_metadata_path(&repo_paths, snapshot_id)?;
+) -> crate::Result<(RepoPaths, RepoManifest, PathBuf, SnapshotManifest)> {
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
     if !manifest_path.exists() {
         return Err(crate::Error::manifest(format!(
             "snapshot metadata not found at {}",
@@ -191,13 +194,13 @@ pub(crate) fn load_snapshot_manifest_from_repo(
         )));
     }
 
-    let snapshot_manifest = crate::repo::read::load_snapshot_manifest(&repo_paths, snapshot_id)?;
+    let snapshot_manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
     Ok((repo_paths, repo_manifest, manifest_path, snapshot_manifest))
 }
 
 pub(crate) fn parse_artifact_downloads(
     artifact_args: &[String],
-) -> crate::Result<Vec<crate::transfer::types::ArtifactDownload>> {
+) -> crate::Result<Vec<ArtifactDownload>> {
     artifact_args
         .iter()
         .map(|artifact_arg| {
@@ -216,7 +219,7 @@ pub(crate) fn parse_artifact_downloads(
                 )));
             }
 
-            Ok(crate::transfer::types::ArtifactDownload {
+            Ok(ArtifactDownload {
                 artifact_id: artifact_id.to_string(),
                 url: url.to_string(),
             })

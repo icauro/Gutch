@@ -4,6 +4,7 @@ pub(crate) mod capture_outcome;
 pub(crate) mod path_validation;
 pub(crate) mod promotion_diagnostics;
 
+use std::path::Path;
 use std::path::PathBuf;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -103,7 +104,7 @@ impl From<zstd::zstd_safe::ErrorCode> for Error {
 impl Error {
     pub(crate) fn io_context(
         operation: impl Into<String>,
-        path: &std::path::Path,
+        path: &Path,
         source: std::io::Error,
     ) -> Self {
         Self::IoContext {
@@ -115,7 +116,7 @@ impl Error {
     }
 
     /// Attach the owning operation without hiding typed integrity or path errors.
-    pub(crate) fn with_io_context(self, operation: &str, path: &std::path::Path) -> Self {
+    pub(crate) fn with_io_context(self, operation: &str, path: &Path) -> Self {
         match self {
             Self::Io(source) => Self::io_context(operation, path, source),
             other => other,

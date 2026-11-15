@@ -2,9 +2,22 @@
 
 use std::path::PathBuf;
 
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::capture::build::types::BuildTimings;
+use crate::cli::output;
+use crate::installation::ReconstructTimings;
+use crate::installation::inspect::VerifyTimings;
+use crate::profiling::ProfileMode;
+use crate::profiling::Profiler;
+use crate::runtime::RuntimePlan;
+use crate::transfer::types::TransferStats;
 use serde::Serialize;
+use std::fmt::Display;
+use std::fs;
+use std::path::Path;
+use std::time::Duration;
 
-fn secs(d: std::time::Duration) -> f64 {
+fn secs(d: Duration) -> f64 {
     d.as_secs_f64()
 }
 
@@ -12,7 +25,7 @@ fn mib(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
 }
 
-fn mib_per_s(bytes: u64, d: std::time::Duration) -> f64 {
+fn mib_per_s(bytes: u64, d: Duration) -> f64 {
     let secs = d.as_secs_f64();
     if secs <= f64::EPSILON {
         0.0
@@ -21,16 +34,16 @@ fn mib_per_s(bytes: u64, d: std::time::Duration) -> f64 {
     }
 }
 
-fn duration_sum(values: &[std::time::Duration]) -> std::time::Duration {
+fn duration_sum(values: &[Duration]) -> Duration {
     values.iter().copied().sum()
 }
 
 fn print_section_title(title: &str) {
-    crate::cli::output::line(format_args!("== {} ==", title));
+    output::line(format_args!("== {} ==", title));
 }
 
-fn print_metric_line(label: &str, value: impl std::fmt::Display) {
-    crate::cli::output::line(format_args!("  {label:<22} {value}"));
+fn print_metric_line(label: &str, value: impl Display) {
+    output::line(format_args!("  {label:<22} {value}"));
 }
 
 const TABLE_PHASE_WIDTH: usize = 24;
@@ -53,7 +66,7 @@ fn fit_table_cell(value: &str, width: usize) -> String {
 }
 
 fn print_table_border() {
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "  +{}+{}+{}+{}+",
         "-".repeat(TABLE_PHASE_WIDTH + 2),
         "-".repeat(TABLE_SECONDS_WIDTH + 2),
@@ -91,7 +104,7 @@ fn print_table_cells(phase: &str, seconds: &str, bytes: &str, throughput: &str) 
     let seconds = fit_table_cell(seconds, TABLE_SECONDS_WIDTH);
     let bytes = fit_table_cell(bytes, TABLE_BYTES_WIDTH);
     let throughput = fit_table_cell(throughput, TABLE_THROUGHPUT_WIDTH);
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "  | {phase:<phase_width$} | {seconds:>seconds_width$} | {bytes:<bytes_width$} | {throughput:>throughput_width$} |",
         phase_width = TABLE_PHASE_WIDTH,
         seconds_width = TABLE_SECONDS_WIDTH,
@@ -101,7 +114,7 @@ fn print_table_cells(phase: &str, seconds: &str, bytes: &str, throughput: &str) 
     print_table_border();
 }
 
-pub(crate) fn print_profile_summary(profile: Option<&crate::profiling::Profiler>) {
+pub(crate) fn print_profile_summary(profile: Option<&Profiler>) {
     let Some(profile) = profile else {
         return;
     };
@@ -123,24 +136,24 @@ pub(crate) fn print_profile_summary(profile: Option<&crate::profiling::Profiler>
             spans.iter().map(|span| span.total_seconds).sum::<f64>()
         ),
     );
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "  +--------------------------------------+----------+------------+------------+"
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "  | {:<36} | {:>8} | {:>10} | {:>10} |",
         "span", "count", "sum", "max"
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "  +--------------------------------------+----------+------------+------------+"
     ));
     for span in spans.into_iter().take(24) {
         let name = fit_table_cell(span.name, 36);
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "  | {:<36} | {:>8} | {:>9.3} s | {:>9.3} s |",
             name, span.count, span.total_seconds, span.maximum_seconds
         ));
     }
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "  +--------------------------------------+----------+------------+------------+"
     ));
     print_metric_line(
@@ -162,13 +175,13 @@ pub(crate) struct RuntimePlanSummary {
     worker_count: Option<usize>,
 }
 
-fn runtime_plan_summary(plan: Option<&crate::runtime::RuntimePlan>) -> RuntimePlanSummary {
+fn runtime_plan_summary(plan: Option<&RuntimePlan>) -> RuntimePlanSummary {
     RuntimePlanSummary {
         worker_count: plan.map(|plan| plan.worker_count),
     }
 }
 
-fn wall_timing_fields(total: std::time::Duration, parts: &[std::time::Duration]) -> (f64, f64) {
+fn wall_timing_fields(total: Duration, parts: &[Duration]) -> (f64, f64) {
     let total_seconds = secs(total);
     let unaccounted_seconds = total_seconds - secs(duration_sum(parts));
     debug_assert!(unaccounted_seconds >= -1e-9);
@@ -354,10 +367,10 @@ pub(crate) struct WallTimingPhaseSummary {
 }
 
 pub(crate) fn build_timings_summary(
-    timings: &crate::capture::build::types::BuildTimings,
-    mode: crate::profiling::ProfileMode,
+    timings: &BuildTimings,
+    mode: ProfileMode,
 ) -> BuildTimingsSummary {
-    let detailed = mode == crate::profiling::ProfileMode::Detailed;
+    let detailed = mode == ProfileMode::Detailed;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -368,7 +381,7 @@ pub(crate) fn build_timings_summary(
         ],
     );
     let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
-    let bundled = timings.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled;
+    let bundled = timings.storage_mode == ArtifactStorageMode::Bundled;
 
     BuildTimingsSummary {
         schema_version: 1,
@@ -493,10 +506,10 @@ pub(crate) fn build_timings_summary(
 }
 
 pub(crate) fn reconstruct_timings_summary(
-    timings: &crate::installation::ReconstructTimings,
-    mode: crate::profiling::ProfileMode,
+    timings: &ReconstructTimings,
+    mode: ProfileMode,
 ) -> ReconstructTimingsSummary {
-    let detailed = mode == crate::profiling::ProfileMode::Detailed;
+    let detailed = mode == ProfileMode::Detailed;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -573,10 +586,10 @@ pub(crate) fn reconstruct_timings_summary(
 }
 
 pub(crate) fn verify_timings_summary(
-    timings: &crate::installation::inspect::VerifyTimings,
-    mode: crate::profiling::ProfileMode,
+    timings: &VerifyTimings,
+    mode: ProfileMode,
 ) -> VerifyTimingsSummary {
-    let detailed = mode == crate::profiling::ProfileMode::Detailed;
+    let detailed = mode == ProfileMode::Detailed;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -634,11 +647,11 @@ pub(crate) fn optional_output_paths(stats_json_out: &Option<PathBuf>) -> Optiona
     }
 }
 
-pub(crate) fn ensure_parent_directory(path: &std::path::Path) -> crate::Result<()> {
+pub(crate) fn ensure_parent_directory(path: &Path) -> crate::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)?;
     }
 
     Ok(())
@@ -647,21 +660,21 @@ pub(crate) fn ensure_parent_directory(path: &std::path::Path) -> crate::Result<(
 pub(crate) fn write_stats_json_output<T: Serialize>(
     stats_json_out: &Option<PathBuf>,
     stats: &T,
-    profile: Option<&crate::profiling::Profiler>,
+    profile: Option<&Profiler>,
 ) -> crate::Result<()> {
     let mut value = serde_json::to_value(stats)?;
     let mode = profile.map(|p| p.mode()).unwrap_or_default();
     value["profiling_mode"] = serde_json::to_value(mode)?;
     let json = serde_json::to_string_pretty(&value)?;
-    crate::cli::output::record(&value)?;
+    output::record(&value)?;
     if let Some(stats_json_out) = stats_json_out {
         ensure_parent_directory(stats_json_out)?;
-        std::fs::write(stats_json_out, json)?;
+        fs::write(stats_json_out, json)?;
     }
     Ok(())
 }
 
-pub(crate) fn print_transfer_timings(t: &crate::transfer::types::TransferStats) {
+pub(crate) fn print_transfer_timings(t: &TransferStats) {
     print_section_title("Fetch Transfer Timing");
     print_table_header("wall seconds");
     print_table_row(
@@ -687,15 +700,10 @@ pub(crate) fn print_transfer_timings(t: &crate::transfer::types::TransferStats) 
 #[path = "reporting_tests.rs"]
 mod tests;
 
-pub(crate) fn profile_mode(
-    profile: Option<&crate::profiling::Profiler>,
-) -> crate::profiling::ProfileMode {
+pub(crate) fn profile_mode(profile: Option<&Profiler>) -> ProfileMode {
     profile.map(|profile| profile.mode()).unwrap_or_default()
 }
 
-pub(crate) fn diagnostic_seconds(
-    duration: std::time::Duration,
-    profile: Option<&crate::profiling::Profiler>,
-) -> Option<f64> {
-    (profile_mode(profile) == crate::profiling::ProfileMode::Detailed).then_some(secs(duration))
+pub(crate) fn diagnostic_seconds(duration: Duration, profile: Option<&Profiler>) -> Option<f64> {
+    (profile_mode(profile) == ProfileMode::Detailed).then_some(secs(duration))
 }

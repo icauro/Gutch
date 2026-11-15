@@ -26,7 +26,10 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::Result;
+use crate::filesystem;
+use crate::filesystem::from_json_str;
 use crate::manifest::SnapshotTagSet;
+use std::fs;
 
 pub const SOURCE_CONFIG_FILE_NAME: &str = ".gutch_source_config.json";
 
@@ -95,8 +98,8 @@ impl SourceConfig {
         if !path.is_file() {
             return Ok(None);
         }
-        let text = crate::filesystem::read_to_string(&path)?;
-        let config: Self = crate::filesystem::from_json_str(&text)?;
+        let text = filesystem::read_to_string(&path)?;
+        let config: Self = from_json_str(&text)?;
         Ok(Some(config))
     }
 
@@ -120,7 +123,7 @@ impl SourceConfig {
         let path = source_root.join(SOURCE_CONFIG_FILE_NAME);
         let text = serde_json::to_string_pretty(self)
             .map_err(|err| Error::manifest(format!("serialize source config: {err}")))?;
-        crate::filesystem::write(&path, text)
+        filesystem::write(&path, text)
     }
 
     /// Resolve the snapshot sources for this config under `source_root`.
@@ -154,7 +157,7 @@ impl SourceConfig {
             )));
         }
         let mut snapshots = Vec::new();
-        for entry in std::fs::read_dir(source_root)? {
+        for entry in fs::read_dir(source_root)? {
             let entry = entry?;
             let path = entry.path();
             if !path.is_dir() {

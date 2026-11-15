@@ -14,6 +14,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use std::fs;
+use std::fs::File;
 use trace::TraceArguments;
 
 pub(crate) type Arguments = BTreeMap<String, serde_json::Value>;
@@ -266,7 +268,7 @@ impl Profiler {
             ));
         }
         self.state.finished.store(true, Ordering::Release);
-        std::fs::create_dir_all(directory)?;
+        fs::create_dir_all(directory)?;
         let started = Instant::now();
         let trace_result = if self.mode() == ProfileMode::Detailed {
             self.write_trace(&directory.join("trace.json"))
@@ -280,8 +282,7 @@ impl Profiler {
             "trace_export_seconds": started.elapsed().as_secs_f64(),
             "duration_semantics": "inclusive spans; nested spans overlap; recording limits may omit jobs",
         });
-        let mut summary_output =
-            BufWriter::new(std::fs::File::create(directory.join("summary.json"))?);
+        let mut summary_output = BufWriter::new(File::create(directory.join("summary.json"))?);
         serde_json::to_writer_pretty(&mut summary_output, &report)?;
         summary_output.flush()?;
         trace_result

@@ -8,8 +8,13 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::Result;
+use crate::artifact::hash::ChunkHash;
+use crate::filesystem;
+use crate::filesystem::from_json_str;
+use crate::filesystem::write_json;
 use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::repo_manifest::RepoManifest;
+use std::fs;
 
 #[derive(Debug, Clone)]
 pub struct RepoPaths {
@@ -64,18 +69,18 @@ pub(crate) fn validate_path_component(value: &str, label: &str) -> Result<()> {
 }
 
 pub(crate) fn ensure_gutch_repo_layout(paths: &RepoPaths, name: &str) -> Result<RepoManifest> {
-    crate::filesystem::create_dir_all(&paths.snapshots_root)?;
-    crate::filesystem::create_dir_all(&paths.bundles_root)?;
-    crate::filesystem::create_dir_all(&paths.chunks_root)?;
+    filesystem::create_dir_all(&paths.snapshots_root)?;
+    filesystem::create_dir_all(&paths.bundles_root)?;
+    filesystem::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_metadata_path.exists() {
-        let repo_manifest_json = crate::filesystem::read_to_string(&paths.repo_metadata_path)?;
-        let mut manifest: RepoManifest = crate::filesystem::from_json_str(&repo_manifest_json)?;
+        let repo_manifest_json = filesystem::read_to_string(&paths.repo_metadata_path)?;
+        let mut manifest: RepoManifest = from_json_str(&repo_manifest_json)?;
         apply_local_repo_config(paths, &mut manifest)?;
         manifest
     } else {
         let repo_manifest = RepoManifest::new(name.to_string());
-        crate::filesystem::write_json(&paths.repo_metadata_path, &repo_manifest)?;
+        write_json(&paths.repo_metadata_path, &repo_manifest)?;
         repo_manifest
     };
 
@@ -90,8 +95,8 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoMani
             paths.repo_metadata_path.display()
         )));
     }
-    let repo_manifest_json = crate::filesystem::read_to_string(&paths.repo_metadata_path)?;
-    let mut repo_manifest: RepoManifest = crate::filesystem::from_json_str(&repo_manifest_json)?;
+    let repo_manifest_json = filesystem::read_to_string(&paths.repo_metadata_path)?;
+    let mut repo_manifest: RepoManifest = from_json_str(&repo_manifest_json)?;
     if let Some(constraints) = &repo_manifest.constraints {
         constraints.validate_definition()?;
     }
@@ -103,13 +108,13 @@ pub(crate) fn write_gutch_repo_manifest(
     paths: &RepoPaths,
     repo_manifest: &RepoManifest,
 ) -> Result<()> {
-    crate::filesystem::write_json(&paths.repo_metadata_path, repo_manifest)?;
+    write_json(&paths.repo_metadata_path, repo_manifest)?;
     if repo_manifest.remote_repo_id.is_empty() {
         if paths.local_repo_config_path.exists() {
-            std::fs::remove_file(&paths.local_repo_config_path)?;
+            fs::remove_file(&paths.local_repo_config_path)?;
         }
     } else {
-        crate::filesystem::write_json(
+        write_json(
             &paths.local_repo_config_path,
             &LocalRepoConfig {
                 remote_repo_id: repo_manifest.remote_repo_id.clone(),
@@ -129,9 +134,8 @@ fn apply_local_repo_config(paths: &RepoPaths, manifest: &mut RepoManifest) -> Re
     if !paths.local_repo_config_path.exists() {
         return Ok(());
     }
-    let config: LocalRepoConfig = crate::filesystem::from_json_str(
-        &crate::filesystem::read_to_string(&paths.local_repo_config_path)?,
-    )?;
+    let config: LocalRepoConfig =
+        from_json_str(&filesystem::read_to_string(&paths.local_repo_config_path)?)?;
     manifest.remote_repo_id = config.remote_repo_id;
     Ok(())
 }
@@ -158,7 +162,7 @@ pub(crate) fn chunk_path(paths: &RepoPaths, chunk_hash: &str) -> Result<PathBuf>
 
 pub(crate) fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {
     let bundle_id = path.file_name().and_then(|value| value.to_str())?;
-    crate::artifact::hash::ChunkHash::parse_hex(bundle_id).ok()?;
+    ChunkHash::parse_hex(bundle_id).ok()?;
     Some(bundle_id.to_string())
 }
 

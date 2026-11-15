@@ -9,9 +9,17 @@ mod pipeline;
 pub(crate) mod publish;
 mod workers;
 
+use crate::filesystem::directory::replace_directory;
+use crate::filesystem::paths::validate_destination_paths;
+use crate::installation::contracts::ReconstructTimings;
+use crate::installation::contracts::SnapshotRepairResult;
 use crate::installation::contracts::{InstallationReconstructResult, SnapshotReconstructResult};
+use crate::installation::inspect::VerifyTimings;
+use crate::installation::staging::create_snapshot_staging;
+use crate::installation::staging::default_snapshot_staging_dir;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::profiling::ProfileInstant;
+use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
 use crate::{Error, Result};
 use entries::{finalize_snapshot_entries, prepare_snapshot_entries};
@@ -21,10 +29,7 @@ use std::path::Path;
 pub(crate) fn apply_reconstruct_pipeline(
     request: ReconstructPipelineApplyRequest<'_>,
     pipeline_plan: ReconstructPipelinePlan,
-) -> Result<(
-    InstallationReconstructResult,
-    Option<crate::installation::contracts::SnapshotRepairResult>,
-)> {
+) -> Result<(InstallationReconstructResult, Option<SnapshotRepairResult>)> {
     let _output_stage = request.control.output_stage();
     request.control.checkpoint()?;
     let operation_started_at = ProfileInstant::start(request.control.profiler());
@@ -40,7 +45,7 @@ pub(crate) fn apply_reconstruct_pipeline(
             .control
             .profile_span("installation.reconstruct.prepare.pool");
         Some(
-            crate::runtime::build_thread_pool(reconstruct_worker_count, "Reconstruction worker")
+            build_thread_pool(reconstruct_worker_count, "Reconstruction worker")
                 .map_err(|error| Error::reconstruct(error.to_string()))?,
         )
     };
@@ -52,12 +57,12 @@ pub(crate) fn apply_reconstruct_pipeline(
             .staging_dir
             .map(Path::to_path_buf)
             .unwrap_or_else(|| {
-                crate::installation::staging::default_snapshot_staging_dir(
+                default_snapshot_staging_dir(
                     request.destination_dir,
                     &request.snapshot_manifest.snapshot_id,
                 )
             });
-        crate::filesystem::paths::validate_destination_paths(
+        validate_destination_paths(
             request.destination_dir,
             request
                 .snapshot_manifest
@@ -66,7 +71,7 @@ pub(crate) fn apply_reconstruct_pipeline(
                 .map(|entry| entry.path()),
         )?;
         // tempfile appends a six-character random suffix to the operation prefix.
-        crate::filesystem::paths::validate_destination_paths(
+        validate_destination_paths(
             &staging_dir.join(".gutch-operation-XXXXXX"),
             request
                 .snapshot_manifest
@@ -74,7 +79,7 @@ pub(crate) fn apply_reconstruct_pipeline(
                 .iter()
                 .map(|entry| entry.path()),
         )?;
-        crate::installation::staging::create_snapshot_staging(
+        create_snapshot_staging(
             request.destination_dir,
             &staging_dir,
             request.repo_root,
@@ -83,7 +88,7 @@ pub(crate) fn apply_reconstruct_pipeline(
     };
     let staging_dir = staging.path().to_path_buf();
 
-    (|| -> Result<(InstallationReconstructResult, Option<crate::installation::contracts::SnapshotRepairResult>)> {
+    (|| -> Result<(InstallationReconstructResult, Option<SnapshotRepairResult>)> {
         let output_paths = {
             let _prepare_span = request
                 .control
@@ -121,21 +126,34 @@ pub(crate) fn apply_reconstruct_pipeline(
             self::publish::Publication::ReplaceDirectory => {
                 let started = ProfileInstant::start(request.control.profiler());
                 {
-                    let _span = request.control.profile_span("installation.reconstruct.finalize.entries");
-                    finalize_snapshot_entries(request.snapshot_manifest, &staging_dir, request.control,
-                        reconstruct_worker_count, reconstruct_pool.as_ref())?;
+                    let _span = request
+                        .control
+                        .profile_span("installation.reconstruct.finalize.entries");
+                    finalize_snapshot_entries(
+                        request.snapshot_manifest,
+                        &staging_dir,
+                        request.control,
+                        reconstruct_worker_count,
+                        reconstruct_pool.as_ref(),
+                    )?;
                 }
                 reconstruct_timings.finalize_wall = started.elapsed();
                 let started = ProfileInstant::start(request.control.profiler());
                 {
-                    let _span = request.control.profile_span("installation.reconstruct.finalize.promote");
+                    let _span = request
+                        .control
+                        .profile_span("installation.reconstruct.finalize.promote");
                     request.control.checkpoint()?;
-                    crate::filesystem::directory::replace_directory(&staging_dir, request.destination_dir)?;
+                    replace_directory(&staging_dir, request.destination_dir)?;
                 }
                 reconstruct_timings.promote_wall = started.elapsed();
                 None
             }
-            self::publish::Publication::Selective { target, changes, remove_extra_files } => {
+            self::publish::Publication::Selective {
+                target,
+                changes,
+                remove_extra_files,
+            } => {
                 let started = ProfileInstant::start(request.control.profiler());
                 let result = self::publish::finalize_repair_result_after_reconstruction(
                     self::publish::FinalizeRepairRequest {
@@ -154,26 +172,29 @@ pub(crate) fn apply_reconstruct_pipeline(
             }
         };
         reconstruct_timings.total = operation_started_at.elapsed();
-        Ok((InstallationReconstructResult {
-            repo_root: request.repo_root.to_path_buf(),
-            snapshot_manifest: request.snapshot_manifest.clone(),
-            reconstruct_result: build_snapshot_reconstruct_result(
-                BuildSnapshotReconstructResultRequest {
-                    snapshot_manifest: request.snapshot_manifest,
-                    destination_dir: request.destination_dir,
-                    staging_dir: &staging_dir,
-                    reused_source_chunk_count,
-                    required_chunk_count,
-                    required_bundle_count,
-                    required_artifact_count,
-                    reconstruct_timings,
-                    verify_timings,
-                },
-            ),
-            resolved_bundle_file_count: required_bundle_count,
-            resolved_artifact_file_count: required_artifact_count,
-            source_destination_dir: request.source_destination_dir.clone(),
-        }, repair_result))
+        Ok((
+            InstallationReconstructResult {
+                repo_root: request.repo_root.to_path_buf(),
+                snapshot_manifest: request.snapshot_manifest.clone(),
+                reconstruct_result: build_snapshot_reconstruct_result(
+                    BuildSnapshotReconstructResultRequest {
+                        snapshot_manifest: request.snapshot_manifest,
+                        destination_dir: request.destination_dir,
+                        staging_dir: &staging_dir,
+                        reused_source_chunk_count,
+                        required_chunk_count,
+                        required_bundle_count,
+                        required_artifact_count,
+                        reconstruct_timings,
+                        verify_timings,
+                    },
+                ),
+                resolved_bundle_file_count: required_bundle_count,
+                resolved_artifact_file_count: required_artifact_count,
+                source_destination_dir: request.source_destination_dir.clone(),
+            },
+            repair_result,
+        ))
     })()
 }
 
@@ -185,8 +206,8 @@ pub(crate) struct BuildSnapshotReconstructResultRequest<'a> {
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,
     pub required_artifact_count: usize,
-    pub reconstruct_timings: crate::installation::contracts::ReconstructTimings,
-    pub verify_timings: crate::installation::inspect::VerifyTimings,
+    pub reconstruct_timings: ReconstructTimings,
+    pub verify_timings: VerifyTimings,
 }
 
 pub(crate) fn build_snapshot_reconstruct_result(

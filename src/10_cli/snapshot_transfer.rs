@@ -1,19 +1,43 @@
 //! `snapshot fetch` commands and artifact URL inputs.
 
+use crate::cli::Profile;
 use crate::cli::command_support::SnapshotFetchReconstructStats;
 use crate::cli::command_support::parse_artifact_downloads;
 use crate::cli::command_support::write_report;
+use crate::cli::control_with_profile;
+use crate::cli::output;
 use crate::cli::progress::CliProgressSink;
+use crate::cli::reporting::optional_output_paths;
+use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::print_transfer_timings;
+use crate::cli::reporting::profile_mode;
+use crate::cli::reporting::ratio_pct;
+use crate::cli::reporting::reconstruct_timings_summary;
+use crate::cli::reporting::verify_timings_summary;
 use crate::cli::verbose_output_enabled;
+use crate::installation::fetch::SnapshotFetchAndReconstructRequest;
+use crate::installation::fetch::SnapshotFetchAndReconstructResult;
+use crate::installation::fetch::fetch_and_reconstruct_snapshot;
+use crate::progress::OperationControl;
+use crate::runtime::RuntimeResourceHints;
+use crate::sync::fetch::fetch_snapshot;
+use crate::sync::fetch_types::SnapshotFetchRequest;
+use crate::transfer::http::read_bounded_response;
+use crate::transfer::types::ArtifactDownload;
+use crate::transfer::types::ArtifactUrlProvider;
+use crate::transfer::types::TransferConcurrencyPolicy;
 use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 const MAX_BUNDLE_URL_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
 pub(crate) struct FetchCommand {
-    pub(crate) repo: std::path::PathBuf,
+    pub(crate) repo: PathBuf,
     pub(crate) snapshot_id: String,
     pub(crate) metadata_url: String,
     pub(crate) product_metadata_url: Option<String>,
@@ -23,15 +47,12 @@ pub(crate) struct FetchCommand {
     pub(crate) bundle_downloads_endpoint: Option<String>,
     pub(crate) session_id: Option<String>,
     pub(crate) artifacts: Vec<String>,
-    pub(crate) artifact_url_manifest: Option<std::path::PathBuf>,
-    pub(crate) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
+    pub(crate) artifact_url_manifest: Option<PathBuf>,
+    pub(crate) transfer_policy: TransferConcurrencyPolicy,
 }
 
 impl FetchCommand {
-    fn into_request(
-        self,
-        control: crate::progress::OperationControl,
-    ) -> crate::Result<crate::sync::fetch_types::SnapshotFetchRequest> {
+    fn into_request(self, control: OperationControl) -> crate::Result<SnapshotFetchRequest> {
         let FetchCommand {
             repo,
             snapshot_id,
@@ -57,8 +78,8 @@ impl FetchCommand {
                         crate::Error::manifest(format!("failed to create download client: {err}"))
                     })?;
                 let session_id = session_id.clone();
-                Ok::<Arc<dyn crate::transfer::types::ArtifactUrlProvider>, crate::Error>(Arc::new(
-                    move |bundle_ids: &[String], control: &crate::progress::OperationControl| {
+                Ok::<Arc<dyn ArtifactUrlProvider>, crate::Error>(Arc::new(
+                    move |bundle_ids: &[String], control: &OperationControl| {
                         resolve_artifact_urls(
                             &client,
                             &endpoint,
@@ -74,7 +95,7 @@ impl FetchCommand {
         if let Some(manifest_path) = artifact_url_manifest {
             direct_downloads.extend(parse_artifact_url_manifest(&manifest_path)?);
         }
-        Ok(crate::sync::fetch_types::SnapshotFetchRequest {
+        Ok(SnapshotFetchRequest {
             repo_path: repo,
             snapshot_id,
             repo_metadata_url,
@@ -90,32 +111,32 @@ impl FetchCommand {
     }
 }
 
-pub(crate) fn fetch(command: FetchCommand, profile: &crate::cli::Profile) -> crate::Result<()> {
+pub(crate) fn fetch(command: FetchCommand, profile: &Profile) -> crate::Result<()> {
     let progress = CliProgressSink::new();
-    let result = crate::sync::fetch::fetch_snapshot(
-        &command.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?,
+    let result = fetch_snapshot(
+        &command.into_request(control_with_profile(profile).with_progress(progress))?,
     )?;
 
-    crate::cli::output::record(
+    output::record(
         &serde_json::json!({"snapshot_id": result.snapshot_id, "required_artifact_count": result.required_artifact_count, "downloaded_artifact_count": result.downloaded_artifact_count, "skipped_existing_artifact_count": result.skipped_existing_artifact_count}),
     )?;
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "Fetched {} artifacts for {}",
         result.downloaded_artifact_count, result.snapshot_id
     ));
     if verbose_output_enabled() {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "fetched snapshot data for {} into {}",
             result.snapshot_id,
             result.repo_path.display()
         ));
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "bundles: required={}, downloaded={}, existing={}",
             result.required_bundle_count,
             result.downloaded_bundle_count,
             result.skipped_existing_bundle_count
         ));
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "bundles: required={}, downloaded={}, existing={}",
             result.required_artifact_count,
             result.downloaded_artifact_count,
@@ -124,24 +145,24 @@ pub(crate) fn fetch(command: FetchCommand, profile: &crate::cli::Profile) -> cra
         print_transfer_timings(&result.transfer_stats);
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        print_profile_summary(profile.as_deref());
     }
     Ok(())
 }
 
 pub(crate) struct FetchAndReconstructCommand {
     pub(crate) fetch: FetchCommand,
-    pub(crate) destination: std::path::PathBuf,
-    pub(crate) staging_dir: Option<std::path::PathBuf>,
+    pub(crate) destination: PathBuf,
+    pub(crate) staging_dir: Option<PathBuf>,
     pub(crate) source_snapshot_id: Option<String>,
-    pub(crate) source_dir: Option<std::path::PathBuf>,
-    pub(crate) runtime_hints: crate::runtime::RuntimeResourceHints,
-    pub(crate) stats_json_out: Option<std::path::PathBuf>,
+    pub(crate) source_dir: Option<PathBuf>,
+    pub(crate) runtime_hints: RuntimeResourceHints,
+    pub(crate) stats_json_out: Option<PathBuf>,
 }
 
 pub(crate) fn fetch_and_reconstruct(
     command: FetchAndReconstructCommand,
-    profile: &crate::cli::Profile,
+    profile: &Profile,
 ) -> crate::Result<()> {
     let FetchAndReconstructCommand {
         fetch,
@@ -154,24 +175,22 @@ pub(crate) fn fetch_and_reconstruct(
     } = command;
     let progress = CliProgressSink::new();
     let fetch_request =
-        fetch.into_request(crate::cli::control_with_profile(profile).with_progress(progress))?;
-    let result = crate::installation::fetch::fetch_and_reconstruct_snapshot(
-        crate::installation::fetch::SnapshotFetchAndReconstructRequest {
-            fetch_request,
-            destination_dir: destination,
-            staging_dir,
-            source_snapshot_id: source_snapshot_id.clone(),
-            source_dir: source_dir.clone(),
-            runtime_hints,
-        },
-    )?;
-    let crate::installation::fetch::SnapshotFetchAndReconstructResult {
+        fetch.into_request(control_with_profile(profile).with_progress(progress))?;
+    let result = fetch_and_reconstruct_snapshot(SnapshotFetchAndReconstructRequest {
+        fetch_request,
+        destination_dir: destination,
+        staging_dir,
+        source_snapshot_id: source_snapshot_id.clone(),
+        source_dir: source_dir.clone(),
+        runtime_hints,
+    })?;
+    let SnapshotFetchAndReconstructResult {
         fetch_result,
         reconstruct_result: reconstruct_execution,
     } = result;
     let snapshot_manifest = reconstruct_execution.snapshot_manifest;
     let reconstruct = reconstruct_execution.reconstruct_result;
-    let reused_source_chunk_percent = crate::cli::reporting::ratio_pct(
+    let reused_source_chunk_percent = ratio_pct(
         reconstruct.reused_source_chunk_count as u64,
         reconstruct.required_chunk_count as u64,
     );
@@ -207,24 +226,24 @@ pub(crate) fn fetch_and_reconstruct(
         reused_source_chunk_percent,
         total_logical_size: snapshot_manifest.total_logical_size,
         total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
-        reconstruct_timings: crate::cli::reporting::reconstruct_timings_summary(
+        reconstruct_timings: reconstruct_timings_summary(
             &reconstruct.reconstruct_timings,
-            crate::cli::reporting::profile_mode(profile.as_deref()),
+            profile_mode(profile.as_deref()),
         ),
-        verify_timings: crate::cli::reporting::verify_timings_summary(
+        verify_timings: verify_timings_summary(
             &reconstruct.verify_timings,
-            crate::cli::reporting::profile_mode(profile.as_deref()),
+            profile_mode(profile.as_deref()),
         ),
-        outputs: crate::cli::reporting::optional_output_paths(&stats_json_out),
+        outputs: optional_output_paths(&stats_json_out),
     };
     write_report(&stats_json_out, &stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "downloaded and reconstructed snapshot {} to {}",
             stats.snapshot_id, stats.destination_dir
         ));
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "bundles: required={}, downloaded={}, existing={}",
             stats.required_artifact_count,
             stats.downloaded_artifact_count,
@@ -233,7 +252,7 @@ pub(crate) fn fetch_and_reconstruct(
         print_transfer_timings(&fetch_result.transfer_stats);
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        print_profile_summary(profile.as_deref());
     }
     Ok(())
 }
@@ -243,8 +262,8 @@ fn resolve_artifact_urls(
     endpoint: &str,
     session_id: Option<&str>,
     bundle_ids: &[String],
-    control: &crate::progress::OperationControl,
-) -> crate::Result<Vec<crate::transfer::types::ArtifactDownload>> {
+    control: &OperationControl,
+) -> crate::Result<Vec<ArtifactDownload>> {
     control.checkpoint()?;
     let separator = if endpoint.contains('?') { "&" } else { "?" };
     let request_url = format!(
@@ -264,11 +283,9 @@ fn resolve_artifact_urls(
             response.status()
         )));
     }
-    let bytes = crate::transfer::http::read_bounded_response(
-        response,
-        MAX_BUNDLE_URL_RESPONSE_BYTES,
-        || control.checkpoint(),
-    )?;
+    let bytes = read_bounded_response(response, MAX_BUNDLE_URL_RESPONSE_BYTES, || {
+        control.checkpoint()
+    })?;
     // This endpoint uses bundle terminology; adapt its wire contract here.
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -285,24 +302,21 @@ fn resolve_artifact_urls(
     Ok(serde_json::from_slice::<BundleUrlsResponse>(&bytes)?
         .bundles
         .into_iter()
-        .map(|bundle| crate::transfer::types::ArtifactDownload {
+        .map(|bundle| ArtifactDownload {
             artifact_id: bundle.bundle_id,
             url: bundle.url,
         })
         .collect())
 }
 
-fn parse_artifact_url_manifest(
-    path: &std::path::Path,
-) -> crate::Result<Vec<crate::transfer::types::ArtifactDownload>> {
-    let bytes = std::fs::read(path)?;
-    let urls = serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&bytes)
-        .map_err(|error| {
-            crate::Error::manifest(format!(
-                "invalid artifact URL manifest '{}': {error}",
-                path.display()
-            ))
-        })?;
+fn parse_artifact_url_manifest(path: &Path) -> crate::Result<Vec<ArtifactDownload>> {
+    let bytes = fs::read(path)?;
+    let urls = serde_json::from_slice::<BTreeMap<String, String>>(&bytes).map_err(|error| {
+        crate::Error::manifest(format!(
+            "invalid artifact URL manifest '{}': {error}",
+            path.display()
+        ))
+    })?;
     urls.into_iter()
         .map(|(artifact_id, url)| {
             if artifact_id.trim().is_empty() || url.trim().is_empty() {
@@ -311,7 +325,7 @@ fn parse_artifact_url_manifest(
                     path.display()
                 )));
             }
-            Ok(crate::transfer::types::ArtifactDownload { artifact_id, url })
+            Ok(ArtifactDownload { artifact_id, url })
         })
         .collect()
 }

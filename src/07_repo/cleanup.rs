@@ -8,11 +8,14 @@ use crate::Result;
 
 use super::inventory::list_repo_artifact_paths;
 use super::inventory::list_repo_snapshot_ids;
+use crate::progress::OperationControl;
+use crate::repo::artifacts::required_artifacts;
 use crate::repo::index::load_chunk_index;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::validate_snapshot_id;
+use std::fs;
 
 pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> Result<()> {
     validate_snapshot_id(snapshot_id)?;
@@ -33,14 +36,14 @@ pub(crate) fn remove_snapshot_from_repo(repo_root: &Path, snapshot_id: &str) -> 
             staged_snapshot_dir.display()
         )));
     }
-    std::fs::rename(snapshot_dir, &staged_snapshot_dir)?;
-    std::fs::remove_dir_all(staged_snapshot_dir)?;
+    fs::rename(snapshot_dir, &staged_snapshot_dir)?;
+    fs::remove_dir_all(staged_snapshot_dir)?;
     Ok(())
 }
 
 pub(crate) fn cleanup_orphan_artifacts_in_repo(
     repo_root: &Path,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<usize> {
     let orphan_paths = plan_orphan_artifact_cleanup(repo_root, None, control)?;
     remove_orphan_artifacts(&orphan_paths, control)
@@ -49,7 +52,7 @@ pub(crate) fn cleanup_orphan_artifacts_in_repo(
 pub(crate) fn plan_orphan_artifact_cleanup(
     repo_root: &Path,
     excluded_snapshot: Option<&str>,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<Vec<PathBuf>> {
     use crate::progress::OperationKind;
     use crate::progress::ProgressEvent;
@@ -109,8 +112,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
             },
         );
         let manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
-        let required_artifacts =
-            crate::repo::artifacts::required_artifacts(&manifest, &chunk_index)?;
+        let required_artifacts = required_artifacts(&manifest, &chunk_index)?;
         for artifact in &required_artifacts {
             let path = artifact.local_path(&repo_paths)?;
             if !path.is_file() {
@@ -173,12 +175,12 @@ pub(crate) fn plan_orphan_artifact_cleanup(
 
 pub(crate) fn remove_orphan_artifacts(
     orphan_artifacts: &[PathBuf],
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<usize> {
     for orphan_path in orphan_artifacts {
         control.checkpoint()?;
         if !super::coordination::defer_artifact_deletion(orphan_path)? {
-            std::fs::remove_file(orphan_path)?;
+            fs::remove_file(orphan_path)?;
         }
     }
     Ok(orphan_artifacts.len())

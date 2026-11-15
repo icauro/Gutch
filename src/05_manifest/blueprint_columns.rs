@@ -12,12 +12,17 @@
 //! Metadata columns use entry order, except file-only and symlink-only columns.
 //! Explicit chunk offsets use only files needing stored chunk references.
 //! Reconstruction advances those separate row counters as it visits entries.
+use crate::artifact::format::MAX_RAW_CHUNK_SIZE;
+use crate::artifact::metadata::MAX_METADATA_BYTES;
 use crate::artifact::{binary_io::*, hash::ChunkHash};
+use crate::filesystem::paths::MAX_MANIFEST_PATH_BYTES;
+use crate::filesystem::paths::validate_manifest_relative_path;
 use crate::manifest::{
     self, ChunkRef, DirectoryManifest, FileManifest, SnapshotEntry, SymlinkManifest,
 };
 use crate::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet};
+use std::str::from_utf8;
 
 // A format bound, independent of pointer width or Rust enum layout.
 const MAX_PATH_ROWS: usize = 1 << 21;
@@ -77,7 +82,7 @@ fn encode_paths(entries_sorted_by_path: &[&SnapshotEntry]) -> Result<Vec<u8>> {
     for entry in entries_sorted_by_path {
         expanded_path_bytes = expanded_path_bytes
             .checked_add(entry.path().len())
-            .filter(|size| *size <= crate::artifact::metadata::MAX_METADATA_BYTES)
+            .filter(|size| *size <= MAX_METADATA_BYTES)
             .ok_or_else(|| Error::manifest("expanded paths exceed metadata limit"))?;
         for (offset, _) in entry.path().match_indices('/') {
             if directories.insert(&entry.path()[..offset]) {
@@ -86,7 +91,7 @@ fn encode_paths(entries_sorted_by_path: &[&SnapshotEntry]) -> Result<Vec<u8>> {
                 }
                 expanded_path_bytes = expanded_path_bytes
                     .checked_add(offset)
-                    .filter(|size| *size <= crate::artifact::metadata::MAX_METADATA_BYTES)
+                    .filter(|size| *size <= MAX_METADATA_BYTES)
                     .ok_or_else(|| Error::manifest("expanded paths exceed metadata limit"))?;
             }
         }
@@ -293,7 +298,7 @@ fn decode_paths(bytes: &[u8]) -> Result<Vec<String>> {
         let leaf_bytes = leaf_name_bytes
             .get(leaf_byte_range)
             .ok_or_else(|| Error::manifest("invalid UTF-8 leaf or name span"))?;
-        let leaf_name = std::str::from_utf8(leaf_bytes)
+        let leaf_name = from_utf8(leaf_bytes)
             .map_err(|_| Error::manifest("invalid UTF-8 leaf or name span"))?;
         if leaf_name.is_empty() || leaf_name.contains('/') {
             return Err(Error::manifest("invalid UTF-8 leaf or name span"));
@@ -305,9 +310,9 @@ fn decode_paths(bytes: &[u8]) -> Result<Vec<String>> {
             parent_path.len() + usize::from(!parent_path.is_empty()) + leaf_name.len();
         expanded_path_bytes = expanded_path_bytes
             .checked_add(path_length)
-            .filter(|size| *size <= crate::artifact::metadata::MAX_METADATA_BYTES)
+            .filter(|size| *size <= MAX_METADATA_BYTES)
             .ok_or_else(|| Error::manifest("expanded paths exceed metadata limit"))?;
-        if path_length > crate::filesystem::paths::MAX_MANIFEST_PATH_BYTES {
+        if path_length > MAX_MANIFEST_PATH_BYTES {
             return Err(Error::manifest("expanded path exceeds path limit"));
         }
         let path = if parent_path.is_empty() {
@@ -315,7 +320,7 @@ fn decode_paths(bytes: &[u8]) -> Result<Vec<String>> {
         } else {
             format!("{parent_path}/{leaf_name}")
         };
-        crate::filesystem::paths::validate_manifest_relative_path(&path, false)?;
+        validate_manifest_relative_path(&path, false)?;
         if row < directory_count {
             if directory_paths.last().is_some_and(|last| last >= &path) {
                 return Err(Error::manifest("directory paths must be sorted and unique"));
@@ -468,9 +473,7 @@ fn reconstruct_entries(
                 let hash = file_content_hashes[file_row].to_hex();
                 let file_chunks = match file_representations[file_row] {
                     FILE_EMPTY if size == 0 => Vec::new(),
-                    FILE_IMPLICIT_CHUNK
-                        if size > 0 && size <= crate::artifact::format::MAX_RAW_CHUNK_SIZE =>
-                    {
+                    FILE_IMPLICIT_CHUNK if size > 0 && size <= MAX_RAW_CHUNK_SIZE => {
                         vec![ChunkRef {
                             chunk_hash: file_content_hashes[file_row],
                             raw_size: size as u32,

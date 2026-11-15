@@ -32,6 +32,9 @@ use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
 mod types;
 
+use crate::filesystem::paths::ManifestPathResolver;
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 pub use types::RepairClassification;
 pub use types::RepairIssue;
 pub use types::RepairIssueKind;
@@ -133,7 +136,7 @@ fn classify_inner(
         let _resolve_paths_span = opts.control.profile_span_with_args(
             marker_name(marker_namespace, "prepare.paths"),
             || {
-                std::collections::BTreeMap::from([
+                BTreeMap::from([
                     (
                         "path_count".to_string(),
                         serde_json::json!(snapshot_manifest.entries.len()),
@@ -155,7 +158,7 @@ fn classify_inner(
         opts.control.profile_event_with_args(
             marker_name(marker_namespace, "prepare.paths.inventory"),
             || {
-                std::collections::BTreeMap::from([
+                BTreeMap::from([
                     (
                         "inventory_entry_count".to_string(),
                         serde_json::json!(inventory.entries.len()),
@@ -169,12 +172,12 @@ fn classify_inner(
         );
         (Some(inventory), None)
     } else {
-        let path_resolver = crate::filesystem::paths::ManifestPathResolver::new(dir)?;
+        let path_resolver = ManifestPathResolver::new(dir)?;
         let resolved_paths = {
             let _resolve_paths_span = opts.control.profile_span_with_args(
                 marker_name(marker_namespace, "prepare.paths"),
                 || {
-                    std::collections::BTreeMap::from([
+                    BTreeMap::from([
                         (
                             "path_count".to_string(),
                             serde_json::json!(snapshot_manifest.entries.len()),
@@ -270,7 +273,7 @@ fn classify_inner(
         let _file_span =
             opts.control
                 .profile_span_with_args(marker_name(marker_namespace, "files"), || {
-                    std::collections::BTreeMap::from([
+                    BTreeMap::from([
                         (
                             "file_count".to_string(),
                             serde_json::json!(prepared_files.len()),
@@ -478,12 +481,12 @@ fn emit_verify_progress(
 }
 
 fn default_control() -> &'static OperationControl {
-    static CONTROL: std::sync::OnceLock<OperationControl> = std::sync::OnceLock::new();
+    static CONTROL: OnceLock<OperationControl> = OnceLock::new();
     CONTROL.get_or_init(OperationControl::default)
 }
 
 fn default_runtime_hints() -> &'static RuntimeResourceHints {
-    static DEFAULT_HINTS: std::sync::OnceLock<RuntimeResourceHints> = std::sync::OnceLock::new();
+    static DEFAULT_HINTS: OnceLock<RuntimeResourceHints> = OnceLock::new();
     DEFAULT_HINTS.get_or_init(RuntimeResourceHints::default)
 }
 

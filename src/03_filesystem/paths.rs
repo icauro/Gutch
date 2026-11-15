@@ -2,7 +2,12 @@
 
 use crate::Error;
 use crate::Result;
+use crate::error::path_validation::PathValidationFailure;
+use crate::error::path_validation::PathViolation;
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::ErrorKind;
+use std::path;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
@@ -35,23 +40,21 @@ pub(crate) fn validate_destination_paths<'a>(
     paths: impl Iterator<Item = &'a str>,
 ) -> Result<()> {
     validate_destination_paths_inner(root, paths).map_err(|error| match error {
-        Error::PathError { path, reason } => {
-            Error::PathValidation(crate::error::path_validation::PathValidationFailure {
-                operation: "installation".into(),
-                snapshot_id: None,
-                violations: vec![crate::error::path_validation::PathViolation {
-                    path: path
-                        .strip_prefix(root)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .into_owned(),
-                    conflicting_path: None,
-                    target: "actual-destination".into(),
-                    code: "destination_incompatible".into(),
-                    reason,
-                }],
-            })
-        }
+        Error::PathError { path, reason } => Error::PathValidation(PathValidationFailure {
+            operation: "installation".into(),
+            snapshot_id: None,
+            violations: vec![PathViolation {
+                path: path
+                    .strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .into_owned(),
+                conflicting_path: None,
+                target: "actual-destination".into(),
+                code: "destination_incompatible".into(),
+                reason,
+            }],
+        }),
         error => error,
     })
 }
@@ -59,7 +62,7 @@ fn validate_destination_paths_inner<'a>(
     root: &Path,
     paths: impl Iterator<Item = &'a str>,
 ) -> Result<()> {
-    let absolute = std::path::absolute(root)?;
+    let absolute = path::absolute(root)?;
     // Probe the actual volume: Windows directories and macOS volumes may be case-sensitive.
     let parent = absolute
         .ancestors()
@@ -68,8 +71,8 @@ fn validate_destination_paths_inner<'a>(
     let probe = tempfile::Builder::new()
         .prefix(".gutch-path-probe-")
         .tempdir_in(parent)?;
-    std::fs::write(probe.path().join("Case"), b"")?;
-    std::fs::write(probe.path().join("é"), b"")?;
+    fs::write(probe.path().join("Case"), b"")?;
+    fs::write(probe.path().join("é"), b"")?;
     let fold_case = probe.path().join("case").exists();
     let fold_normalization = probe.path().join("e\u{301}").exists();
     let mut spellings = HashMap::<String, Vec<String>>::new();
@@ -96,7 +99,7 @@ fn validate_destination_paths_inner<'a>(
                 // Uppercasing is only a candidate filter. Ask the filesystem before
                 // rejecting names such as sharp-s versus SS on Windows.
                 let comparison = tempfile::tempdir_in(probe.path())?;
-                std::fs::write(
+                fs::write(
                     comparison.path().join(previous.rsplit('/').next().unwrap()),
                     b"",
                 )?;
@@ -172,7 +175,7 @@ fn validate_destination_length(path: &Path) -> Result<()> {
 }
 /// Resolve existing components before comparing paths, including links and `..`.
 pub(crate) fn resolve_operation_path(path: &Path) -> Result<PathBuf> {
-    let absolute = std::path::absolute(path)?;
+    let absolute = path::absolute(path)?;
     let mut resolved = PathBuf::new();
     for component in absolute.components() {
         match component {
@@ -182,9 +185,9 @@ pub(crate) fn resolve_operation_path(path: &Path) -> Result<PathBuf> {
             }
             _ => {
                 resolved.push(component);
-                match std::fs::symlink_metadata(&resolved) {
+                match fs::symlink_metadata(&resolved) {
                     Ok(_) => resolved = resolved.canonicalize()?,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
                     Err(error) => return Err(error.into()),
                 }
             }
@@ -362,9 +365,9 @@ fn ensure_existing_ancestors_stay_within_root(
         }
         // Inspect the link itself: a dangling symlink reports `exists() == false`,
         // yet a later create through it would land wherever the link points.
-        match std::fs::symlink_metadata(&current) {
+        match fs::symlink_metadata(&current) {
             Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) if error.kind() == ErrorKind::NotFound => break,
             Err(error) => return Err(error.into()),
         }
         let canonical_current = current.canonicalize().map_err(|error| Error::PathError {
@@ -547,9 +550,9 @@ pub(crate) fn normalize_link_target(relative_path: &str, target: &Path) -> Resul
     let mut normalized = PathBuf::new();
     for component in combined.components() {
         match component {
-            std::path::Component::Normal(part) => normalized.push(part),
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir if normalized.pop() => {}
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir if normalized.pop() => {}
             _ => {
                 return Err(Error::PathError {
                     path: link_path.to_path_buf(),

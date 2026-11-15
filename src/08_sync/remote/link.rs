@@ -5,6 +5,7 @@ use super::provider::RemoteRepositorySummary;
 use super::provider::RemoteTagReferencesResult;
 use crate::Error;
 use crate::Result;
+use crate::repo::coordination;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::write_gutch_repo_manifest;
@@ -26,7 +27,7 @@ pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
 
 pub fn bind_remote_repo(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         let remote_repo_id = remote_repo_id.trim();
         if remote_repo_id.is_empty() {
             return Err(Error::manifest("remote repo ID is required"));
@@ -50,7 +51,7 @@ pub fn create_remote_repo(
     provider: &dyn RemoteRepositoryCommandProvider,
 ) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
         if manifest.is_linked() {
             return Err(Error::manifest(format!(
@@ -80,7 +81,7 @@ pub fn unbind_remote_repo(
     provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         let (paths, mut manifest) = load_gutch_repo_manifest(repo_root)?;
         if !manifest.is_linked() {
             return Ok(());

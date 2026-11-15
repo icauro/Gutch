@@ -3,11 +3,12 @@
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
+use crate::manifest::ChunkRef;
 use crate::manifest::FileManifest;
 
 pub(crate) struct TypedFileManifest<'a> {
     pub(crate) full_file_hash: ChunkHash,
-    pub(crate) chunks: &'a [crate::manifest::ChunkRef],
+    pub(crate) chunks: &'a [ChunkRef],
 }
 
 pub(crate) fn typed_file_manifest(file_manifest: &FileManifest) -> Result<TypedFileManifest<'_>> {

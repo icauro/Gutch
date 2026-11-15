@@ -3,6 +3,9 @@
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::integrity::verify_full_file_integrity;
+use crate::artifact::reference::ArtifactRef;
+use crate::filesystem::paths::resolve_manifest_relative_path;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::installation::execute::job_io::build_source_chunk_locations;
 use crate::installation::execute::jobs::{
@@ -10,22 +13,31 @@ use crate::installation::execute::jobs::{
     ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget, SourceChunkLocation,
 };
 use crate::installation::inspect::RepairClassification;
+use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory_with_marker_namespace_and_pool;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::manifest::{FileManifest, SnapshotEntry};
+use crate::progress::OperationControl;
+use crate::repo::artifacts::required_artifacts;
+use crate::repo::index::ChunkIndex;
+use crate::repo::paths::RepoPaths;
 use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::ArtifactPriority;
 use crate::transfer::download::PendingArtifactDownload;
 use rayon::ThreadPool;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::fs;
+use std::mem;
 use std::path::Path;
 
 pub(crate) fn build_artifact_priorities(
     pipeline_plan: &ReconstructPipelinePlan,
     pending_artifact_downloads: &[PendingArtifactDownload],
-) -> HashMap<crate::artifact::reference::ArtifactRef, ArtifactPriority> {
+) -> HashMap<ArtifactRef, ArtifactPriority> {
     pending_artifact_downloads
         .iter()
         .map(|download| {
@@ -95,26 +107,21 @@ fn build_source_locations_for_target(
 
 pub(crate) fn build_reconstruct_pipeline_plan(
     snapshot_manifest: &SnapshotManifest,
-    chunk_index: &crate::repo::index::ChunkIndex,
-    repo_paths: &crate::repo::paths::RepoPaths,
-    existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
+    chunk_index: &ChunkIndex,
+    repo_paths: &RepoPaths,
+    existing_artifacts: &HashSet<ArtifactRef>,
     verified_source: Option<SnapshotReconstructSource<'_>>,
 ) -> Result<ReconstructPipelinePlan> {
     let mut files = Vec::with_capacity(snapshot_manifest.file_count());
     let mut jobs = Vec::new();
     // One indexed location per hash; repeated references reuse its resolved job and slot.
-    let mut artifact_chunk_positions: HashMap<crate::artifact::hash::ChunkHash, (usize, usize)> =
-        HashMap::new();
+    let mut artifact_chunk_positions: HashMap<ChunkHash, (usize, usize)> = HashMap::new();
     // Jobs and their chunks already have dense indices; targets use the same layout.
     let mut chunk_targets: Vec<Vec<Vec<ReconstructTarget>>> = Vec::new();
-    let mut artifact_job_indices: HashMap<crate::artifact::reference::ArtifactRef, usize> =
-        HashMap::new();
+    let mut artifact_job_indices: HashMap<ArtifactRef, usize> = HashMap::new();
     // The source catalog fixes one location for each hash; size is checked before lookup.
     let mut source_chunk_job_indices: HashMap<ChunkHash, usize> = HashMap::new();
-    let mut missing_artifact_to_file_indices: HashMap<
-        crate::artifact::reference::ArtifactRef,
-        Vec<usize>,
-    > = HashMap::new();
+    let mut missing_artifact_to_file_indices: HashMap<ArtifactRef, Vec<usize>> = HashMap::new();
     let mut missing_artifact_counts = Vec::with_capacity(snapshot_manifest.file_count());
     let mut reused_source_chunk_count = 0usize;
     let source_files_by_path = verified_source
@@ -132,16 +139,12 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         if can_copy_source_file(file_manifest, &source_files_by_path) {
             let source_root = verified_source.expect("source files map only exists with source");
             let file_index = files.len();
-            let source_path = crate::filesystem::paths::resolve_manifest_relative_path(
-                source_root.destination_dir,
-                &file_manifest.path,
-            )?;
+            let source_path =
+                resolve_manifest_relative_path(source_root.destination_dir, &file_manifest.path)?;
             files.push(ReconstructPipelineFile {
                 path: file_manifest.path.clone(),
                 size: file_manifest.size,
-                full_file_hash: crate::artifact::hash::ChunkHash::parse_hex(
-                    &file_manifest.full_file_hash,
-                )?,
+                full_file_hash: ChunkHash::parse_hex(&file_manifest.full_file_hash)?,
             });
             jobs.push(ReconstructJob::CopySourceFile {
                 file_index,
@@ -210,8 +213,8 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             }
             let hash = chunk_ref.chunk_hash;
             let (job_index, position) = match artifact_chunk_positions.entry(hash) {
-                std::collections::hash_map::Entry::Occupied(position) => *position.get(),
-                std::collections::hash_map::Entry::Vacant(position_entry) => {
+                Entry::Occupied(position) => *position.get(),
+                Entry::Vacant(position_entry) => {
                     let entry = chunk_index
                         .entries
                         .get_hash(&chunk_ref.chunk_hash)
@@ -221,10 +224,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
                                 chunk_ref.chunk_hash
                             ))
                         })?;
-                    let artifact = crate::artifact::reference::ArtifactRef::from_chunk_entry(
-                        &chunk_ref.chunk_hash,
-                        entry,
-                    );
+                    let artifact = ArtifactRef::from_chunk_entry(&chunk_ref.chunk_hash, entry);
                     let job_index = if let Some(&job_index) = artifact_job_indices.get(&artifact) {
                         job_index
                     } else {
@@ -285,9 +285,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         files.push(ReconstructPipelineFile {
             path: file_manifest.path.clone(),
             size: file_manifest.size,
-            full_file_hash: crate::artifact::hash::ChunkHash::parse_hex(
-                &file_manifest.full_file_hash,
-            )?,
+            full_file_hash: ChunkHash::parse_hex(&file_manifest.full_file_hash)?,
         });
     }
 
@@ -299,7 +297,7 @@ pub(crate) fn build_reconstruct_pipeline_plan(
             for (position, chunk) in job.chunks.iter_mut().enumerate() {
                 let start = job.targets.len();
                 job.targets
-                    .extend(std::mem::take(&mut chunk_targets[job_index][position]));
+                    .extend(mem::take(&mut chunk_targets[job_index][position]));
                 chunk.target_range = start..job.targets.len();
             }
             // Artifact targets are the authoritative file dependencies for this job.
@@ -326,20 +324,15 @@ pub(crate) fn build_reconstruct_pipeline_plan(
         (ReconstructJob::SourceChunk(left), ReconstructJob::SourceChunk(right)) => {
             (&left.source_path, left.source_offset).cmp(&(&right.source_path, right.source_offset))
         }
-        (ReconstructJob::SourceChunk(_), _) => std::cmp::Ordering::Less,
-        (_, ReconstructJob::SourceChunk(_)) => std::cmp::Ordering::Greater,
-        _ => std::cmp::Ordering::Equal,
+        (ReconstructJob::SourceChunk(_), _) => Ordering::Less,
+        (_, ReconstructJob::SourceChunk(_)) => Ordering::Greater,
+        _ => Ordering::Equal,
     });
     // The job map already owns one entry for each artifact the plan will use.
     let required_artifacts: HashSet<_> = artifact_job_indices.into_keys().collect();
     let required_bundle_count = required_artifacts
         .iter()
-        .filter(|artifact| {
-            matches!(
-                artifact,
-                crate::artifact::reference::ArtifactRef::Bundle { .. }
-            )
-        })
+        .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
         .count();
     Ok(ReconstructPipelinePlan {
         files,
@@ -365,16 +358,16 @@ pub(crate) struct InstallationChanges {
     pub(crate) corrupt_file_count: usize,
     pub(crate) extra_file_count: usize,
     pub(crate) needs_rebuild: bool,
-    pub(crate) required_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
+    pub(crate) required_artifacts: HashSet<ArtifactRef>,
 }
 
 pub(crate) fn inspect_installation_changes(
     snapshot_manifest: &SnapshotManifest,
-    chunk_index: Option<&crate::repo::index::ChunkIndex>,
+    chunk_index: Option<&ChunkIndex>,
     destination_dir: &Path,
-    inspection: crate::installation::inspect::VerifyMode,
+    inspection: VerifyMode,
     runtime_hints: &RuntimeResourceHints,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     operation_pool: Option<&ThreadPool>,
 ) -> Result<InstallationChanges> {
     let (mut classification, _) = classify_directory_with_marker_namespace_and_pool(
@@ -388,7 +381,7 @@ pub(crate) fn inspect_installation_changes(
         "installation.repair.verify",
         operation_pool,
     )?;
-    let updates = if inspection == crate::installation::inspect::VerifyMode::MetadataOnly {
+    let updates = if inspection == VerifyMode::MetadataOnly {
         Vec::new()
     } else {
         resolve_metadata_updates(
@@ -406,7 +399,7 @@ pub(crate) fn inspect_installation_changes(
 
 pub(crate) fn build_installation_changes(
     snapshot_manifest: &SnapshotManifest,
-    chunk_index: Option<&crate::repo::index::ChunkIndex>,
+    chunk_index: Option<&ChunkIndex>,
     classification: RepairClassification,
 ) -> Result<InstallationChanges> {
     let missing_file_count = classification.missing_files.len();
@@ -416,7 +409,7 @@ pub(crate) fn build_installation_changes(
     let affected_manifest = subset_manifest_for_issues(snapshot_manifest, &classification)?;
     let required_artifacts = if needs_rebuild {
         chunk_index
-            .map(|index| crate::repo::artifacts::required_artifacts(&affected_manifest, index))
+            .map(|index| required_artifacts(&affected_manifest, index))
             .transpose()?
             .unwrap_or_default()
     } else {
@@ -440,7 +433,7 @@ pub(crate) fn resolve_metadata_updates(
     target: &SnapshotManifest,
     classification: &mut RepairClassification,
     destination: &Path,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<Vec<SnapshotEntry>> {
     let mut updates = Vec::new();
     let entries: HashMap<_, _> = target
@@ -453,9 +446,8 @@ pub(crate) fn resolve_metadata_updates(
         let Some(entry) = entries.get(issue.path.as_str()) else {
             continue;
         };
-        let path =
-            crate::filesystem::paths::resolve_manifest_relative_path(destination, entry.path())?;
-        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+        let path = resolve_manifest_relative_path(destination, entry.path())?;
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };
         let matches = match entry {
@@ -473,10 +465,10 @@ pub(crate) fn resolve_metadata_updates(
                 if !metadata_differs {
                     false
                 } else {
-                    match crate::artifact::integrity::verify_full_file_integrity(
+                    match verify_full_file_integrity(
                         &path,
                         file.size,
-                        crate::artifact::hash::ChunkHash::parse_hex(&file.full_file_hash)?,
+                        ChunkHash::parse_hex(&file.full_file_hash)?,
                         1,
                         control,
                     ) {

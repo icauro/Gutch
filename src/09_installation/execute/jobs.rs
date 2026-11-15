@@ -6,20 +6,27 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::artifact::compression::DECODE_WORKING_MEMORY_BYTES;
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::reference::ArtifactRef;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
 use crate::transfer::download::PendingArtifactDownload;
+use crate::transfer::http::DownloadClient;
 use crate::transfer::progress::FetchTransferProgress;
+use crate::transfer::types::TransferConcurrencyPolicy;
+use std::iter;
+use std::ops::Range;
 
 pub(crate) struct ReconstructPipelinePlan {
     pub(crate) files: Vec<ReconstructPipelineFile>,
     pub(crate) jobs: Vec<ReconstructJob>,
-    pub(crate) missing_artifact_to_file_indices:
-        HashMap<crate::artifact::reference::ArtifactRef, Vec<usize>>,
+    pub(crate) missing_artifact_to_file_indices: HashMap<ArtifactRef, Vec<usize>>,
     pub(crate) missing_artifact_counts: Vec<usize>,
     pub required_bundle_count: usize,
-    pub required_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
+    pub required_artifacts: HashSet<ArtifactRef>,
     pub required_artifact_count: usize,
     pub(crate) required_chunk_count: usize,
     pub(crate) reused_source_chunk_count: usize,
@@ -28,17 +35,17 @@ pub(crate) struct ReconstructPipelinePlan {
 pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub publication: super::publish::Publication<'a>,
     pub repo_root: &'a Path,
-    pub compression_profile: crate::artifact::profiles::CompressionProfile,
+    pub compression_profile: CompressionProfile,
     pub snapshot_manifest: &'a SnapshotManifest,
     pub destination_dir: &'a Path,
     pub staging_dir: Option<&'a Path>,
     pub source_destination_dir: Option<PathBuf>,
     pub runtime_hints: &'a RuntimeResourceHints,
-    pub existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
+    pub existing_artifacts: &'a HashSet<ArtifactRef>,
     pub pending_artifact_downloads: &'a [PendingArtifactDownload],
-    pub transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
+    pub transfer_policy: TransferConcurrencyPolicy,
     pub control: &'a OperationControl,
-    pub download_client: Option<&'a crate::transfer::http::DownloadClient>,
+    pub download_client: Option<&'a DownloadClient>,
     pub transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
 }
 
@@ -46,7 +53,7 @@ pub(crate) struct ReconstructPipelineApplyRequest<'a> {
 pub(crate) struct ReconstructPipelineFile {
     pub(crate) path: String,
     pub(crate) size: u64,
-    pub(crate) full_file_hash: crate::artifact::hash::ChunkHash,
+    pub(crate) full_file_hash: ChunkHash,
 }
 
 #[derive(Clone)]
@@ -61,7 +68,7 @@ pub(crate) enum ReconstructJob {
 
 #[derive(Clone)]
 pub(crate) struct ReconstructArtifactJob {
-    pub(crate) artifact: crate::artifact::reference::ArtifactRef,
+    pub(crate) artifact: ArtifactRef,
     pub(crate) artifact_path: PathBuf,
     /// Complete encoded length declared by the index, including artifact framing.
     pub(crate) encoded_size: u32,
@@ -71,14 +78,14 @@ pub(crate) struct ReconstructArtifactJob {
 
 #[derive(Clone)]
 pub(crate) struct ReconstructArtifactChunk {
-    pub(crate) chunk_hash: crate::artifact::hash::ChunkHash,
+    pub(crate) chunk_hash: ChunkHash,
     pub(crate) raw_size: u32,
-    pub(crate) target_range: std::ops::Range<usize>,
+    pub(crate) target_range: Range<usize>,
 }
 
 #[derive(Clone)]
 pub(crate) struct ReconstructSourceChunkJob {
-    pub(crate) chunk_hash: crate::artifact::hash::ChunkHash,
+    pub(crate) chunk_hash: ChunkHash,
     pub(crate) raw_size: u32,
     pub(crate) source_path: Arc<PathBuf>,
     pub(crate) source_offset: u64,
@@ -89,7 +96,7 @@ pub(crate) struct ReconstructSourceChunkJob {
 
 impl ReconstructSourceChunkJob {
     pub(crate) fn targets(&self) -> impl Iterator<Item = &ReconstructTarget> {
-        std::iter::once(&self.first_target).chain(self.additional_targets.iter())
+        iter::once(&self.first_target).chain(self.additional_targets.iter())
     }
 }
 
@@ -110,8 +117,7 @@ impl ReconstructJob {
         const SOURCE_COPY_BUFFER_BYTES: u64 = 1024 * 1024;
         match self {
             Self::Artifact(_) => {
-                crate::artifact::compression::DECODE_WORKING_MEMORY_BYTES
-                    + super::handles::RECONSTRUCT_OUTPUT_BUFFER_BYTES as u64
+                DECODE_WORKING_MEMORY_BYTES + super::handles::RECONSTRUCT_OUTPUT_BUFFER_BYTES as u64
             }
             Self::SourceChunk(chunk) => u64::from(chunk.raw_size) + SOURCE_COPY_BUFFER_BYTES,
             Self::CopySourceFile { .. } => SOURCE_COPY_BUFFER_BYTES,

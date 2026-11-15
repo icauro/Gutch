@@ -1,36 +1,48 @@
 //! Routes a parsed command to its family handler.
 
+use crate::cli::BundleCommands;
 use crate::cli::Cli;
 use crate::cli::Commands;
+use crate::cli::DebugCommands;
+use crate::cli::InstallationCommands;
+use crate::cli::Profile;
+use crate::cli::RepoCommands;
+use crate::cli::SnapshotCommands;
+use crate::cli::TreeCommands;
 use crate::cli::bundle;
+use crate::cli::installation;
+use crate::cli::installation::CorruptCommand;
+use crate::cli::installation::run_installation;
+use crate::cli::repo;
+use crate::cli::snapshot;
 use crate::cli::tree;
+use crate::sync::remote::RemoteRepositoryCommandProvider;
 
 pub(crate) fn run(
     cli: Cli,
-    remote_provider: Option<&dyn crate::sync::remote::RemoteRepositoryCommandProvider>,
-    profile: &crate::cli::Profile,
+    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    profile: &Profile,
 ) -> crate::Result<()> {
     if cli.dry_run {
         let supported = matches!(
             &cli.command,
             Commands::Repo {
-                command: crate::cli::RepoCommands::Init { .. }
-                    | crate::cli::RepoCommands::Rename { .. }
-                    | crate::cli::RepoCommands::Constraints { .. }
-                    | crate::cli::RepoCommands::Index { .. }
-                    | crate::cli::RepoCommands::Push { .. }
-                    | crate::cli::RepoCommands::Pull { .. }
+                command: RepoCommands::Init { .. }
+                    | RepoCommands::Rename { .. }
+                    | RepoCommands::Constraints { .. }
+                    | RepoCommands::Index { .. }
+                    | RepoCommands::Push { .. }
+                    | RepoCommands::Pull { .. }
             } | Commands::Snapshot {
-                command: crate::cli::SnapshotCommands::Capture { .. }
-                    | crate::cli::SnapshotCommands::Delete { .. }
-                    | crate::cli::SnapshotCommands::Tags { .. }
+                command: SnapshotCommands::Capture { .. }
+                    | SnapshotCommands::Delete { .. }
+                    | SnapshotCommands::Tags { .. }
             } | Commands::Installation {
-                command: crate::cli::InstallationCommands::Preview { .. }
-                    | crate::cli::InstallationCommands::Repair { .. }
+                command: InstallationCommands::Preview { .. } | InstallationCommands::Repair { .. }
             }
         ) || matches!(
             &cli.command,
-            Commands::Installation { command: crate::cli::InstallationCommands::Reconstruct(arguments) }
+            Commands::Installation { command: InstallationCommands::Reconstruct(arguments) }
                 if !arguments.fetch
         );
         if !supported {
@@ -40,21 +52,19 @@ pub(crate) fn run(
         }
     }
     match cli.command {
-        Commands::Repo { command } => crate::cli::repo::run(command, remote_provider, profile),
-        Commands::Snapshot { command } => crate::cli::snapshot::run(command, profile),
-        Commands::Installation { command } => {
-            crate::cli::installation::run_installation(command, profile)
-        }
+        Commands::Repo { command } => repo::run(command, remote_provider, profile),
+        Commands::Snapshot { command } => snapshot::run(command, profile),
+        Commands::Installation { command } => run_installation(command, profile),
         Commands::Debug {
             command:
-                crate::cli::DebugCommands::CorruptInstallation {
+                DebugCommands::CorruptInstallation {
                     destination,
                     plan,
                     stats_json_out,
                     yes,
                 },
-        } => crate::cli::installation::corrupt(
-            crate::cli::installation::CorruptCommand {
+        } => installation::corrupt(
+            CorruptCommand {
                 destination,
                 plan,
                 stats_json_out,
@@ -63,10 +73,10 @@ pub(crate) fn run(
             profile,
         ),
         Commands::Bundle { command } => match command {
-            crate::cli::BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
+            BundleCommands::Inspect { bundle, repo } => bundle::inspect(bundle, repo),
         },
         Commands::Tree { command } => match command {
-            crate::cli::TreeCommands::Compare {
+            TreeCommands::Compare {
                 expected,
                 actual,
                 stats_json_out,

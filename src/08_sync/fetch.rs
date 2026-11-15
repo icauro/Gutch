@@ -9,6 +9,12 @@ use std::sync::Arc;
 
 use crate::Error;
 use crate::Result;
+use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::reference::ArtifactRef;
+use crate::filesystem;
+use crate::filesystem::constraints::validate_paths;
+use crate::filesystem::from_json_bytes;
+use crate::manifest::SnapshotProductMetadata;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationKind;
@@ -16,8 +22,26 @@ use crate::progress::ProgressEvent;
 use crate::progress::ProgressPhase;
 use crate::progress::ProgressSink;
 use crate::progress::emit_progress;
+use crate::repo::artifacts::required_artifacts;
+use crate::repo::artifacts::verify_bundle_identity_file;
+use crate::repo::coordination::write_with_control;
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
+use crate::repo::index::load_chunk_index;
+use crate::repo::index::preserve_local_chunk_locations;
+use crate::repo::index::write_chunk_index;
+use crate::repo::paths::RepoPaths;
+use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::write_gutch_repo_manifest as write_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::snapshot_blueprint_path;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
+use crate::repo::snapshot_manifests::snapshot_manifest_from_parts;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::verify::verify_snapshot_artifacts;
+use crate::snapshot::identity::compute_snapshot_id_from_entries;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::sync::fetch_types::SnapshotFetchResult;
 use crate::transfer::artifact_download::TransferDownloadRequest;
@@ -25,18 +49,23 @@ use crate::transfer::download::ArtifactDownloadEvent;
 use crate::transfer::download::ArtifactDownloadScheduler;
 use crate::transfer::download::ArtifactPriority;
 use crate::transfer::download::PendingArtifactDownload;
+use crate::transfer::http::DownloadClient;
 use crate::transfer::http::build_download_client;
 use crate::transfer::progress::FetchTransferProgress;
 use crate::transfer::progress::TransferPhaseCounters;
+use crate::transfer::sources::normalize_artifact_download;
+use crate::transfer::sources::normalize_artifact_downloads;
+use crate::transfer::types::TransferStats;
+use std::fs;
 
 pub(crate) struct PreparedSnapshotFetch {
-    pub(crate) repo_paths: crate::repo::paths::RepoPaths,
+    pub(crate) repo_paths: RepoPaths,
     pub(crate) repo_manifest: RepoManifest,
-    pub(crate) compression_profile: crate::artifact::profiles::CompressionProfile,
+    pub(crate) compression_profile: CompressionProfile,
     pub(crate) snapshot_manifest: SnapshotManifest,
-    pub(crate) chunk_index: crate::repo::index::ChunkIndex,
-    pub(crate) required_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
-    pub(crate) existing_artifacts: HashSet<crate::artifact::reference::ArtifactRef>,
+    pub(crate) chunk_index: ChunkIndex,
+    pub(crate) required_artifacts: HashSet<ArtifactRef>,
+    pub(crate) existing_artifacts: HashSet<ArtifactRef>,
     pub(crate) pending_artifact_downloads: Vec<PendingArtifactDownload>,
 }
 
@@ -50,8 +79,8 @@ pub fn fetch_snapshot_for_artifact_ids(
 ) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
     let operation_root = request.repo_path.to_path_buf();
-    std::fs::create_dir_all(&operation_root)?;
-    crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
+    fs::create_dir_all(&operation_root)?;
+    write_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span("transfer.fetch");
         let progress = request.control.progress().clone();
@@ -83,21 +112,11 @@ pub fn fetch_snapshot_for_artifact_ids(
         let transfer_stats = transfer_progress.stats(request.transfer_policy);
         let required_bundle_count = required_artifacts
             .iter()
-            .filter(|artifact| {
-                matches!(
-                    artifact,
-                    crate::artifact::reference::ArtifactRef::Bundle { .. }
-                )
-            })
+            .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
             .count();
         let downloaded_bundle_count = pending_artifact_downloads
             .iter()
-            .filter(|download| {
-                matches!(
-                    download.artifact,
-                    crate::artifact::reference::ArtifactRef::Bundle { .. }
-                )
-            })
+            .filter(|download| matches!(download.artifact, ArtifactRef::Bundle { .. }))
             .count();
 
         emit_progress(
@@ -130,17 +149,14 @@ pub fn fetch_snapshot_for_artifact_ids(
 pub(crate) fn publish_fetched_snapshot(prepared: &PreparedSnapshotFetch) -> Result<()> {
     // Immutable downloads finish first; the validated snapshot is the commit marker.
     write_repo_manifest(&prepared.repo_paths, &prepared.repo_manifest)?;
-    crate::repo::index::write_chunk_index(&prepared.repo_paths, &prepared.chunk_index)?;
-    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
-        &prepared.repo_paths,
-        &prepared.snapshot_manifest,
-    )?;
+    write_chunk_index(&prepared.repo_paths, &prepared.chunk_index)?;
+    write_snapshot_manifest_artifacts(&prepared.repo_paths, &prepared.snapshot_manifest)?;
     Ok(())
 }
 
 pub(crate) fn prepare_snapshot_fetch(
     request: &SnapshotFetchRequest,
-    download_client: &crate::transfer::http::DownloadClient,
+    download_client: &DownloadClient,
     progress: &Option<Arc<dyn ProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
 ) -> Result<PreparedSnapshotFetch> {
@@ -162,9 +178,9 @@ pub(crate) fn prepare_snapshot_fetch(
         },
     );
 
-    let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&request.repo_path);
+    let repo_paths = RepoPaths::from_repo_root(&request.repo_path);
     let repository_existed = repo_paths.repo_metadata_path.exists();
-    crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, "download")?;
+    ensure_gutch_repo_layout(&repo_paths, "download")?;
 
     let repo_manifest = if let Some(repo_metadata_url) = request.repo_metadata_url.as_deref() {
         emit_progress(
@@ -196,10 +212,10 @@ pub(crate) fn prepare_snapshot_fetch(
             detail: None,
         }
         .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-        let repo_manifest: RepoManifest = crate::filesystem::from_json_bytes(&repo_manifest_bytes)?;
+        let repo_manifest: RepoManifest = from_json_bytes(&repo_manifest_bytes)?;
         repo_manifest
     } else {
-        crate::repo::paths::load_gutch_repo_manifest(&repo_paths.repo_root)?.1
+        load_gutch_repo_manifest(&repo_paths.repo_root)?.1
     };
 
     emit_progress(
@@ -250,7 +266,7 @@ pub(crate) fn prepare_snapshot_fetch(
                 detail: Some(request.snapshot_id.as_str()),
             }
             .download_bounded(MAX_SNAPSHOT_METADATA_BYTES)?;
-            Some(crate::manifest::SnapshotProductMetadata::from_json_bytes(
+            Some(SnapshotProductMetadata::from_json_bytes(
                 &product_metadata_bytes,
             )?)
         } else {
@@ -271,27 +287,23 @@ pub(crate) fn prepare_snapshot_fetch(
         detail: Some(request.snapshot_id.as_str()),
     }
     .download_bounded(MAX_SNAPSHOT_BLUEPRINT_BYTES)?;
-    let mut snapshot_manifest = crate::repo::snapshot_manifests::snapshot_manifest_from_parts(
-        snapshot_metadata,
-        product_metadata,
-        &blueprint_bytes,
-    )?;
+    let mut snapshot_manifest =
+        snapshot_manifest_from_parts(snapshot_metadata, product_metadata, &blueprint_bytes)?;
 
     let incoming_constraints = repo_manifest.constraints.clone().unwrap_or_default();
     incoming_constraints
         .validate_snapshot_tags(&snapshot_manifest.snapshot_tags, &request.snapshot_id)?;
-    crate::filesystem::constraints::validate_paths(
+    validate_paths(
         &incoming_constraints.targets,
         snapshot_manifest.entries.iter().map(|entry| entry.path()),
         "fetch",
         Some(&request.snapshot_id),
     )?;
     if repository_existed {
-        let local_constraints =
-            crate::repo::paths::load_gutch_repo_manifest(&repo_paths.repo_root)?
-                .1
-                .constraints
-                .unwrap_or_default();
+        let local_constraints = load_gutch_repo_manifest(&repo_paths.repo_root)?
+            .1
+            .constraints
+            .unwrap_or_default();
         if local_constraints != incoming_constraints {
             return Err(Error::manifest(
                 "incoming repository constraints differ; explicitly update local constraints before fetching",
@@ -301,24 +313,17 @@ pub(crate) fn prepare_snapshot_fetch(
 
     // Equivalent installations can have different blueprints. Preserve a complete
     // cached representation instead of replacing it merely because packaging differs.
-    let local_blueprint = crate::repo::snapshot_manifests::snapshot_blueprint_path(
-        &repo_paths,
-        &request.snapshot_id,
-    )?;
-    if local_blueprint.is_file() && crate::filesystem::read(&local_blueprint)? != blueprint_bytes {
-        let local = crate::repo::snapshot_manifests::load_snapshot_manifest(
-            &repo_paths,
-            &request.snapshot_id,
-        )?;
-        let local_index = crate::repo::index::load_chunk_index(&repo_paths)?;
-        if crate::snapshot::identity::compute_snapshot_id_from_entries(&local.entries)
-            == request.snapshot_id
-            && crate::repo::verify::verify_snapshot_artifacts(
+    let local_blueprint = snapshot_blueprint_path(&repo_paths, &request.snapshot_id)?;
+    if local_blueprint.is_file() && filesystem::read(&local_blueprint)? != blueprint_bytes {
+        let local = load_snapshot_manifest(&repo_paths, &request.snapshot_id)?;
+        let local_index = load_chunk_index(&repo_paths)?;
+        if compute_snapshot_id_from_entries(&local.entries) == request.snapshot_id
+            && verify_snapshot_artifacts(
                 &repo_paths,
                 &local_index,
                 &repo_manifest.compression_profile(),
                 &request.snapshot_id,
-                crate::repo::verify::RepoArtifactVerification::Identity,
+                RepoArtifactVerification::Identity,
             )
             .is_ok_and(|result| result.ok)
         {
@@ -357,24 +362,23 @@ pub(crate) fn prepare_snapshot_fetch(
         }
         .download_bounded(MAX_CHUNK_INDEX_BYTES)?;
 
-        crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&chunk_index_bytes)?
+        load_chunk_index_binary_from_bytes(&chunk_index_bytes)?
     } else {
-        crate::repo::index::load_chunk_index(&repo_paths)?
+        load_chunk_index(&repo_paths)?
     };
-    crate::repo::index::preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
+    preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
     request.control.checkpoint()?;
     let compression_profile = repo_manifest.compression_profile();
-    let required_artifacts =
-        crate::repo::artifacts::required_artifacts(&snapshot_manifest, &chunk_index)?;
+    let required_artifacts = required_artifacts(&snapshot_manifest, &chunk_index)?;
     let mut existing_artifacts = HashSet::new();
     for artifact in &required_artifacts {
         let path = artifact.local_path(&repo_paths)?;
         if path.is_file() {
-            if let crate::artifact::reference::ArtifactRef::Bundle { id } = artifact {
-                match crate::repo::artifacts::verify_bundle_identity_file(&path, id) {
+            if let ArtifactRef::Bundle { id } = artifact {
+                match verify_bundle_identity_file(&path, id) {
                     Ok(()) => {}
                     Err(Error::InvalidBundle(_) | Error::HashMismatch { .. }) => {
-                        std::fs::remove_file(&path)?;
+                        fs::remove_file(&path)?;
                         continue;
                     }
                     Err(error) => return Err(error),
@@ -413,10 +417,10 @@ pub(crate) fn prepare_snapshot_fetch(
 }
 
 fn build_pending_artifact_downloads(
-    required_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
-    existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
+    required_artifacts: &HashSet<ArtifactRef>,
+    existing_artifacts: &HashSet<ArtifactRef>,
     artifact_urls: &HashMap<String, String>,
-    repo_paths: &crate::repo::paths::RepoPaths,
+    repo_paths: &RepoPaths,
 ) -> Result<Vec<PendingArtifactDownload>> {
     let missing_artifact_count = required_artifacts
         .len()
@@ -453,7 +457,7 @@ fn build_pending_artifact_downloads(
 
 pub(crate) fn select_pending_artifact_downloads(
     pending_artifact_downloads: &[PendingArtifactDownload],
-    required_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
+    required_artifacts: &HashSet<ArtifactRef>,
 ) -> Vec<PendingArtifactDownload> {
     pending_artifact_downloads
         .iter()
@@ -468,7 +472,7 @@ pub(crate) fn build_fetch_result(
     required_bundle_count: usize,
     downloaded_artifact_count: usize,
     downloaded_bundle_count: usize,
-    transfer_stats: crate::transfer::types::TransferStats,
+    transfer_stats: TransferStats,
 ) -> SnapshotFetchResult {
     SnapshotFetchResult {
         repo_path: request.repo_path.clone(),
@@ -488,7 +492,7 @@ pub(crate) fn build_fetch_result(
 
 fn download_pending_artifacts(
     request: &SnapshotFetchRequest,
-    download_client: &crate::transfer::http::DownloadClient,
+    download_client: &DownloadClient,
     transfer_progress: &Arc<FetchTransferProgress>,
     pending_artifact_downloads: &[PendingArtifactDownload],
 ) -> Result<usize> {
@@ -544,11 +548,10 @@ fn download_pending_artifacts(
 
 pub(crate) fn fetch_artifact_urls(
     request: &SnapshotFetchRequest,
-    required_artifact_ids: &std::collections::HashSet<String>,
-    existing_artifact_ids: &std::collections::HashSet<String>,
+    required_artifact_ids: &HashSet<String>,
+    existing_artifact_ids: &HashSet<String>,
 ) -> Result<HashMap<String, String>> {
-    let mut artifact_urls =
-        crate::transfer::sources::normalize_artifact_downloads(&request.artifacts)?;
+    let mut artifact_urls = normalize_artifact_downloads(&request.artifacts)?;
     let unresolved_artifact_ids = required_artifact_ids
         .iter()
         .filter(|artifact_id| {
@@ -569,7 +572,7 @@ pub(crate) fn fetch_artifact_urls(
     let resolved_artifacts =
         provider.resolve_artifact_urls(&unresolved_artifact_ids, &request.control)?;
     for artifact in resolved_artifacts {
-        let (artifact_id, url) = crate::transfer::sources::normalize_artifact_download(&artifact)?;
+        let (artifact_id, url) = normalize_artifact_download(&artifact)?;
         if !unresolved_artifact_ids.iter().any(|id| id == artifact_id) {
             return Err(Error::manifest(format!(
                 "artifact URL provider returned unexpected artifact '{}'",

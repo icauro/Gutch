@@ -19,16 +19,24 @@ use super::provider::RepoPushStats;
 use super::pull::local_bundle_paths;
 use crate::Error;
 use crate::Result;
+use crate::filesystem;
 use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
 use crate::progress::OperationKind;
 use crate::progress::ProgressPhase;
 use crate::repo::RepoStatus;
+use crate::repo::coordination;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::RepoPaths;
+use crate::repo::paths::bundle_id_from_bundle_path;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote;
+use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
+use crate::repo::snapshot_manifests::snapshot_blueprint_path;
+use crate::repo::status::RepoSnapshotStatus;
+use crate::repo::status::read_repo_status;
 use crate::repo::summarize_snapshot_tags;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -61,7 +69,7 @@ pub fn plan_push_with_provider<P: RemoteRepositoryReader + ?Sized>(
 fn collect_local_sync_snapshots(
     repo_root: &Path,
 ) -> Result<(RepoStatus, RepoPaths, Vec<LocalSyncSnapshot>)> {
-    let status = crate::repo::status::read_repo_status(repo_root)?;
+    let status = read_repo_status(repo_root)?;
     if !status.is_repo {
         return Err(Error::manifest(format!(
             "no gutch repo found at {}",
@@ -278,7 +286,7 @@ struct SnapshotUploadContext<'a, P: RemoteRepositoryWriter + ?Sized> {
 
 fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context: &mut SnapshotUploadContext<'_, P>,
-    snapshot: &crate::repo::status::RepoSnapshotStatus,
+    snapshot: &RepoSnapshotStatus,
     remote_snapshot: &RemoteSnapshot,
 ) -> Result<()> {
     context.control.checkpoint()?;
@@ -295,7 +303,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
     context.provider.upload_snapshot_metadata(
         context.repository,
         remote_snapshot,
-        crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote(&manifest)?,
+        serialize_snapshot_metadata_for_remote(&manifest)?,
         context.control,
     )?;
     context.stats.snapshot_manifest_uploaded_count += 1;
@@ -310,14 +318,11 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
         Some(snapshot.snapshot_id.clone()),
         false,
     );
-    let blueprint_path = crate::repo::snapshot_manifests::snapshot_blueprint_path(
-        context.repo_paths,
-        &snapshot.snapshot_id,
-    )?;
+    let blueprint_path = snapshot_blueprint_path(context.repo_paths, &snapshot.snapshot_id)?;
     context.provider.upload_snapshot_blueprint(
         context.repository,
         remote_snapshot,
-        crate::filesystem::read(&blueprint_path)?,
+        filesystem::read(&blueprint_path)?,
         context.control,
     )?;
     context.stats.snapshot_blueprint_uploaded_count += 1;
@@ -332,9 +337,7 @@ fn write_snapshot_uploads<P: RemoteRepositoryWriter + ?Sized>(
         Some(snapshot.snapshot_id.clone()),
         false,
     );
-    if let Some(bytes) =
-        crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote(&manifest)?
-    {
+    if let Some(bytes) = serialize_snapshot_product_metadata_for_remote(&manifest)? {
         context.provider.upload_snapshot_product_metadata(
             context.repository,
             remote_snapshot,
@@ -356,7 +359,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
     control: OperationControl,
 ) -> Result<RepoPushStats> {
     let operation_root = repo.to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         control.checkpoint()?;
         let progress = RemoteProgress::new(&control, OperationKind::Push);
         let bound_remote_repo_id = linked_remote_repo_id(&repo)?;
@@ -450,7 +453,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
         if plan.repo_manifest_changed {
             provider.upload_repository_metadata(
                 &repository,
-                crate::filesystem::read(&repo_paths.repo_metadata_path)?,
+                filesystem::read(&repo_paths.repo_metadata_path)?,
                 &control,
             )?;
             stats.repo_manifest_uploaded = true;
@@ -469,7 +472,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             if plan.chunk_index_changed {
                 provider.upload_chunk_index(
                     &repository,
-                    crate::filesystem::read(&repo_paths.chunk_map_path)?,
+                    filesystem::read(&repo_paths.chunk_map_path)?,
                     &control,
                 )?;
                 stats.chunk_index_uploaded = true;
@@ -516,8 +519,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
         for bundle_path in bundle_paths {
             control.checkpoint()?;
             step += 1;
-            let Some(bundle_id) = crate::repo::paths::bundle_id_from_bundle_path(&bundle_path)
-            else {
+            let Some(bundle_id) = bundle_id_from_bundle_path(&bundle_path) else {
                 continue;
             };
             if provider.bundle_exists(&repository, &bundle_id)? {
@@ -532,7 +534,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
                 );
                 continue;
             }
-            let bundle_bytes = crate::filesystem::read(&bundle_path)?;
+            let bundle_bytes = filesystem::read(&bundle_path)?;
             let bundle_size = bundle_bytes.len() as u64;
             progress.emit(
                 ProgressPhase::UploadBundle,

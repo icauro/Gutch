@@ -22,8 +22,20 @@ use super::jobs::ReconstructTarget;
 use super::jobs::SourceChunkLocation;
 use crate::Error;
 use crate::Result;
+use crate::artifact::bundle::BundleReader;
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::loose::read_loose_chunk_with_metrics;
+use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::reference::ArtifactRef;
+use crate::filesystem::paths::resolve_manifest_relative_path;
 use crate::installation::contracts::ReconstructTimings;
+use crate::manifest::typed::typed_file_manifest;
+use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
+use std::collections::BTreeMap;
+use std::collections::HashSet;
+use std::fs;
+use std::sync::Arc;
 
 pub(crate) struct ReconstructJobRequest<'a> {
     pub(crate) job: &'a ReconstructJob,
@@ -31,7 +43,7 @@ pub(crate) struct ReconstructJobRequest<'a> {
     pub(crate) output_paths: &'a [PathBuf],
     pub(crate) output_handles: &'a OutputHandleCache,
     pub(crate) source_handles: &'a SourceHandleCache,
-    pub(crate) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
+    pub(crate) compression_profile: &'a CompressionProfile,
     pub(crate) control: &'a OperationControl,
 }
 
@@ -64,30 +76,26 @@ pub(crate) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
 fn reconstruct_artifact_job(
     job: &ReconstructArtifactJob,
     output_handles: &OutputHandleCache,
-    compression_profile: &crate::artifact::profiles::CompressionProfile,
+    compression_profile: &CompressionProfile,
     control: &OperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
     let artifact_span_name = match &job.artifact {
-        crate::artifact::reference::ArtifactRef::Bundle { .. } => {
-            "installation.bundle.decode_verify_and_write"
-        }
-        crate::artifact::reference::ArtifactRef::LooseChunk { .. } => {
-            "installation.reconstruct.job.loose_chunk"
-        }
+        ArtifactRef::Bundle { .. } => "installation.bundle.decode_verify_and_write",
+        ArtifactRef::LooseChunk { .. } => "installation.reconstruct.job.loose_chunk",
     };
     let _artifact_span =
         control.profile_span_with_args(artifact_span_name, || reconstruct_artifact_trace_args(job));
     let profiler = control.profiler();
-    let compressed_bytes = std::fs::metadata(&job.artifact_path)
+    let compressed_bytes = fs::metadata(&job.artifact_path)
         .map_err(|e| Error::io_context("reading artifact metadata", &job.artifact_path, e))?
         .len();
     let mut timings = ReconstructTimings::default();
     let mut output_writer = ReconstructionOutputWriter::new(output_handles, control);
 
     match &job.artifact {
-        crate::artifact::reference::ArtifactRef::Bundle { .. } => {
-            let mut reader = crate::artifact::bundle::BundleReader::open(
+        ArtifactRef::Bundle { .. } => {
+            let mut reader = BundleReader::open(
                 File::open(&job.artifact_path).map_err(|e| {
                     Error::io_context("opening reconstruction artifact", &job.artifact_path, e)
                 })?,
@@ -144,7 +152,7 @@ fn reconstruct_artifact_job(
                     }
                     let hash_started_at = ProfileInstant::detailed(control.profiler());
                     let actual_hash =
-                        crate::artifact::hash::ChunkHash::of(bytes);
+                        ChunkHash::of(bytes);
                     timings.chunk_verify += hash_started_at.elapsed();
                     timings.chunk_verify_bytes = timings
                         .chunk_verify_bytes
@@ -176,10 +184,8 @@ fn reconstruct_artifact_job(
             timings.bundle_read_compressed_bytes = compressed_bytes;
             timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
         }
-        crate::artifact::reference::ArtifactRef::LooseChunk { hash } => {
-            if job.chunks.len() != 1
-                || job.chunks[0].chunk_hash != crate::artifact::hash::ChunkHash::parse_hex(hash)?
-            {
+        ArtifactRef::LooseChunk { hash } => {
+            if job.chunks.len() != 1 || job.chunks[0].chunk_hash != ChunkHash::parse_hex(hash)? {
                 return Err(Error::reconstruct(format!(
                     "loose artifact '{}' does not contain exactly its requested chunk",
                     hash
@@ -192,7 +198,7 @@ fn reconstruct_artifact_job(
                     hash, compressed_bytes, job.encoded_size
                 )));
             }
-            let (bytes, read_metrics) = crate::artifact::loose::read_loose_chunk_with_metrics(
+            let (bytes, read_metrics) = read_loose_chunk_with_metrics(
                 &job.artifact_path,
                 hash,
                 u64::from(chunk.raw_size),
@@ -235,7 +241,7 @@ fn reconstruct_source_chunk_job(
     control.checkpoint()?;
     let _source_job_span =
         control.profile_span_with_args("installation.source_chunk.read_verify_and_write", || {
-            std::collections::BTreeMap::from([
+            BTreeMap::from([
                 ("size_bytes".into(), serde_json::json!(job.raw_size)),
                 (
                     "target_count".into(),
@@ -339,7 +345,7 @@ fn verify_and_write_source_chunk(
     mut output_writer: Option<&mut ReconstructionOutputWriter<'_>>,
 ) -> Result<ReconstructTimings> {
     let hash_started_at = ProfileInstant::detailed(control.profiler());
-    let actual_hash = crate::artifact::hash::ChunkHash::of(bytes);
+    let actual_hash = ChunkHash::of(bytes);
     let hash_elapsed = hash_started_at.elapsed();
     if actual_hash != job.chunk_hash {
         return Err(Error::HashMismatch {
@@ -398,7 +404,7 @@ fn copy_source_file_job(
     })?;
     control.checkpoint()?;
     let _source_span = control.profile_span_with_args("installation.file.copy_and_hash", || {
-        crate::profiling::file_trace_args(&file_plan.path, file_plan.size)
+        file_trace_args(&file_plan.path, file_plan.size)
     });
     let mut input = {
         File::open(source_path)
@@ -461,7 +467,7 @@ fn copy_source_file_job(
             file_plan.path, copied, file_plan.size
         )));
     }
-    let actual_hash = crate::artifact::hash::ChunkHash::from_blake3(full_file_hasher.finalize());
+    let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
     if actual_hash != file_plan.full_file_hash {
         return Err(Error::HashMismatch {
             expected: file_plan.full_file_hash.to_hex(),
@@ -509,18 +515,18 @@ fn write_reconstruct_targets(
 
 fn reconstruct_artifact_trace_args(
     job: &ReconstructArtifactJob,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
+) -> BTreeMap<String, serde_json::Value> {
     let logical_bytes = job
         .chunks
         .iter()
         .map(|chunk| u64::from(chunk.raw_size).saturating_mul(chunk.target_range.len() as u64))
         .sum::<u64>();
-    std::collections::BTreeMap::from([
+    BTreeMap::from([
         (
             "artifact_kind".to_string(),
             serde_json::json!(match &job.artifact {
-                crate::artifact::reference::ArtifactRef::Bundle { .. } => "bundle",
-                crate::artifact::reference::ArtifactRef::LooseChunk { .. } => "loose_chunk",
+                ArtifactRef::Bundle { .. } => "bundle",
+                ArtifactRef::LooseChunk { .. } => "loose_chunk",
             }),
         ),
         (
@@ -555,7 +561,7 @@ pub(crate) fn verify_reconstructed_output_file(
 ) -> Result<ReconstructedFileVerification> {
     control.checkpoint()?;
     let started_at = ProfileInstant::detailed(control.profiler());
-    let actual_size = std::fs::metadata(output_path)
+    let actual_size = fs::metadata(output_path)
         .map_err(|e| Error::io_context("reading reconstructed file metadata", output_path, e))?
         .len();
     if actual_size != file_plan.size {
@@ -572,17 +578,16 @@ pub(crate) fn verify_reconstructed_output_file(
 
 pub(crate) fn build_source_chunk_locations(
     source: SnapshotReconstructSource<'_>,
-    required_chunks: Option<&std::collections::HashSet<crate::artifact::hash::ChunkHash>>,
-) -> Result<HashMap<crate::artifact::hash::ChunkHash, SourceChunkLocation>> {
+    required_chunks: Option<&HashSet<ChunkHash>>,
+) -> Result<HashMap<ChunkHash, SourceChunkLocation>> {
     let mut chunk_locations = HashMap::new();
     for file_manifest in source.snapshot_manifest.files() {
-        let typed_file = crate::manifest::typed::typed_file_manifest(file_manifest)?;
+        let typed_file = typed_file_manifest(file_manifest)?;
         // One immutable path per file is shared by its locations and source jobs.
-        let source_path =
-            std::sync::Arc::new(crate::filesystem::paths::resolve_manifest_relative_path(
-                source.destination_dir,
-                &file_manifest.path,
-            )?);
+        let source_path = Arc::new(resolve_manifest_relative_path(
+            source.destination_dir,
+            &file_manifest.path,
+        )?);
         let mut offset = 0u64;
         for chunk_ref in typed_file.chunks {
             let raw_size = u64::from(chunk_ref.raw_size);

@@ -9,8 +9,21 @@ use crate::manifest::{
     snapshot::{SnapshotManifest, SnapshotMetadata, SnapshotProductMetadata},
 };
 
+use crate::filesystem::constraints::validate_paths;
+use crate::manifest::launch::validate_resolved_launch_for_snapshot;
+use crate::manifest::validate_snapshot_entries;
+use crate::progress::OperationControl;
+use crate::repo::coordination;
+use crate::repo::coordination::read_with_control;
 use crate::repo::paths::RepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::validate_path_component;
+use crate::snapshot::diff::SnapshotDiff;
+use crate::snapshot::diff::compare_snapshot_entries;
+use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use std::fs;
+use std::path::Path;
+use std::str::from_utf8;
 
 pub(crate) const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
 pub(crate) const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
@@ -18,17 +31,17 @@ pub(crate) const SNAPSHOT_BLUEPRINT_FILE: &str = "snapshot_blueprint.gtcbin";
 
 /// Compare installed-tree content and supported properties without reading payload artifacts.
 pub fn diff_repo_snapshots(
-    repo_root: &std::path::Path,
+    repo_root: &Path,
     from: &str,
     to: &str,
-    control: &crate::progress::OperationControl,
-) -> Result<crate::snapshot::diff::SnapshotDiff> {
-    crate::repo::coordination::read_with_control(repo_root, control, || {
-        let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+    control: &OperationControl,
+) -> Result<SnapshotDiff> {
+    read_with_control(repo_root, control, || {
+        let (paths, _) = load_gutch_repo_manifest(repo_root)?;
         let before = load_snapshot_manifest(&paths, from)?;
         control.checkpoint()?;
         let after = load_snapshot_manifest(&paths, to)?;
-        crate::snapshot::diff::compare_snapshot_entries(&before.entries, &after.entries, control)
+        compare_snapshot_entries(&before.entries, &after.entries, control)
     })
 }
 
@@ -90,7 +103,7 @@ pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<Sn
     manifest.total_logical_size = manifest.files().map(|file| file.size).sum();
     manifest.sync_launch_from_product_metadata();
     if let Some(launch) = manifest.launch.as_ref() {
-        crate::manifest::launch::validate_resolved_launch_for_snapshot(launch, &manifest)?;
+        validate_resolved_launch_for_snapshot(launch, &manifest)?;
     }
     Ok(manifest)
 }
@@ -112,7 +125,7 @@ pub(crate) fn snapshot_manifest_from_parts(
 }
 
 fn validate_snapshot_identity(manifest: &SnapshotManifest) -> Result<()> {
-    let actual_id = crate::snapshot::identity::compute_snapshot_id_from_entries(&manifest.entries);
+    let actual_id = compute_snapshot_id_from_entries(&manifest.entries);
     if actual_id != manifest.snapshot_id {
         return Err(crate::Error::SnapshotIntegrityMismatch {
             snapshot_id: manifest.snapshot_id.clone(),
@@ -166,7 +179,7 @@ pub(crate) fn write_snapshot_product_metadata(
         filesystem::create_dir_all(&paths.snapshots_root.join(snapshot_id))?;
         let bytes = serde_json::to_vec_pretty(metadata)?;
         filesystem::write(&metadata_path, &bytes)?;
-        let size = std::fs::metadata(&metadata_path)?.len();
+        let size = fs::metadata(&metadata_path)?.len();
         return Ok(Some((metadata_path, size)));
     }
     if metadata_path.exists() {
@@ -176,12 +189,12 @@ pub(crate) fn write_snapshot_product_metadata(
 }
 
 pub fn save_snapshot_product_metadata_for_snapshots(
-    repo_root: &std::path::Path,
+    repo_root: &Path,
     snapshot_ids: &[String],
     product_metadata: Option<SnapshotProductMetadata>,
 ) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         validate_snapshot_product_metadata_for_snapshots(
             repo_root,
             snapshot_ids,
@@ -211,7 +224,7 @@ pub fn save_snapshot_product_metadata_for_snapshots(
 }
 
 pub fn validate_snapshot_product_metadata_for_snapshots(
-    repo_root: &std::path::Path,
+    repo_root: &Path,
     snapshot_ids: &[String],
     product_metadata: Option<&SnapshotProductMetadata>,
 ) -> Result<()> {
@@ -238,15 +251,15 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<(PathBuf, u64)> {
     snapshot_manifest.snapshot_tags.normalized()?;
-    crate::manifest::validate_snapshot_entries(&snapshot_manifest.entries)?;
+    validate_snapshot_entries(&snapshot_manifest.entries)?;
     if paths.repo_metadata_path.exists() {
-        let (_, repository) = crate::repo::paths::load_gutch_repo_manifest(&paths.repo_root)?;
+        let (_, repository) = load_gutch_repo_manifest(&paths.repo_root)?;
         let constraints = repository.constraints.unwrap_or_default();
         constraints.validate_snapshot_tags(
             &snapshot_manifest.snapshot_tags,
             &snapshot_manifest.snapshot_id,
         )?;
-        crate::filesystem::constraints::validate_paths(
+        validate_paths(
             &constraints.targets,
             snapshot_manifest.entries.iter().map(|entry| entry.path()),
             "publish snapshot",
@@ -258,7 +271,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     }
     filesystem::create_dir_all(&paths.snapshots_root)?;
     let snapshot_id = &snapshot_manifest.snapshot_id;
-    crate::repo::paths::validate_path_component(snapshot_id, "snapshot ID")?;
+    validate_path_component(snapshot_id, "snapshot ID")?;
     let staging_dir = tempfile::Builder::new()
         .prefix(".gutch-snapshot-")
         .tempdir_in(&paths.snapshots_root)?;
@@ -289,7 +302,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     filesystem::directory::replace_directory(&staging_path, &snapshot_dir)?;
 
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
-    let metadata_size = std::fs::metadata(&metadata_path)?.len();
+    let metadata_size = fs::metadata(&metadata_path)?.len();
     Ok((metadata_path, metadata_size))
 }
 
@@ -305,8 +318,8 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
 pub(crate) fn snapshot_manifest_from_download(
     snapshot_id: &str,
     manifest_bytes: &[u8],
-) -> Result<crate::manifest::snapshot::SnapshotManifest> {
-    let metadata_json = std::str::from_utf8(manifest_bytes).map_err(|err| {
+) -> Result<SnapshotManifest> {
+    let metadata_json = from_utf8(manifest_bytes).map_err(|err| {
         crate::Error::manifest(format!("snapshot metadata is not valid UTF-8: {}", err))
     })?;
     crate::repo::snapshot_manifests::load_snapshot_metadata_from_json_text(

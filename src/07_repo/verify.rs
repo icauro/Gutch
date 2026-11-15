@@ -11,10 +11,18 @@ use crate::artifact::reference::ArtifactRef;
 use crate::manifest::SnapshotManifest;
 
 use super::inventory::list_repo_snapshot_ids;
+use crate::artifact::loose::read_loose_chunk;
+use crate::artifact::profiles::CompressionProfile;
+use crate::filesystem::constraints::validate_paths;
+use crate::repo::artifacts::required_artifacts;
+use crate::repo::coordination;
+use crate::repo::index::ChunkIndex;
 use crate::repo::index::load_chunk_index;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use std::collections::HashMap;
+use std::fs::File;
 
 /// Structural artifact checks optionally include full content-addressed identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,22 +74,22 @@ pub fn verify_gutch_repo_artifacts(
     mode: RepoArtifactVerification,
 ) -> Result<RepoArtifactVerifyResult> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::read(&operation_root, || {
+    coordination::read(&operation_root, || {
         let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let constraints = repo_manifest.constraints.clone().unwrap_or_default();
         let compression_profile = repo_manifest.compression_profile();
 
         let mut snapshots = Vec::new();
-        let mut verified = std::collections::HashMap::new();
+        let mut verified = HashMap::new();
         for stored_snapshot_id in list_repo_snapshot_ids(&repo_paths)? {
             let manifest = load_snapshot_manifest(&repo_paths, &stored_snapshot_id)?;
             if snapshot_id.is_some_and(|id| id != stored_snapshot_id) {
                 // Snapshot selection narrows payload checks, not repository metadata validation.
-                crate::repo::artifacts::required_artifacts(&manifest, &chunk_index)?;
+                required_artifacts(&manifest, &chunk_index)?;
                 continue;
             }
-            crate::filesystem::constraints::validate_paths(
+            validate_paths(
                 &constraints.targets,
                 manifest.entries.iter().map(|entry| entry.path()),
                 "verify",
@@ -116,8 +124,8 @@ pub fn verify_gutch_repo_artifacts(
 
 pub(crate) fn verify_snapshot_artifacts(
     repo_paths: &RepoPaths,
-    chunk_index: &crate::repo::index::ChunkIndex,
-    compression_profile: &crate::artifact::profiles::CompressionProfile,
+    chunk_index: &ChunkIndex,
+    compression_profile: &CompressionProfile,
     snapshot_id: &str,
     mode: RepoArtifactVerification,
 ) -> Result<SnapshotArtifactVerifyResult> {
@@ -128,20 +136,19 @@ pub(crate) fn verify_snapshot_artifacts(
         compression_profile,
         &manifest,
         mode,
-        &mut std::collections::HashMap::new(),
+        &mut HashMap::new(),
     )
 }
 
 fn verify_snapshot_artifacts_cached(
     repo_paths: &RepoPaths,
-    chunk_index: &crate::repo::index::ChunkIndex,
-    compression_profile: &crate::artifact::profiles::CompressionProfile,
+    chunk_index: &ChunkIndex,
+    compression_profile: &CompressionProfile,
     snapshot_manifest: &SnapshotManifest,
     mode: RepoArtifactVerification,
-    verified: &mut std::collections::HashMap<ArtifactRef, std::result::Result<(), String>>,
+    verified: &mut HashMap<ArtifactRef, std::result::Result<(), String>>,
 ) -> Result<SnapshotArtifactVerifyResult> {
-    let required_artifacts =
-        crate::repo::artifacts::required_artifacts(snapshot_manifest, chunk_index)?;
+    let required_artifacts = required_artifacts(snapshot_manifest, chunk_index)?;
     let required_bundle_count = required_artifacts
         .iter()
         .filter(|artifact| matches!(artifact, ArtifactRef::Bundle { .. }))
@@ -175,7 +182,7 @@ fn verify_snapshot_artifacts_cached(
                         ))
                     });
                     entry.and_then(|entry| {
-                        crate::artifact::loose::read_loose_chunk(
+                        read_loose_chunk(
                             &path,
                             hash,
                             u64::from(entry.raw_size),
@@ -220,10 +227,10 @@ fn verify_snapshot_artifacts_cached(
 fn verify_bundle_file(
     path: &Path,
     bundle_id: &str,
-    compression_profile: &crate::artifact::profiles::CompressionProfile,
+    compression_profile: &CompressionProfile,
     mode: RepoArtifactVerification,
 ) -> Result<()> {
-    let mut reader = bundle::BundleReader::open(std::fs::File::open(path)?, compression_profile)?;
+    let mut reader = bundle::BundleReader::open(File::open(path)?, compression_profile)?;
     if mode == RepoArtifactVerification::Identity {
         reader.verify_identity(bundle_id)?;
     }

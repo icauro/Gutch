@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::Subcommand;
 
 use super::parse_cli_path;
+use crate::manifest::constraints::FilesystemTarget;
 
 #[derive(Subcommand)]
 pub(crate) enum RepoCommands {
@@ -23,7 +24,7 @@ pub(crate) enum RepoCommands {
         #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,
         #[arg(long = "filesystem", value_enum, value_delimiter = ',')]
-        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
+        targets: Vec<FilesystemTarget>,
         #[arg(long = "repo", value_parser = parse_cli_path)]
         path: PathBuf,
         #[arg(long = "force")]
@@ -115,7 +116,7 @@ pub(crate) enum ConstraintCommands {
             value_delimiter = ',',
             required_unless_present = "constraints"
         )]
-        targets: Vec<crate::manifest::constraints::FilesystemTarget>,
+        targets: Vec<FilesystemTarget>,
         /// JSON file containing the complete replacement constraints object.
         #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,

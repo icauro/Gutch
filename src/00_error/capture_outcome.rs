@@ -1,5 +1,8 @@
 //! Typed capture outcome carried by [`super::Error`] on conflicts.
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 /// One differing metadata field between a capture candidate and the stored
 /// snapshot with the same content-derived ID.
@@ -67,8 +70,8 @@ impl SnapshotCaptureOutcome {
     }
 }
 
-impl std::fmt::Display for SnapshotCaptureOutcome {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for SnapshotCaptureOutcome {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.message())
     }
 }

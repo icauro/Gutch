@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifact::hash::ChunkHash;
 use crate::manifest::{ChunkRef, DirectoryManifest, FileManifest, SymlinkManifest};
 
 fn file(path: &str, size: u64) -> SnapshotEntry {
@@ -35,7 +36,7 @@ fn diff_ignores_packaging_but_preserves_properties_links_and_type_changes() {
         unreachable!()
     };
     repacked.chunks = vec![ChunkRef {
-        chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&"b".repeat(64)).unwrap(),
+        chunk_hash: ChunkHash::parse_hex(&"b".repeat(64)).unwrap(),
         raw_size: 4,
     }];
     assert_eq!(changed_entry_kind(&base, &repacked.clone().into()), None);

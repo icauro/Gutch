@@ -1,4 +1,6 @@
 use super::*;
+use crate::repo::snapshots::retag_snapshot_by_id;
+use std::path::Path;
 
 #[test]
 fn cli_tags_use_one_value_per_key() {
@@ -38,11 +40,6 @@ fn direct_capture_and_retag_reject_hyphenated_tag_values() {
         .key_value
         .insert("released_at".into(), "2026-09-07".into());
     assert!(explicit.normalized().is_err());
-    let error = crate::repo::snapshots::retag_snapshot_by_id(
-        std::path::Path::new("unused"),
-        "unused",
-        explicit,
-    )
-    .unwrap_err();
+    let error = retag_snapshot_by_id(Path::new("unused"), "unused", explicit).unwrap_err();
     assert!(error.to_string().contains("hyphens"));
 }

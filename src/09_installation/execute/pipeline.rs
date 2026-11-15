@@ -35,27 +35,34 @@ use super::workers::{
     ReconstructJobEvent, ReconstructWorkContext, ReconstructWorkItem, ReconstructionWorkQueue,
     dispatch_ready_work,
 };
+use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::reference::ArtifactRef;
+use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::VerifyTimings;
+use crate::profiling::file_trace_args;
+use crate::runtime::MemoryBudget;
+use crate::transfer::download::ArtifactPriority;
+use crate::transfer::http::DownloadClient;
+use crate::transfer::types::TransferConcurrencyPolicy;
+use std::collections::BTreeMap;
 pub(crate) struct ExecuteReconstructPipelineRequest<'a> {
     pub(crate) pipeline_plan: ReconstructPipelinePlan,
     pub(crate) output_paths: Arc<Vec<PathBuf>>,
     pub(crate) snapshot_id: &'a str,
-    pub(crate) compression_profile: &'a crate::artifact::profiles::CompressionProfile,
+    pub(crate) compression_profile: &'a CompressionProfile,
     pub(crate) runtime_hints: &'a RuntimeResourceHints,
-    pub(crate) existing_artifacts: &'a HashSet<crate::artifact::reference::ArtifactRef>,
+    pub(crate) existing_artifacts: &'a HashSet<ArtifactRef>,
     pub(crate) pending_artifact_downloads: &'a [PendingArtifactDownload],
-    pub(crate) transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
+    pub(crate) transfer_policy: TransferConcurrencyPolicy,
     pub(crate) control: &'a OperationControl,
-    pub(crate) download_client: Option<&'a crate::transfer::http::DownloadClient>,
+    pub(crate) download_client: Option<&'a DownloadClient>,
     pub(crate) transfer_progress: Option<&'a Arc<FetchTransferProgress>>,
     pub(crate) reconstruct_pool: Option<&'a ThreadPool>,
 }
 
 pub(crate) fn run_reconstruction_jobs(
     request: ExecuteReconstructPipelineRequest<'_>,
-) -> Result<(
-    ReconstructTimings,
-    crate::installation::inspect::VerifyTimings,
-)> {
+) -> Result<(ReconstructTimings, VerifyTimings)> {
     let ExecuteReconstructPipelineRequest {
         pipeline_plan,
         output_paths,
@@ -76,7 +83,7 @@ pub(crate) fn run_reconstruction_jobs(
     let pipeline_started_at = ProfileInstant::start(control.profiler());
     let runtime_plan = plan_runtime(runtime_hints);
     control.profile_event_with_args("runtime.memory.budget", || {
-        std::collections::BTreeMap::from([(
+        BTreeMap::from([(
             "budget_bytes".into(),
             serde_json::json!(runtime_plan.memory_budget_bytes),
         )])
@@ -86,10 +93,10 @@ pub(crate) fn run_reconstruction_jobs(
         verify_files: true,
         ..ReconstructTimings::default()
     };
-    let mut verify_timings = crate::installation::inspect::VerifyTimings {
-        verify_mode: crate::installation::inspect::VerifyMode::Fast,
+    let mut verify_timings = VerifyTimings {
+        verify_mode: VerifyMode::Fast,
         runtime_plan: Some(plan_runtime(runtime_hints)),
-        ..crate::installation::inspect::VerifyTimings::default()
+        ..VerifyTimings::default()
     };
 
     let artifact_priorities = {
@@ -157,9 +164,7 @@ pub(crate) fn run_reconstruction_jobs(
         runtime_plan.worker_count,
     ));
     let work_context = Arc::new(ReconstructWorkContext {
-        memory: Arc::new(crate::runtime::MemoryBudget::new(
-            runtime_plan.memory_budget_bytes,
-        )),
+        memory: Arc::new(MemoryBudget::new(runtime_plan.memory_budget_bytes)),
         source_handles: SourceHandleCache::default(),
         jobs: Arc::clone(&jobs),
         file_plans: Arc::clone(&file_plans),
@@ -511,9 +516,9 @@ pub(crate) fn run_reconstruction_jobs(
 
 fn validate_artifact_jobs(
     jobs: &[ReconstructJob],
-    existing_artifacts: &HashSet<crate::artifact::reference::ArtifactRef>,
+    existing_artifacts: &HashSet<ArtifactRef>,
     pending_downloads: &[PendingArtifactDownload],
-) -> Result<HashMap<crate::artifact::reference::ArtifactRef, usize>> {
+) -> Result<HashMap<ArtifactRef, usize>> {
     let pending_artifacts = pending_downloads
         .iter()
         .map(|download| download.artifact.clone())
@@ -544,12 +549,9 @@ fn validate_artifact_jobs(
 
 fn start_artifact_downloads(
     pending_artifact_downloads: &[PendingArtifactDownload],
-    artifact_priorities: HashMap<
-        crate::artifact::reference::ArtifactRef,
-        crate::transfer::download::ArtifactPriority,
-    >,
-    transfer_policy: crate::transfer::types::TransferConcurrencyPolicy,
-    download_client: Option<&crate::transfer::http::DownloadClient>,
+    artifact_priorities: HashMap<ArtifactRef, ArtifactPriority>,
+    transfer_policy: TransferConcurrencyPolicy,
+    download_client: Option<&DownloadClient>,
     control: &OperationControl,
     transfer_progress: Option<&Arc<FetchTransferProgress>>,
 ) -> Result<Option<ArtifactDownloadScheduler>> {
@@ -651,12 +653,12 @@ fn ensure_empty_reconstruct_output_file(
 ) -> Result<()> {
     let _file_span = control
         .profile_span_with_args("installation.reconstruct.prepare.file", || {
-            crate::profiling::file_trace_args(file_plan.path.clone(), file_plan.size)
+            file_trace_args(file_plan.path.clone(), file_plan.size)
         });
     let output = {
         let _create_span = control
             .profile_span_with_args("installation.reconstruct.prepare.file.create", || {
-                crate::profiling::file_trace_args(file_plan.path.clone(), file_plan.size)
+                file_trace_args(file_plan.path.clone(), file_plan.size)
             });
         OpenOptions::new()
             .write(true)
@@ -668,7 +670,7 @@ fn ensure_empty_reconstruct_output_file(
     {
         let _size_span = control
             .profile_span_with_args("installation.reconstruct.prepare.file.set_len", || {
-                crate::profiling::file_trace_args(file_plan.path.clone(), file_plan.size)
+                file_trace_args(file_plan.path.clone(), file_plan.size)
             });
         output
             .set_len(file_plan.size)
@@ -679,7 +681,7 @@ fn ensure_empty_reconstruct_output_file(
 
 fn accumulate_pipeline_timings(
     reconstruct_timings: &mut ReconstructTimings,
-    verify_timings: &mut crate::installation::inspect::VerifyTimings,
+    verify_timings: &mut VerifyTimings,
     file_timings: &ReconstructTimings,
 ) {
     reconstruct_timings.artifact_read += file_timings.artifact_read;

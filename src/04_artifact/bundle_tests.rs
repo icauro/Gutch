@@ -4,7 +4,17 @@ use crate::repo::artifacts::verify_bundle_identity_file;
 fn profile() -> CompressionProfile {
     CompressionProfile::default()
 }
+use crate::artifact::compression::compressed_size;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::CompressionKind;
+use crate::error::Error;
+use crate::filesystem::write_atomic_with;
+use crate::profiling::ProfileMode;
+use crate::profiling::Profiler;
+use std::fs;
+use std::fs::File;
+use std::path::Path;
+use std::path::PathBuf;
 
 #[test]
 fn test_build_and_read_bundle() {
@@ -42,8 +52,7 @@ fn test_empty_bundle() {
 
 #[test]
 fn test_empty_lz4_bundle() {
-    let profile =
-        CompressionProfile::for_algorithm(crate::artifact::profiles::CompressionKind::Lz4, None);
+    let profile = CompressionProfile::for_algorithm(CompressionKind::Lz4, None);
     let builder = BundleBuilder::new(profile.clone());
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data, &profile).unwrap();
@@ -115,10 +124,9 @@ fn test_build_and_read_bundle_compressed_payload() {
     assert_eq!(reader.read_chunk(1).unwrap(), chunk2.to_vec());
 
     let staged = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(staged.path(), &bundle_data).unwrap();
-    let mut file_reader =
-        BundleReader::open(std::fs::File::open(staged.path()).unwrap(), &profile).unwrap();
-    let profiler = crate::profiling::Profiler::new(crate::profiling::ProfileMode::Detailed);
+    fs::write(staged.path(), &bundle_data).unwrap();
+    let mut file_reader = BundleReader::open(File::open(staged.path()).unwrap(), &profile).unwrap();
+    let profiler = Profiler::new(ProfileMode::Detailed);
     let (read, metrics) = file_reader
         .read_bundle_payload_with_profiler(Some(&profiler))
         .unwrap();
@@ -127,14 +135,13 @@ fn test_build_and_read_bundle_compressed_payload() {
     assert_eq!(second, chunk2.as_slice());
     assert_eq!(metrics.raw_bytes, (chunk1.len() + chunk2.len()) as u64);
     let staging = tempfile::tempdir().unwrap();
-    let capture_profiler = crate::profiling::Profiler::new(crate::profiling::ProfileMode::Detailed);
+    let capture_profiler = Profiler::new(ProfileMode::Detailed);
     builder
         .write_to_staging(staging.path(), Some(&capture_profiler))
         .unwrap();
     let trace_path = staging.path().join("trace.json");
     capture_profiler.write_trace(&trace_path).unwrap();
-    let trace: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(trace_path).unwrap()).unwrap();
+    let trace: serde_json::Value = serde_json::from_slice(&fs::read(trace_path).unwrap()).unwrap();
     assert!(
         trace["traceEvents"]
             .as_array()
@@ -205,8 +212,7 @@ fn test_build_and_read_uncompressed_bundle_with_zstd_magic_prefix() {
     let chunk1 = vec![0x28, 0xB5, 0x2F, 0xFD, b'r', b'a', b'w', b'1'];
     let chunk2 = b"plain uncompressed payload".to_vec();
 
-    let profile =
-        CompressionProfile::for_algorithm(crate::artifact::profiles::CompressionKind::None, None);
+    let profile = CompressionProfile::for_algorithm(CompressionKind::None, None);
     let mut builder = BundleBuilder::new(profile.clone());
     builder.add_chunk(ChunkHash::of(&chunk1), chunk1.clone());
     builder.add_chunk(ChunkHash::of(&chunk2), chunk2.clone());
@@ -259,7 +265,7 @@ fn test_bundle_id_depends_on_final_bundle_bytes() {
 fn test_invalid_bundle_table() {
     let result = read_bundle(b"XXXX extra data to read", &profile());
     assert!(
-        matches!(result, Err(crate::error::Error::InvalidBundle(_))),
+        matches!(result, Err(Error::InvalidBundle(_))),
         "should reject invalid magic"
     );
 }
@@ -272,9 +278,9 @@ fn test_bundle_with_id() -> (String, Vec<u8>) {
     builder.build_with_id().unwrap()
 }
 
-fn write_named_bundle(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+fn write_named_bundle(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
     let path = dir.join(name);
-    std::fs::write(&path, bytes).unwrap();
+    fs::write(&path, bytes).unwrap();
     path
 }
 
@@ -324,19 +330,19 @@ fn invalid_download_is_not_promoted_over_a_valid_cached_bundle() {
     let path = write_named_bundle(temp.path(), &bundle_id, &bundle_data);
     let mut corrupt = bundle_data.clone();
     corrupt[0] ^= 0xff;
-    let result = crate::filesystem::write_atomic_with(&path, |file| {
+    let result = write_atomic_with(&path, |file| {
         file.write_all(&corrupt)?;
         verify_bundle_identity_reader(file, &bundle_id)
     });
     assert!(matches!(result, Err(crate::Error::HashMismatch { .. })));
-    assert_eq!(std::fs::read(&path).unwrap(), bundle_data);
-    crate::filesystem::write_atomic_with(&path, |file| {
+    assert_eq!(fs::read(&path).unwrap(), bundle_data);
+    write_atomic_with(&path, |file| {
         file.write_all(&bundle_data)?;
         verify_bundle_identity_reader(file, &bundle_id)
     })
     .unwrap();
     verify_bundle_identity_file(&path, &bundle_id).unwrap();
-    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
 }
 
 #[test]
@@ -410,9 +416,8 @@ fn probe_encoded_size_matches_real_bundle_for_all_codecs() {
                 builder.add_chunk(ChunkHash::of(&data), data);
             }
             let segments: Vec<&[u8]> = raw.iter().map(Vec::as_slice).collect();
-            let expected = crate::artifact::compression::compressed_size(&segments, &profile)
-                .unwrap()
-                + encoded_metadata_size(chunk_count);
+            let expected =
+                compressed_size(&segments, &profile).unwrap() + encoded_metadata_size(chunk_count);
             assert_eq!(builder.build().unwrap().len() as u64, expected);
         }
     }
@@ -473,7 +478,7 @@ fn streamed_bundle_releases_each_loaded_chunk_before_requesting_the_next() {
             .unwrap();
         assert_eq!(next_index, inputs.len());
         assert_eq!(live.load(Ordering::SeqCst), 0);
-        let encoded = std::fs::read(&artifact.staged_path).unwrap();
+        let encoded = fs::read(&artifact.staged_path).unwrap();
         let mut reader = read_bundle(&encoded, &profile).unwrap();
         for ((hash, _), expected) in descriptors.iter().zip(&inputs) {
             assert_eq!(
@@ -509,7 +514,7 @@ fn streamed_bundle_discards_partial_staging_on_loader_failure_or_wrong_length() 
                     }
                 });
             assert!(result.is_err(), "{codec:?} {wrong_length:?}");
-            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
         }
     }
 }
@@ -531,6 +536,6 @@ fn streamed_bundle_validates_descriptors_before_loading_payloads() {
             });
         assert!(result.is_err());
         assert!(!loaded);
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 }

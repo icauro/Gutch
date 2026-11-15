@@ -7,6 +7,7 @@
 //! higher layers. `api` is the public facade over every other layer.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Crate-root re-exports declared in `lib.rs`, mapped to their owning module.
@@ -64,7 +65,7 @@ struct DeclaredModule {
 /// Production `mod name;` declarations with their `#[path = "NN_name..."]`,
 /// skipping any gated by `#[cfg(test)]`.
 fn declared_modules(lib: &Path) -> BTreeMap<String, DeclaredModule> {
-    let source = std::fs::read_to_string(lib).unwrap();
+    let source = fs::read_to_string(lib).unwrap();
     let mut test_only = false;
     let mut path = None;
     let mut modules = BTreeMap::new();
@@ -144,7 +145,7 @@ fn rust_files(directory: &Path) -> Vec<PathBuf> {
 
 /// Source text before the file's first inline test module.
 fn production_source(file: &Path) -> String {
-    let source = std::fs::read_to_string(file).unwrap().replace("\r\n", "\n");
+    let source = fs::read_to_string(file).unwrap().replace("\r\n", "\n");
     match source.find("#[cfg(test)]\nmod ") {
         Some(test_module_start) => source[..test_module_start].to_string(),
         None => source,

@@ -5,14 +5,21 @@ use super::job_io::{
     ReconstructedFileVerification, reconstruct_job, verify_reconstructed_output_file,
 };
 use super::jobs::{ReconstructJob, ReconstructPipelineFile};
+use crate::artifact::profiles::CompressionProfile;
 use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::ProfileInstant;
 use crate::progress::OperationControl;
+use crate::runtime::MemoryBudget;
+use crate::runtime::MemoryPermit;
 use crate::{Error, Result};
 use rayon::ThreadPool;
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
+use std::time::Duration;
 // Bound both per-task metadata work and serial hashing before a worker yields.
 const MAX_VERIFICATION_BATCH_FILES: usize = 32;
 const MAX_VERIFICATION_BATCH_BYTES: u64 = 1024 * 1024;
@@ -20,7 +27,7 @@ const MAX_SOURCE_BATCH_JOBS: usize = 32;
 const MAX_SOURCE_BATCH_BYTES: u64 = 64 * 1024;
 
 pub(crate) enum ReconstructWorkItem {
-    Jobs(std::ops::Range<usize>),
+    Jobs(Range<usize>),
     VerifyFiles(Vec<usize>),
 }
 
@@ -28,14 +35,14 @@ pub(crate) enum ReconstructWorkItem {
 /// owned by the artifact scheduler and enter this queue when ready.
 #[derive(Default)]
 pub(crate) struct ReconstructionWorkQueue {
-    pub(crate) ready: std::collections::VecDeque<(ReconstructWorkItem, ProfileInstant)>,
+    pub(crate) ready: VecDeque<(ReconstructWorkItem, ProfileInstant)>,
     // Decremented when the coordinator consumes one terminal event, including failure.
     pub(crate) in_flight: usize,
 }
 
 pub(crate) struct AdmittedReconstructionWork {
     pub(crate) work: ReconstructWorkItem,
-    pub(crate) permit: crate::runtime::MemoryPermit,
+    pub(crate) permit: MemoryPermit,
     pub(crate) queued_at: ProfileInstant,
 }
 
@@ -44,7 +51,7 @@ impl ReconstructionWorkQueue {
         &mut self,
         jobs: &[ReconstructJob],
         file_plans: &[ReconstructPipelineFile],
-        memory: &Arc<crate::runtime::MemoryBudget>,
+        memory: &Arc<MemoryBudget>,
     ) -> Result<Option<AdmittedReconstructionWork>> {
         for (index, (work, _)) in self.ready.iter().enumerate() {
             let bytes = match work {
@@ -104,7 +111,7 @@ impl ReconstructionWorkQueue {
     fn merge_contiguous_source_jobs(
         &mut self,
         next_index: usize,
-        indices: &mut std::ops::Range<usize>,
+        indices: &mut Range<usize>,
         jobs: &[ReconstructJob],
         permit_bytes: u64,
     ) {
@@ -145,7 +152,7 @@ impl ReconstructionWorkQueue {
 
 pub(crate) enum ReconstructJobEvent {
     Completed {
-        job_indices: std::ops::Range<usize>,
+        job_indices: Range<usize>,
         timings: Vec<ReconstructTimings>,
     },
     Verified {
@@ -156,13 +163,13 @@ pub(crate) enum ReconstructJobEvent {
 }
 
 pub(crate) struct ReconstructWorkContext {
-    pub(crate) memory: Arc<crate::runtime::MemoryBudget>,
+    pub(crate) memory: Arc<MemoryBudget>,
     pub(crate) source_handles: SourceHandleCache,
     pub(crate) jobs: Arc<Vec<ReconstructJob>>,
     pub(crate) file_plans: Arc<Vec<ReconstructPipelineFile>>,
     pub(crate) output_paths: Arc<Vec<PathBuf>>,
     pub(crate) output_handles: Arc<OutputHandleCache>,
-    pub(crate) compression_profile: Arc<crate::artifact::profiles::CompressionProfile>,
+    pub(crate) compression_profile: Arc<CompressionProfile>,
     pub(crate) control: OperationControl,
     pub(crate) reconstruct_worker_count: usize,
 }
@@ -203,7 +210,7 @@ pub(crate) fn spawn_reconstruct_work(
     work_item: ReconstructWorkItem,
     context: &Arc<ReconstructWorkContext>,
     event_tx: &mpsc::Sender<ReconstructJobEvent>,
-    memory_permit: crate::runtime::MemoryPermit,
+    memory_permit: MemoryPermit,
     queued_at: ProfileInstant,
 ) {
     let context = Arc::clone(context);
@@ -214,7 +221,7 @@ pub(crate) fn spawn_reconstruct_work(
             context
                 .control
                 .profile_span_with_args("installation.worker.execute", || {
-                    std::collections::BTreeMap::from([
+                    BTreeMap::from([
                         (
                             "queue_wait_us".into(),
                             serde_json::json!(queue_wait.as_micros() as u64),
@@ -259,7 +266,7 @@ pub(crate) fn spawn_reconstruct_work(
             }
             ReconstructWorkItem::VerifyFiles(file_indices) => {
                 let mut timings = ReconstructedFileVerification {
-                    elapsed: std::time::Duration::ZERO,
+                    elapsed: Duration::ZERO,
                     bytes: 0,
                 };
                 for &file_index in &file_indices {

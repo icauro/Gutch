@@ -1,10 +1,16 @@
 use super::*;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::capture::build::types::BuildTimings;
+use crate::installation::ReconstructTimings;
+use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::VerifyTimings;
+use crate::profiling::ProfileMode;
 use std::time::Duration;
 
 #[test]
 fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
     use crate::profiling::ProfileMode;
-    let build = crate::capture::build::types::BuildTimings {
+    let build = BuildTimings {
         logical_bytes: 42,
         compression_input_bytes: 100,
         compression_output_bytes: 25,
@@ -38,7 +44,7 @@ fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
             25.0
         );
         let reconstruction = reconstruct_timings_summary(
-            &crate::installation::ReconstructTimings {
+            &ReconstructTimings {
                 verify_files: true,
                 file_verify_bytes: 42,
                 ..Default::default()
@@ -59,8 +65,8 @@ fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
             42
         );
         let verification = verify_timings_summary(
-            &crate::installation::inspect::VerifyTimings {
-                verify_mode: crate::installation::inspect::VerifyMode::Strict,
+            &VerifyTimings {
+                verify_mode: VerifyMode::Strict,
                 chunk_hash_bytes: 42,
                 ..Default::default()
             },
@@ -103,8 +109,8 @@ fn table_cells_are_truncated_without_breaking_width() {
 
 #[test]
 fn build_summary_separates_wall_phases_from_worker_details() {
-    let timings = crate::capture::build::types::BuildTimings {
-        storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
+    let timings = BuildTimings {
+        storage_mode: ArtifactStorageMode::Bundled,
         scan_chunk_wall: Duration::from_secs(4),
         logical_bytes: 20 * 1024 * 1024,
         stream_chunk: Duration::from_secs(6),
@@ -126,10 +132,10 @@ fn build_summary_separates_wall_phases_from_worker_details() {
         bundle_compressed_frame_output_bytes: 5 * 1024 * 1024,
         manifest_finalize_wall: Duration::from_secs(1),
         total: Duration::from_secs(10),
-        ..crate::capture::build::types::BuildTimings::default()
+        ..BuildTimings::default()
     };
 
-    let summary = build_timings_summary(&timings, crate::profiling::ProfileMode::Detailed);
+    let summary = build_timings_summary(&timings, ProfileMode::Detailed);
 
     assert_eq!(summary.schema_version, 1);
     assert_eq!(summary.scan_strategy, "single_pass");
@@ -168,7 +174,7 @@ fn build_summary_separates_wall_phases_from_worker_details() {
 
 #[test]
 fn reconstruct_summary_uses_null_for_disabled_verification() {
-    let timings = crate::installation::ReconstructTimings {
+    let timings = ReconstructTimings {
         prepare_wall: Duration::from_secs(1),
         reconstruct_wall: Duration::from_secs(7),
         bundle_read: Duration::from_secs(9),
@@ -176,10 +182,10 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
         file_rebuild_bytes: 4 * 1024 * 1024,
         file_write: Duration::from_secs(11),
         total: Duration::from_secs(9),
-        ..crate::installation::ReconstructTimings::default()
+        ..ReconstructTimings::default()
     };
 
-    let summary = reconstruct_timings_summary(&timings, crate::profiling::ProfileMode::Detailed);
+    let summary = reconstruct_timings_summary(&timings, ProfileMode::Detailed);
     let json = serde_json::to_value(&summary).expect("serialize reconstruct timing summary");
 
     assert_eq!(summary.unaccounted_seconds, Some(1.0));
@@ -198,8 +204,8 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
 
 #[test]
 fn verify_summary_reports_wall_phases_and_strict_worker_details() {
-    let timings = crate::installation::inspect::VerifyTimings {
-        verify_mode: crate::installation::inspect::VerifyMode::Strict,
+    let timings = VerifyTimings {
+        verify_mode: VerifyMode::Strict,
         prepare_wall: Duration::from_secs(1),
         verify_files_wall: Duration::from_secs(4),
         extra_file_scan_wall: Duration::from_millis(500),
@@ -211,10 +217,10 @@ fn verify_summary_reports_wall_phases_and_strict_worker_details() {
         chunk_hash: Duration::from_secs(1),
         chunk_hash_bytes: 12 * 1024 * 1024,
         total: Duration::from_secs(6),
-        ..crate::installation::inspect::VerifyTimings::default()
+        ..VerifyTimings::default()
     };
 
-    let summary = verify_timings_summary(&timings, crate::profiling::ProfileMode::Detailed);
+    let summary = verify_timings_summary(&timings, ProfileMode::Detailed);
 
     assert_eq!(summary.verify_mode, "strict");
     assert_eq!(summary.unaccounted_seconds, Some(0.5));

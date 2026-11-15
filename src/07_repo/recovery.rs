@@ -2,14 +2,25 @@
 
 use crate::Error;
 use crate::Result;
+use crate::artifact::bundle::BundleReader;
+use crate::artifact::format::size_u32;
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::loose::read_loose_chunk;
+use crate::artifact::loose::read_loose_header;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::reference::ArtifactRef;
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
+use crate::repo::index::write_chunk_index;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::fs;
+use std::fs::File;
 use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +44,7 @@ pub fn rebuild_index(
     control: &OperationControl,
 ) -> Result<IndexRebuildResult> {
     let work = || {
-        let (paths, _) = crate::repo::paths::load_gutch_repo_manifest(root)?;
+        let (paths, _) = load_gutch_repo_manifest(root)?;
         let profile = CompressionProfile::default();
         let mut entries: BTreeMap<String, ChunkIndexEntry> = BTreeMap::new();
         let mut result = IndexRebuildResult {
@@ -50,13 +61,10 @@ pub fn rebuild_index(
         for (artifact, path) in artifacts {
             control.checkpoint()?;
             let recovered = (|| -> Result<Vec<(String, ChunkIndexEntry)>> {
-                let size = crate::artifact::format::size_u32(std::fs::metadata(&path)?.len())?;
+                let size = size_u32(fs::metadata(&path)?.len())?;
                 match &artifact {
-                    crate::artifact::reference::ArtifactRef::Bundle { id } => {
-                        let mut reader = crate::artifact::bundle::BundleReader::open(
-                            std::fs::File::open(&path)?,
-                            &profile,
-                        )?;
+                    ArtifactRef::Bundle { id } => {
+                        let mut reader = BundleReader::open(File::open(&path)?, &profile)?;
                         reader.verify_identity(id)?;
                         let shared_id = smol_str::SmolStr::new(id);
                         Ok(reader
@@ -77,21 +85,14 @@ pub fn rebuild_index(
                             })
                             .collect())
                     }
-                    crate::artifact::reference::ArtifactRef::LooseChunk { hash } => {
-                        let (declared, raw, _) = crate::artifact::loose::read_loose_header(
-                            &mut std::fs::File::open(&path)?,
-                        )?;
+                    ArtifactRef::LooseChunk { hash } => {
+                        let (declared, raw, _) = read_loose_header(&mut File::open(&path)?)?;
                         if declared.to_hex() != *hash {
                             return Err(Error::manifest(
                                 "loose artifact filename disagrees with header",
                             ));
                         }
-                        crate::artifact::loose::read_loose_chunk(
-                            &path,
-                            hash,
-                            u64::from(raw),
-                            &profile,
-                        )?;
+                        read_loose_chunk(&path, hash, u64::from(raw), &profile)?;
                         Ok(vec![(
                             hash.clone(),
                             ChunkIndexEntry::new(
@@ -133,8 +134,7 @@ pub fn rebuild_index(
         }
         for snapshot in super::inventory::list_repo_snapshot_ids(&paths)? {
             control.checkpoint()?;
-            let manifest =
-                crate::repo::snapshot_manifests::load_snapshot_manifest(&paths, &snapshot)?;
+            let manifest = load_snapshot_manifest(&paths, &snapshot)?;
             let mut affected = false;
             for chunk in manifest.files().flat_map(|file| &file.chunks) {
                 if !entries
@@ -157,16 +157,14 @@ pub fn rebuild_index(
         result.complete = result.corrupt_artifacts.is_empty() && result.missing_chunks.is_empty();
         if publish && result.complete {
             control.checkpoint()?;
-            crate::repo::index::write_chunk_index(
+            write_chunk_index(
                 &paths,
                 &ChunkIndex {
                     format_version: "1".into(),
 
                     entries: entries
                         .into_iter()
-                        .map(|(hash, entry)| {
-                            Ok((crate::artifact::hash::ChunkHash::parse_hex(&hash)?, entry))
-                        })
+                        .map(|(hash, entry)| Ok((ChunkHash::parse_hex(&hash)?, entry)))
                         .collect::<Result<_>>()?,
                 },
             )?;

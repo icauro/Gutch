@@ -6,6 +6,7 @@ use std::fs::{File, OpenOptions};
 #[cfg(not(any(unix, windows)))]
 use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -135,12 +136,7 @@ struct SourceReadHandle {
 }
 
 impl SourceHandleCache {
-    pub(crate) fn read_range(
-        &self,
-        path: &std::path::Path,
-        offset: u64,
-        bytes: &mut [u8],
-    ) -> Result<()> {
+    pub(crate) fn read_range(&self, path: &Path, offset: u64, bytes: &mut [u8]) -> Result<()> {
         let input = {
             let mut handles = self
                 .handles
@@ -197,7 +193,7 @@ const SMALL_SHARED_OUTPUT_HANDLE_CACHE_LIMIT: usize = 64;
 const INDEPENDENT_OUTPUT_MIN_BYTES: u64 = 64 * 1024 * 1024;
 
 impl OutputHandleCache {
-    pub(crate) fn output_path(&self, file_index: usize) -> &std::path::Path {
+    pub(crate) fn output_path(&self, file_index: usize) -> &Path {
         &self.output_paths[file_index]
     }
 

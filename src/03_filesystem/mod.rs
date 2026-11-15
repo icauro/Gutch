@@ -6,6 +6,10 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::error::Error;
+use std::fs;
+use std::fs::File;
+use std::fs::Permissions;
+use std::io::ErrorKind;
 
 // ---------------------------------------------------------------------------
 // IO filesystem
@@ -13,12 +17,12 @@ use crate::error::Error;
 
 /// Read a file to string.
 pub(crate) fn read_to_string(path: &Path) -> Result<String, Error> {
-    Ok(std::fs::read_to_string(path)?)
+    Ok(fs::read_to_string(path)?)
 }
 
 /// Read a file to bytes.
 pub(crate) fn read(path: &Path) -> Result<Vec<u8>, Error> {
-    Ok(std::fs::read(path)?)
+    Ok(fs::read(path)?)
 }
 
 /// Write bytes to a file through a same-directory temporary file.
@@ -33,7 +37,7 @@ pub(crate) fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Error
 /// Write a file through a same-directory temporary file and atomically replace the target.
 pub(crate) fn write_atomic_with<F>(path: &Path, write_contents: F) -> Result<(), Error>
 where
-    F: FnOnce(&mut std::fs::File) -> Result<(), Error>,
+    F: FnOnce(&mut File) -> Result<(), Error>,
 {
     let parent = path
         .parent()
@@ -42,13 +46,10 @@ where
     create_dir_all(parent)?;
     // Canonical Windows parents carry the extended-length prefix required by
     // tempfile's native rename; std::fs alone accepts unprefixed long paths.
-    let parent = std::fs::canonicalize(parent)?;
-    let file_name = path.file_name().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "file path has no filename",
-        )
-    })?;
+    let parent = fs::canonicalize(parent)?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidInput, "file path has no filename"))?;
     let destination = parent.join(file_name);
     let mut temporary_file = tempfile::NamedTempFile::new_in(&parent)?;
     write_contents(temporary_file.as_file_mut())?;
@@ -62,12 +63,12 @@ where
 
 /// Create a directory and all missing ancestors.
 pub(crate) fn create_dir_all(path: &Path) -> Result<(), Error> {
-    std::fs::create_dir_all(path).map_err(|e| Error::io_context("creating directory tree", path, e))
+    fs::create_dir_all(path).map_err(|e| Error::io_context("creating directory tree", path, e))
 }
 
 /// Set or clear the read-only flag. On Unix, clearing restores only the owner
 /// write bit; `Permissions::set_readonly(false)` would make the entry world-writable.
-pub(crate) fn set_read_only(permissions: &mut std::fs::Permissions, read_only: bool) {
+pub(crate) fn set_read_only(permissions: &mut Permissions, read_only: bool) {
     #[cfg(unix)]
     if !read_only {
         use std::os::unix::fs::PermissionsExt;
@@ -79,12 +80,12 @@ pub(crate) fn set_read_only(permissions: &mut std::fs::Permissions, read_only: b
 
 /// Remove a file.
 pub(crate) fn remove_file(path: &Path) -> Result<(), Error> {
-    Ok(std::fs::remove_file(path)?)
+    Ok(fs::remove_file(path)?)
 }
 
 /// Remove a directory and all contents.
 pub(crate) fn remove_dir_all(path: &Path) -> Result<(), Error> {
-    Ok(std::fs::remove_dir_all(path)?)
+    Ok(fs::remove_dir_all(path)?)
 }
 
 // ---------------------------------------------------------------------------

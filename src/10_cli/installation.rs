@@ -1,47 +1,77 @@
 //! `installation` command handlers.
 
+use crate::cli::InstallationCommands;
+use crate::cli::Profile;
+use crate::cli::arguments::ReconstructionArgs;
+use crate::cli::arguments::RuntimeArgs;
 use crate::cli::command_support::InstallationVerifyStats;
 use crate::cli::command_support::SnapshotReconstructStats;
+use crate::cli::command_support::prompt_yes_no;
 use crate::cli::command_support::{
     InstallationCorruptStats, InstallationRepairStats, write_report,
 };
+use crate::cli::control_with_profile;
+use crate::cli::output;
+use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
+use crate::cli::reporting::diagnostic_seconds;
 use crate::cli::reporting::optional_output_paths;
 use crate::cli::reporting::print_profile_summary;
+use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
 use crate::cli::reporting::reconstruct_timings_summary;
 use crate::cli::reporting::verify_timings_summary;
+use crate::cli::snapshot_transfer::FetchAndReconstructCommand;
+use crate::cli::snapshot_transfer::FetchCommand;
+use crate::cli::snapshot_transfer::fetch_and_reconstruct;
 use crate::cli::verbose_output_enabled;
+use crate::installation::InstallationCorruptionPlan;
+use crate::installation::InstallationCorruptionRequest;
+use crate::installation::InstallationRepairRequest;
+use crate::installation::InstallationRequest;
+use crate::installation::InstallationVerifyRequest;
+use crate::installation::corrupt_installation;
+use crate::installation::inspect::VerifyMode;
+use crate::installation::install::ExtraFilePolicy;
+use crate::installation::install::InstallationPublication;
+use crate::installation::preview::InstallationInspection;
+use crate::installation::preview::visit_installation_plan;
+use crate::installation::reconstruct_snapshot;
+use crate::installation::repair_installation;
+use crate::installation::verify_installation;
+use crate::profiling::ProfileInstant;
+use crate::runtime::RuntimeResourceHints;
+use std::fs;
 use std::path::PathBuf;
 
 pub(crate) struct ReconstructCommand {
-    pub(crate) repo: std::path::PathBuf,
+    pub(crate) repo: PathBuf,
     pub(crate) snapshot_id: String,
-    pub(crate) destination: std::path::PathBuf,
-    pub(crate) staging_dir: Option<std::path::PathBuf>,
+    pub(crate) destination: PathBuf,
+    pub(crate) staging_dir: Option<PathBuf>,
     pub(crate) source_snapshot_id: Option<String>,
-    pub(crate) source_dir: Option<std::path::PathBuf>,
-    pub(crate) runtime: crate::cli::arguments::RuntimeArgs,
-    pub(crate) stats_json_out: Option<std::path::PathBuf>,
+    pub(crate) source_dir: Option<PathBuf>,
+    pub(crate) runtime: RuntimeArgs,
+    pub(crate) stats_json_out: Option<PathBuf>,
 }
 
 pub(crate) fn verify(
-    repo: std::path::PathBuf,
+    repo: PathBuf,
     snapshot_id: String,
-    destination: std::path::PathBuf,
+    destination: PathBuf,
     strict: bool,
-    runtime: crate::cli::arguments::RuntimeArgs,
-    stats_json_out: Option<std::path::PathBuf>,
-    profile: &crate::cli::Profile,
+    runtime: RuntimeArgs,
+    stats_json_out: Option<PathBuf>,
+    profile: &Profile,
 ) -> crate::Result<()> {
     crate::cli::installation::verify_snapshot(crate::cli::installation::VerifyCommand {
         repo,
         snapshot_id,
         destination,
         verify_mode: if strict {
-            crate::installation::inspect::VerifyMode::Strict
+            VerifyMode::Strict
         } else {
-            crate::installation::inspect::VerifyMode::Fast
+            VerifyMode::Fast
         },
         runtime_hints: runtime.hints(),
         stats_json_out,
@@ -50,20 +80,20 @@ pub(crate) fn verify(
 }
 
 pub(crate) struct RepairCommand {
-    pub(crate) repo: std::path::PathBuf,
+    pub(crate) repo: PathBuf,
     pub(crate) snapshot_id: String,
-    pub(crate) destination: std::path::PathBuf,
-    pub(crate) staging_dir: Option<std::path::PathBuf>,
+    pub(crate) destination: PathBuf,
+    pub(crate) staging_dir: Option<PathBuf>,
     pub(crate) remove_added_files: bool,
-    pub(crate) runtime: crate::cli::arguments::RuntimeArgs,
-    pub(crate) stats_json_out: Option<std::path::PathBuf>,
+    pub(crate) runtime: RuntimeArgs,
+    pub(crate) stats_json_out: Option<PathBuf>,
     pub(crate) yes: bool,
 }
 
-pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> crate::Result<()> {
-    if crate::cli::output::dry_run() {
+pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result<()> {
+    if dry_run() {
         return run_installation(
-            crate::cli::InstallationCommands::Preview {
+            InstallationCommands::Preview {
                 repo: command.repo,
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,
@@ -78,26 +108,19 @@ pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> c
             profile,
         );
     }
-    if !command.yes
-        && !crate::cli::command_support::prompt_yes_no(
-            "Apply these changes to the installation?",
-            false,
-        )?
-    {
+    if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
         return Err(crate::Error::manifest("installation repair cancelled"));
     }
-    let started_at = crate::profiling::ProfileInstant::start(profile.as_deref());
-    let execution =
-        crate::installation::repair_installation(crate::installation::InstallationRepairRequest {
-            repo_path: command.repo.clone(),
-            snapshot_id: command.snapshot_id.clone(),
-            destination_dir: command.destination.clone(),
-            staging_dir: command.staging_dir,
-            remove_added_files: command.remove_added_files,
-            runtime_hints: command.runtime.hints(),
-            control: crate::cli::control_with_profile(profile)
-                .with_progress(CliProgressSink::new()),
-        })?;
+    let started_at = ProfileInstant::start(profile.as_deref());
+    let execution = repair_installation(InstallationRepairRequest {
+        repo_path: command.repo.clone(),
+        snapshot_id: command.snapshot_id.clone(),
+        destination_dir: command.destination.clone(),
+        staging_dir: command.staging_dir,
+        remove_added_files: command.remove_added_files,
+        runtime_hints: command.runtime.hints(),
+        control: control_with_profile(profile).with_progress(CliProgressSink::new()),
+    })?;
     let result = execution.repair_result;
     let stats = InstallationRepairStats {
         command: "installation repair",
@@ -111,20 +134,17 @@ pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> c
         removed_extra_file_count: result.removed_extra_file_count,
         reconstructed_extra_file_count: result.reconstructed_extra_file_count,
         resolved_bundle_file_count: execution.resolved_bundle_file_count,
-        elapsed_seconds: crate::cli::reporting::diagnostic_seconds(
-            started_at.elapsed(),
-            profile.as_deref(),
-        ),
-        outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
+        elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
+        outputs: optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, profile.as_deref())?;
 
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "repaired installation of snapshot {} at {}",
         stats.snapshot_id, stats.destination_dir
     ));
     if verbose_output_enabled() {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "classified missing={}, corrupt={}, extra={}; removed extra={}, preserved extra={}",
             stats.missing_file_count,
             stats.corrupt_file_count,
@@ -134,82 +154,71 @@ pub(crate) fn repair(command: RepairCommand, profile: &crate::cli::Profile) -> c
         ));
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        print_profile_summary(profile.as_deref());
     }
     Ok(())
 }
 
 pub(crate) struct CorruptCommand {
-    pub(crate) destination: std::path::PathBuf,
-    pub(crate) plan: std::path::PathBuf,
-    pub(crate) stats_json_out: Option<std::path::PathBuf>,
+    pub(crate) destination: PathBuf,
+    pub(crate) plan: PathBuf,
+    pub(crate) stats_json_out: Option<PathBuf>,
     pub(crate) yes: bool,
 }
 
-pub(crate) fn corrupt(command: CorruptCommand, profile: &crate::cli::Profile) -> crate::Result<()> {
-    let plan_bytes = std::fs::read(&command.plan).map_err(|error| {
+pub(crate) fn corrupt(command: CorruptCommand, profile: &Profile) -> crate::Result<()> {
+    let plan_bytes = fs::read(&command.plan).map_err(|error| {
         crate::Error::manifest(format!(
             "failed to read corruption plan '{}': {error}",
             command.plan.display()
         ))
     })?;
-    let plan: crate::installation::InstallationCorruptionPlan = serde_json::from_slice(&plan_bytes)
-        .map_err(|error| {
+    let plan: InstallationCorruptionPlan =
+        serde_json::from_slice(&plan_bytes).map_err(|error| {
             crate::Error::manifest(format!(
                 "invalid corruption plan '{}': {error}",
                 command.plan.display()
             ))
         })?;
     // Parse the plan first so the user never confirms a plan that cannot run.
-    if !command.yes
-        && !crate::cli::command_support::prompt_yes_no(
-            "Apply these changes to the installation?",
-            false,
-        )?
-    {
+    if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
         return Err(crate::Error::manifest("installation corruption cancelled"));
     }
-    let started_at = crate::profiling::ProfileInstant::start(profile.as_deref());
-    let result = crate::installation::corrupt_installation(
-        crate::installation::InstallationCorruptionRequest {
-            destination_dir: command.destination.clone(),
-            plan,
-            control: crate::cli::control_with_profile(profile)
-                .with_progress(CliProgressSink::new()),
-        },
-    )?;
+    let started_at = ProfileInstant::start(profile.as_deref());
+    let result = corrupt_installation(InstallationCorruptionRequest {
+        destination_dir: command.destination.clone(),
+        plan,
+        control: control_with_profile(profile).with_progress(CliProgressSink::new()),
+    })?;
     let stats = InstallationCorruptStats {
         command: "debug corrupt-installation",
         destination_dir: result.destination_dir.display().to_string(),
         plan_path: command.plan.display().to_string(),
         applied_operation_count: result.applied_operation_count,
-        elapsed_seconds: crate::cli::reporting::diagnostic_seconds(
-            started_at.elapsed(),
-            profile.as_deref(),
-        ),
-        outputs: crate::cli::reporting::optional_output_paths(&command.stats_json_out),
+        elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
+        outputs: optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "applied {} corruption operations to {}",
             stats.applied_operation_count, stats.destination_dir
         ));
     }
     if profile.is_some() {
-        crate::cli::reporting::print_profile_summary(profile.as_deref());
+        print_profile_summary(profile.as_deref());
     }
     Ok(())
 }
 
 pub(crate) fn run_installation(
-    command: crate::cli::InstallationCommands,
-    profile: &crate::cli::Profile,
+    command: InstallationCommands,
+    profile: &Profile,
 ) -> crate::Result<()> {
     match command {
-        crate::cli::InstallationCommands::Reconstruct(arguments) => {
-            let crate::cli::arguments::ReconstructionArgs {
+        InstallationCommands::Reconstruct(arguments) => {
+            let ReconstructionArgs {
                 repo,
                 snapshot_id,
                 destination,
@@ -231,9 +240,9 @@ pub(crate) fn run_installation(
                 stats_json_out,
             } = *arguments;
             if fetch {
-                crate::cli::snapshot_transfer::fetch_and_reconstruct(
-                    crate::cli::snapshot_transfer::FetchAndReconstructCommand {
-                        fetch: crate::cli::snapshot_transfer::FetchCommand {
+                fetch_and_reconstruct(
+                    FetchAndReconstructCommand {
+                        fetch: FetchCommand {
                             repo,
                             snapshot_id,
                             metadata_url: metadata_url
@@ -274,7 +283,7 @@ pub(crate) fn run_installation(
                 )
             }
         }
-        crate::cli::InstallationCommands::Preview {
+        InstallationCommands::Preview {
             repo,
             snapshot_id,
             destination,
@@ -287,18 +296,18 @@ pub(crate) fn run_installation(
             runtime,
         } => {
             let publication = if publication == "selective" {
-                crate::installation::install::InstallationPublication::Selective {
+                InstallationPublication::Selective {
                     extra_files: if remove_added_files {
-                        crate::installation::install::ExtraFilePolicy::Remove
+                        ExtraFilePolicy::Remove
                     } else {
-                        crate::installation::install::ExtraFilePolicy::Preserve
+                        ExtraFilePolicy::Preserve
                     },
                 }
             } else {
-                crate::installation::install::InstallationPublication::ReplaceDirectory
+                InstallationPublication::ReplaceDirectory
             };
-            let summary = crate::installation::preview::visit_installation_plan(
-                &crate::installation::InstallationRequest {
+            let summary = visit_installation_plan(
+                &InstallationRequest {
                     repo_path: repo,
                     snapshot_id,
                     destination_dir: destination,
@@ -306,26 +315,25 @@ pub(crate) fn run_installation(
                     source_snapshot_id: source_snapshot,
                     source_dir,
                     runtime_hints: runtime.hints(),
-                    control: crate::cli::control_with_profile(profile)
-                        .with_progress(CliProgressSink::new()),
+                    control: control_with_profile(profile).with_progress(CliProgressSink::new()),
                 },
                 publication,
                 if metadata_only {
-                    crate::installation::preview::InstallationInspection::MetadataOnly
+                    InstallationInspection::MetadataOnly
                 } else {
-                    crate::installation::preview::InstallationInspection::Content
+                    InstallationInspection::Content
                 },
-                &mut |event| crate::cli::output::event(&event),
+                &mut |event| output::event(&event),
             )?;
-            crate::cli::output::record(&summary)?;
-            crate::cli::output::line(format_args!(
+            output::record(&summary)?;
+            output::line(format_args!(
                 "{} entries; {} artifacts; {} bytes staging",
                 summary.entry_count, summary.required_artifact_count, summary.staging_file_bytes
             ));
             Ok(())
         }
 
-        crate::cli::InstallationCommands::Verify {
+        InstallationCommands::Verify {
             repo,
             snapshot_id,
             destination,
@@ -341,7 +349,7 @@ pub(crate) fn run_installation(
             stats_json_out,
             profile,
         ),
-        crate::cli::InstallationCommands::Repair {
+        InstallationCommands::Repair {
             repo,
             snapshot_id,
             destination,
@@ -370,19 +378,16 @@ pub(crate) struct VerifyCommand {
     pub(crate) repo: PathBuf,
     pub(crate) snapshot_id: String,
     pub(crate) destination: PathBuf,
-    pub(crate) verify_mode: crate::installation::inspect::VerifyMode,
-    pub(crate) runtime_hints: crate::runtime::RuntimeResourceHints,
+    pub(crate) verify_mode: VerifyMode,
+    pub(crate) runtime_hints: RuntimeResourceHints,
     pub(crate) stats_json_out: Option<PathBuf>,
-    pub(crate) profile: crate::cli::Profile,
+    pub(crate) profile: Profile,
 }
 
-pub(crate) fn reconstruct(
-    command: ReconstructCommand,
-    profile: &crate::cli::Profile,
-) -> crate::Result<()> {
-    if crate::cli::output::dry_run() {
+pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> crate::Result<()> {
+    if dry_run() {
         return run_installation(
-            crate::cli::InstallationCommands::Preview {
+            InstallationCommands::Preview {
                 repo: command.repo,
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,
@@ -397,18 +402,16 @@ pub(crate) fn reconstruct(
             profile,
         );
     }
-    let execution =
-        crate::installation::reconstruct_snapshot(crate::installation::InstallationRequest {
-            repo_path: command.repo.clone(),
-            snapshot_id: command.snapshot_id.clone(),
-            destination_dir: command.destination.clone(),
-            staging_dir: command.staging_dir.clone(),
-            source_snapshot_id: command.source_snapshot_id.clone(),
-            source_dir: command.source_dir.clone(),
-            runtime_hints: command.runtime.hints(),
-            control: crate::cli::control_with_profile(profile)
-                .with_progress(CliProgressSink::new()),
-        })?;
+    let execution = reconstruct_snapshot(InstallationRequest {
+        repo_path: command.repo.clone(),
+        snapshot_id: command.snapshot_id.clone(),
+        destination_dir: command.destination.clone(),
+        staging_dir: command.staging_dir.clone(),
+        source_snapshot_id: command.source_snapshot_id.clone(),
+        source_dir: command.source_dir.clone(),
+        runtime_hints: command.runtime.hints(),
+        control: control_with_profile(profile).with_progress(CliProgressSink::new()),
+    })?;
     let snapshot_manifest = execution.snapshot_manifest;
     let result = execution.reconstruct_result;
     let reused_source_chunk_percent = ratio_pct(
@@ -438,22 +441,22 @@ pub(crate) fn reconstruct(
         total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
         reconstruct_timings: reconstruct_timings_summary(
             &result.reconstruct_timings,
-            crate::cli::reporting::profile_mode(profile.as_deref()),
+            profile_mode(profile.as_deref()),
         ),
         verify_timings: verify_timings_summary(
             &result.verify_timings,
-            crate::cli::reporting::profile_mode(profile.as_deref()),
+            profile_mode(profile.as_deref()),
         ),
         outputs: optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, profile.as_deref())?;
 
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "reconstructed snapshot {} to {}",
         stats.snapshot_id, stats.destination_dir
     ));
     if verbose_output_enabled() {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "reused {} of {} chunks from source ({:.2}%)",
             stats.reused_source_chunk_count,
             stats.required_chunk_count,
@@ -468,15 +471,14 @@ pub(crate) fn reconstruct(
 
 pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
     let progress = CliProgressSink::new();
-    let execution =
-        crate::installation::verify_installation(crate::installation::InstallationVerifyRequest {
-            repo_path: command.repo.clone(),
-            snapshot_id: command.snapshot_id.clone(),
-            destination_dir: command.destination.clone(),
-            verify_mode: command.verify_mode,
-            runtime_hints: command.runtime_hints,
-            control: crate::cli::control_with_profile(&command.profile).with_progress(progress),
-        })?;
+    let execution = verify_installation(InstallationVerifyRequest {
+        repo_path: command.repo.clone(),
+        snapshot_id: command.snapshot_id.clone(),
+        destination_dir: command.destination.clone(),
+        verify_mode: command.verify_mode,
+        runtime_hints: command.runtime_hints,
+        control: control_with_profile(&command.profile).with_progress(progress),
+    })?;
     let repo_root = execution.repo_root;
     let snapshot_manifest = execution.snapshot_manifest;
     let classification = execution.classification;
@@ -497,16 +499,13 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
         extra_file_count,
         verification_passed: errors.is_empty(),
         errors: errors.clone(),
-        timings: verify_timings_summary(
-            &timings,
-            crate::cli::reporting::profile_mode(command.profile.as_deref()),
-        ),
+        timings: verify_timings_summary(&timings, profile_mode(command.profile.as_deref())),
         outputs: optional_output_paths(&command.stats_json_out),
     };
     write_report(&command.stats_json_out, &stats, command.profile.as_deref())?;
 
     if errors.is_empty() {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "verification passed for {}",
             command.destination.display()
         ));

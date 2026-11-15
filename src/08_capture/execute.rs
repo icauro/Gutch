@@ -17,7 +17,33 @@ use crate::progress::ProgressPhase;
 use crate::progress::ProgressSink;
 use crate::repo::Result;
 
+use crate::artifact::profiles::BundleSizingProfile;
+use crate::artifact::profiles::ChunkSizingProfile;
+use crate::artifact::profiles::validate_packaging_sizes;
+use crate::capture::build::BuiltCapture;
+use crate::capture::build::build_with_stable_source;
+use crate::capture::build::types::BuildConfig;
 use crate::capture::plan::plan_snapshot_capture_with_control;
+use crate::capture::publish::publish_snapshot_artifacts;
+use crate::capture::scan::validate_source_inventory;
+use crate::manifest::SnapshotManifest;
+use crate::progress::OperationControl;
+use crate::repo::coordination::write_with_control;
+use crate::repo::index::required_bundle_ids;
+use crate::repo::index::required_chunk_hashes;
+use crate::repo::index::write_chunk_index;
+use crate::repo::paths::RepoPaths;
+use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::runtime::RuntimeResourceHints;
+use crate::runtime::build_thread_pool;
+use crate::runtime::plan_runtime;
+use crate::snapshot::identity::format_system_time_utc;
+use std::collections::BTreeMap;
+use std::fs;
+use std::mem;
 fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
     match value {
         None => String::from("(absent)"),
@@ -28,25 +54,25 @@ fn metadata_display_value<T: serde::Serialize>(value: Option<&T>) -> String {
 }
 
 pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
-    crate::artifact::profiles::validate_packaging_sizes(
-        &crate::artifact::profiles::ChunkSizingProfile::for_preset(request.chunk_profile),
-        &crate::artifact::profiles::BundleSizingProfile::for_preset(request.bundle_profile),
+    validate_packaging_sizes(
+        &ChunkSizingProfile::for_preset(request.chunk_profile),
+        &BundleSizingProfile::for_preset(request.bundle_profile),
         request.storage_mode,
     )?;
     request.control.checkpoint()?;
     let operation_root = request.repo_root.to_path_buf();
-    crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
+    write_with_control(&operation_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let build_pool = build_capture_pool(&request.control, &request.runtime_hints)?;
 
-        let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(&request.repo_root);
+        let repo_paths = RepoPaths::from_repo_root(&request.repo_root);
         let _existing_state_span = request
             .control
             .profile_span("capture.prepare_source.load_existing_store_state");
         let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, &request.control)?;
         drop(_existing_state_span);
 
-        let (_, mut manifest) = crate::repo::paths::load_gutch_repo_manifest(&request.repo_root)?;
+        let (_, mut manifest) = load_gutch_repo_manifest(&request.repo_root)?;
         manifest.set_artifact_profile(
             request.chunk_profile,
             request.compression_algorithm,
@@ -60,7 +86,7 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
             &mut reuse_state,
             &build_pool,
         )?;
-        crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &manifest)?;
+        write_gutch_repo_manifest(&repo_paths, &manifest)?;
         Ok(result)
     })
     .map_err(capture_error)
@@ -73,7 +99,7 @@ pub(crate) fn capture_repo_snapshot_with_existing_reuse_state(
 ) -> Result<SnapshotCaptureResult> {
     request.control.checkpoint()?;
     let operation_root = request.repo_root.to_path_buf();
-    crate::repo::coordination::write_with_control(&operation_root, &request.control.clone(), || {
+    write_with_control(&operation_root, &request.control.clone(), || {
         plan_snapshot_capture_with_control(
             request.repo_root.as_path(),
             request.source_dir.as_path(),
@@ -106,8 +132,7 @@ fn execute_repo_snapshot_capture(
     let _repo_state_span = request
         .control
         .profile_span("capture.prepare_source.load_repo_state");
-    let (repo_paths, repo_manifest) =
-        crate::repo::paths::load_gutch_repo_manifest(&request.repo_root)?;
+    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&request.repo_root)?;
     drop(_repo_state_span);
 
     let _input_span = request
@@ -119,7 +144,7 @@ fn execute_repo_snapshot_capture(
     let _source_inventory_span = request
         .control
         .profile_span("capture.prepare_source.inventory_source");
-    let runtime_plan = crate::runtime::plan_runtime(&request.runtime_hints);
+    let runtime_plan = plan_runtime(&request.runtime_hints);
     let source_inventory: SourceInventory = scan_source_inventory(
         &prepared_input.dir,
         &request.control,
@@ -128,7 +153,7 @@ fn execute_repo_snapshot_capture(
     )?;
     drop(_source_inventory_span);
     let constraints = repo_manifest.constraints.clone().unwrap_or_default();
-    crate::capture::scan::validate_source_inventory(&source_inventory, &constraints)?;
+    validate_source_inventory(&source_inventory, &constraints)?;
 
     let _identity_span = request
         .control
@@ -143,7 +168,7 @@ fn execute_repo_snapshot_capture(
         request
             .control
             .profile_span_with_args("capture.prepare_source.configure_build", || {
-                std::collections::BTreeMap::from([
+                BTreeMap::from([
                     (
                         "existing_bundle_count".to_string(),
                         serde_json::json!(reuse_state.bundle_ids.len()),
@@ -158,27 +183,26 @@ fn execute_repo_snapshot_capture(
                     ),
                 ])
             });
-    let mut build_config =
-        crate::capture::build::types::BuildConfig::for_snapshot(&normalized_tags)
-            .with_existing_chunks(&reuse_state.available_chunk_sizes)
-            .with_existing_bundles(&reuse_state.bundle_ids)
-            .with_previous_manifests(&reuse_state.previous_file_manifests)
-            .with_chunk_profile(request.chunk_profile)
-            .with_chunker(request.chunker)
-            .with_bundle_profile(request.bundle_profile)
-            .with_compression(request.compression_algorithm, request.compression_level)
-            .with_storage_mode(request.storage_mode)
-            .with_runtime_hints(request.runtime_hints)
-            .with_artifact_staging_root(repo_paths.bundles_root.clone());
+    let mut build_config = BuildConfig::for_snapshot(&normalized_tags)
+        .with_existing_chunks(&reuse_state.available_chunk_sizes)
+        .with_existing_bundles(&reuse_state.bundle_ids)
+        .with_previous_manifests(&reuse_state.previous_file_manifests)
+        .with_chunk_profile(request.chunk_profile)
+        .with_chunker(request.chunker)
+        .with_bundle_profile(request.bundle_profile)
+        .with_compression(request.compression_algorithm, request.compression_level)
+        .with_storage_mode(request.storage_mode)
+        .with_runtime_hints(request.runtime_hints)
+        .with_artifact_staging_root(repo_paths.bundles_root.clone());
     build_config.control = request.control.clone();
     drop(_config_span);
 
     drop(_prepare_span);
-    let crate::capture::build::BuiltCapture {
+    let BuiltCapture {
         result,
         timings,
         source_inventory,
-    } = crate::capture::build::build_with_stable_source(
+    } = build_with_stable_source(
         &prepared_input.dir,
         &build_config,
         build_pool,
@@ -191,15 +215,13 @@ fn execute_repo_snapshot_capture(
     let mut result = result;
     let snapshot_id = result.snapshot_manifest.snapshot_id.clone();
     result.snapshot_manifest.source_modified_at =
-        crate::snapshot::identity::format_system_time_utc(source_inventory.source_modified_at);
+        format_system_time_utc(source_inventory.source_modified_at);
     result.snapshot_manifest.snapshot_tags = normalized_tags.clone();
 
-    let existing_manifest_path =
-        crate::repo::snapshot_manifests::snapshot_metadata_path(&repo_paths, &snapshot_id)?;
+    let existing_manifest_path = snapshot_metadata_path(&repo_paths, &snapshot_id)?;
     let snapshot_already_existed = existing_manifest_path.exists();
     if snapshot_already_existed {
-        let existing_manifest =
-            crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &snapshot_id)?;
+        let existing_manifest = load_snapshot_manifest(&repo_paths, &snapshot_id)?;
 
         // The content-derived ID already exists. Compare metadata without
         // mutating anything: identical metadata returns unchanged, differing
@@ -214,18 +236,14 @@ fn execute_repo_snapshot_capture(
                 },
             });
         }
-        if crate::repo::index::required_chunk_hashes(&existing_manifest)
+        if required_chunk_hashes(&existing_manifest)
             .iter()
             .all(|hash| reuse_state.available_chunk_sizes.contains_key(hash))
         {
-            let required_chunk_count =
-                crate::repo::index::required_chunk_hashes(&existing_manifest).len();
-            let required_bundle_count = crate::repo::index::required_bundle_ids(
-                &existing_manifest,
-                &reuse_state.chunk_index,
-            )?
-            .len();
-            crate::repo::index::write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
+            let required_chunk_count = required_chunk_hashes(&existing_manifest).len();
+            let required_bundle_count =
+                required_bundle_ids(&existing_manifest, &reuse_state.chunk_index)?.len();
+            write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
             return Ok(SnapshotCaptureResult {
                 repo_root: repo_paths.repo_root,
                 snapshot_id: existing_manifest.snapshot_id.clone(),
@@ -250,7 +268,7 @@ fn execute_repo_snapshot_capture(
         }
         // A damaged snapshot may be rebuilt with a different chunk layout. Publish
         // its new blueprint with its artifacts, retaining descriptive metadata.
-        let rebuilt_entries = std::mem::take(&mut result.snapshot_manifest.entries);
+        let rebuilt_entries = mem::take(&mut result.snapshot_manifest.entries);
         let rebuilt_estimate = result.snapshot_manifest.total_compressed_size_estimate;
         result.snapshot_manifest = existing_manifest;
         result.snapshot_manifest.chunker = request.chunker;
@@ -259,21 +277,20 @@ fn execute_repo_snapshot_capture(
     }
 
     // Publication adds newly built chunks to reuse state. Count against the pre-publication state.
-    let required_chunks = crate::repo::index::required_chunk_hashes(&result.snapshot_manifest);
+    let required_chunks = required_chunk_hashes(&result.snapshot_manifest);
     let required_chunk_count = required_chunks.len();
     let reused_chunk_count = required_chunks
         .into_iter()
         .filter(|chunk_id| reuse_state.available_chunk_sizes.contains_key(chunk_id))
         .count();
 
-    let (manifest_path, required_bundle_count) =
-        crate::capture::publish::publish_snapshot_artifacts(
-            &request.control,
-            &repo_paths,
-            &result,
-            reuse_state,
-            build_pool,
-        )?;
+    let (manifest_path, required_bundle_count) = publish_snapshot_artifacts(
+        &request.control,
+        &repo_paths,
+        &result,
+        reuse_state,
+        build_pool,
+    )?;
 
     let capture_result = SnapshotCaptureResult {
         repo_root: repo_paths.repo_root,
@@ -307,8 +324,8 @@ fn execute_repo_snapshot_capture(
 }
 
 fn capture_metadata_differences(
-    existing_manifest: &crate::manifest::SnapshotManifest,
-    requested_manifest: &crate::manifest::SnapshotManifest,
+    existing_manifest: &SnapshotManifest,
+    requested_manifest: &SnapshotManifest,
 ) -> Vec<MetadataFieldDifference> {
     let mut differences = Vec::new();
     if existing_manifest.snapshot_tags != requested_manifest.snapshot_tags {
@@ -364,17 +381,17 @@ impl SnapshotCaptureResult {
 
 /// Builds the capture worker pool sized from `hints`, timed as one profile span.
 pub(super) fn build_capture_pool(
-    control: &crate::progress::OperationControl,
-    hints: &crate::runtime::RuntimeResourceHints,
+    control: &OperationControl,
+    hints: &RuntimeResourceHints,
 ) -> Result<rayon::ThreadPool> {
-    let runtime_plan = crate::runtime::plan_runtime(hints);
+    let runtime_plan = plan_runtime(hints);
     let _pool_span = control.profile_span_with_args("capture.create_worker_pool", || {
-        std::collections::BTreeMap::from([(
+        BTreeMap::from([(
             "worker_count".to_string(),
             serde_json::json!(runtime_plan.worker_count),
         )])
     });
-    crate::runtime::build_thread_pool(runtime_plan.worker_count, "Capture worker")
+    build_thread_pool(runtime_plan.worker_count, "Capture worker")
 }
 
 /// Captures read a directory; a single input file is staged into a private
@@ -392,7 +409,7 @@ pub(super) fn prepare_input_path(path: &Path) -> Result<PreparedInputPath> {
             crate::Error::manifest(format!("input file has no name: {}", path.display()))
         })?;
         let staged_path = tempdir.path().join(filename);
-        std::fs::copy(path, &staged_path)?;
+        fs::copy(path, &staged_path)?;
         return Ok(PreparedInputPath {
             dir: tempdir.path().to_path_buf(),
             _tempdir: Some(tempdir),

@@ -2,6 +2,9 @@
 
 use std::path::Path;
 
+use crate::filesystem;
+use crate::filesystem::from_json_str;
+use crate::filesystem::write_json;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -80,8 +83,8 @@ pub fn load_config(path: &Path) -> Result<CliConfig, crate::Error> {
         return Ok(CliConfig::default());
     }
 
-    let raw = crate::filesystem::read_to_string(path)?;
-    let config: CliConfig = crate::filesystem::from_json_str(&raw)?;
+    let raw = filesystem::read_to_string(path)?;
+    let config: CliConfig = from_json_str(&raw)?;
     validate_config_paths(&config)?;
     Ok(config)
 }
@@ -89,14 +92,14 @@ pub fn load_config(path: &Path) -> Result<CliConfig, crate::Error> {
 pub fn save_config(path: &Path, config: &CliConfig) -> Result<(), crate::Error> {
     validate_config_paths(config)?;
     if let Some(dir) = path.parent() {
-        crate::filesystem::create_dir_all(dir)?;
+        filesystem::create_dir_all(dir)?;
     }
-    crate::filesystem::write_json(path, config)
+    write_json(path, config)
 }
 
 fn validate_config_paths(config: &CliConfig) -> Result<(), crate::Error> {
     for repo in &config.repos {
-        if !std::path::Path::new(repo.path.trim()).is_absolute() {
+        if !Path::new(repo.path.trim()).is_absolute() {
             return Err(crate::Error::manifest(
                 "tracked Gutch repo paths must be absolute",
             ));
@@ -104,7 +107,7 @@ fn validate_config_paths(config: &CliConfig) -> Result<(), crate::Error> {
         if repo
             .snapshot_sources_path
             .as_deref()
-            .is_some_and(|path| !std::path::Path::new(path.trim()).is_absolute())
+            .is_some_and(|path| !Path::new(path.trim()).is_absolute())
         {
             return Err(crate::Error::manifest(
                 "tracked Gutch snapshot source paths must be absolute",

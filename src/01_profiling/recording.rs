@@ -12,6 +12,8 @@ use super::{
     ARGUMENT_FIELDS, Arguments, BLOCK_EVENTS, Event, OVERVIEW_BYTES, Profiler, RECORDING_BYTES,
     Recorder, overview_marker,
 };
+use std::array::from_fn;
+use std::thread;
 
 thread_local! {
     static RECORDERS: RefCell<HashMap<u64, Weak<Mutex<Recorder>>>> = RefCell::new(HashMap::new());
@@ -41,7 +43,7 @@ impl Profiler {
             }
             let recorder = Arc::new(Mutex::new(Recorder {
                 tid: registered.len() + 1,
-                thread_name: std::thread::current()
+                thread_name: thread::current()
                     .name()
                     .unwrap_or("gutch-worker")
                     .chars()
@@ -99,7 +101,7 @@ impl Profiler {
             }
             recorder.events.reserve_exact(BLOCK_EVENTS);
         }
-        let mut fields = std::array::from_fn(|_| None);
+        let mut fields = from_fn(|_| None);
         let mut index = 0;
         for (key, value) in args() {
             if key.contains("source_path") || key.contains("url") {

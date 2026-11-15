@@ -8,10 +8,17 @@ use std::time::Duration;
 
 use crate::Error;
 use crate::Result;
+use crate::artifact::compression::decoder_from_reader;
+use crate::artifact::compression::encode_to_writer;
+use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
+use crate::profiling::Profiler;
+use std::fs::File;
+use std::path::Path;
 
 pub(crate) fn read_loose_chunk(
-    path: &std::path::Path,
+    path: &Path,
     chunk_hash: &str,
     raw_size: u64,
     compression_profile: &CompressionProfile,
@@ -20,11 +27,11 @@ pub(crate) fn read_loose_chunk(
 }
 
 pub(crate) fn read_loose_chunk_with_profiler(
-    path: &std::path::Path,
+    path: &Path,
     chunk_hash: &str,
     raw_size: u64,
     compression_profile: &CompressionProfile,
-    profiler: Option<&crate::profiling::Profiler>,
+    profiler: Option<&Profiler>,
 ) -> Result<Vec<u8>> {
     Ok(read_loose_chunk_with_metrics(path, chunk_hash, raw_size, compression_profile, profiler)?.0)
 }
@@ -40,17 +47,17 @@ pub(crate) struct LooseChunkReadMetrics {
 }
 
 pub(crate) fn read_loose_chunk_with_metrics(
-    path: &std::path::Path,
+    path: &Path,
     chunk_hash: &str,
     raw_size: u64,
     _compression_profile: &CompressionProfile,
-    profiler: Option<&crate::profiling::Profiler>,
+    profiler: Option<&Profiler>,
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
     let mut metrics = LooseChunkReadMetrics::default();
     let (mut file, codec) = {
         let started_at = ProfileInstant::detailed(profiler);
 
-        let mut file = std::fs::File::open(path)?;
+        let mut file = File::open(path)?;
         metrics.compressed_bytes = file.metadata()?.len();
         format::size_u32(metrics.compressed_bytes)?;
         let (declared_hash, declared_size, codec) = read_loose_header(&mut file)?;
@@ -65,8 +72,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     let bytes = {
         let started_at = ProfileInstant::detailed(profiler);
 
-        let mut decoder =
-            crate::artifact::compression::decoder_from_reader(&mut file, codec)?.take(raw_size + 1);
+        let mut decoder = decoder_from_reader(&mut file, codec)?.take(raw_size + 1);
         let mut bytes = Vec::with_capacity(raw_size as usize);
         decoder.read_to_end(&mut bytes)?;
         metrics.decompress = started_at.elapsed();
@@ -89,7 +95,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
     {
         let started_at = ProfileInstant::detailed(profiler);
 
-        let actual_hash = crate::artifact::hash::ChunkHash::of(&bytes).to_hex();
+        let actual_hash = ChunkHash::of(&bytes).to_hex();
         if actual_hash != chunk_hash {
             return Err(Error::HashMismatch {
                 expected: chunk_hash.to_string(),
@@ -103,7 +109,7 @@ pub(crate) fn read_loose_chunk_with_metrics(
 
 pub(crate) fn write_loose_chunk(
     writer: &mut impl Write,
-    hash: crate::artifact::hash::ChunkHash,
+    hash: ChunkHash,
     bytes: &[u8],
     profile: &CompressionProfile,
 ) -> Result<()> {
@@ -115,7 +121,7 @@ pub(crate) fn write_loose_chunk(
     format::write_codec(writer, profile.compression)?;
     writer.write_all(&format::size_u32(bytes.len() as u64)?.to_le_bytes())?;
     writer.write_all(hash.as_bytes())?;
-    crate::artifact::compression::encode_to_writer(writer, profile, bytes.len() as u64, |writer| {
+    encode_to_writer(writer, profile, bytes.len() as u64, |writer| {
         writer.write_all(bytes)?;
         Ok(())
     })
@@ -123,11 +129,7 @@ pub(crate) fn write_loose_chunk(
 
 pub(crate) fn read_loose_header(
     reader: &mut impl Read,
-) -> Result<(
-    crate::artifact::hash::ChunkHash,
-    u32,
-    crate::artifact::profiles::CompressionKind,
-)> {
+) -> Result<(ChunkHash, u32, CompressionKind)> {
     let mut magic = [0u8; 16];
     reader.read_exact(&mut magic)?;
     if &magic != format::LOOSE_CHUNK_MAGIC {
@@ -143,11 +145,7 @@ pub(crate) fn read_loose_header(
     }
     let mut hash = [0u8; 32];
     reader.read_exact(&mut hash)?;
-    Ok((
-        crate::artifact::hash::ChunkHash::from_bytes(hash),
-        size,
-        codec,
-    ))
+    Ok((ChunkHash::from_bytes(hash), size, codec))
 }
 
 #[cfg(test)]

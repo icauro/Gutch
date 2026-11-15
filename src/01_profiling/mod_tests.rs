@@ -1,4 +1,6 @@
 use super::*;
+use std::cell::Cell;
+use std::fs;
 #[test]
 fn nested_trace_endpoints_remain_inside_the_parent() {
     let profiler = Profiler::new(ProfileMode::Detailed);
@@ -26,7 +28,7 @@ fn disabled_and_summary_do_not_evaluate_arguments() {
 #[test]
 fn millions_of_job_markers_do_not_build_millions_of_arguments() {
     let p = Profiler::new(ProfileMode::Detailed);
-    let evaluated = std::cell::Cell::new(0usize);
+    let evaluated = Cell::new(0usize);
     for _ in 0..1_000_000 {
         drop(p.span_with_args("capture.scan.file", || {
             evaluated.set(evaluated.get() + 1);
@@ -67,8 +69,7 @@ fn exhausted_detail_budget_preserves_overview_and_skips_arguments() {
     let directory = tempfile::tempdir().unwrap();
     p.finish(directory.path(), true).unwrap();
     let trace: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(directory.path().join("trace.json")).unwrap())
-            .unwrap();
+        serde_json::from_slice(&fs::read(directory.path().join("trace.json")).unwrap()).unwrap();
     assert!(
         trace["traceEvents"]
             .as_array()
@@ -112,11 +113,10 @@ fn finalization_rejects_live_spans_and_reports_export_failure() {
     let span = profiler.span("cli.command");
     assert!(profiler.finish(directory.path(), true).is_err());
     drop(span);
-    std::fs::create_dir(directory.path().join("trace.json")).unwrap();
+    fs::create_dir(directory.path().join("trace.json")).unwrap();
     assert!(profiler.finish(directory.path(), true).is_err());
     let report: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(directory.path().join("summary.json")).unwrap())
-            .unwrap();
+        serde_json::from_slice(&fs::read(directory.path().join("summary.json")).unwrap()).unwrap();
     assert_eq!(report["operation_succeeded"], true);
     assert_eq!(report["export_succeeded"], false);
     assert!(profiler.span("capture.build_snapshot").is_none());
@@ -155,7 +155,7 @@ fn sessions_are_isolated_and_export_complete_events() {
     let dir = tempfile::tempdir().unwrap();
     a.finish(dir.path(), true).unwrap();
     let trace: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(dir.path().join("trace.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(dir.path().join("trace.json")).unwrap()).unwrap();
     assert!(
         trace["traceEvents"]
             .as_array()

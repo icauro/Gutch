@@ -9,14 +9,32 @@ use serde::Serialize;
 use super::discovery::SourceSnapshotOperationCandidate;
 use super::discovery::discover_source_snapshot_operations;
 use crate::Result;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::profiles::BundleSizingPreset;
+use crate::artifact::profiles::ChunkSizingPreset;
+use crate::artifact::profiles::Chunker;
+use crate::artifact::profiles::CompressionKind;
+use crate::capture::contracts::SnapshotCaptureRequest;
+use crate::capture::execute::build_capture_pool;
+use crate::capture::execute::capture_error;
+use crate::capture::execute::capture_repo_snapshot_with_existing_reuse_state;
+use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::load_capture_reuse_state;
 use crate::progress;
+use crate::progress::OperationControl;
 use crate::progress::OperationKind;
 use crate::progress::ProgressEvent;
 use crate::progress::ProgressPhase;
 use crate::progress::ProgressSink;
+use crate::repo::cleanup::cleanup_orphan_artifacts_in_repo;
+use crate::repo::coordination;
+use crate::repo::paths::RepoPaths;
+use crate::repo::snapshot_tag_summary::format_snapshot_tag_summary;
 use crate::repo::status::RepoStatus;
 use crate::repo::status::read_repo_status;
+use crate::runtime::RuntimeResourceHints;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,21 +119,19 @@ pub fn plan_snapshot_sources_capture_with_context(
     Ok(plan)
 }
 
-fn normalized_sources_path(sources_path: Option<&Path>) -> Option<std::path::PathBuf> {
+fn normalized_sources_path(sources_path: Option<&Path>) -> Option<PathBuf> {
     let sources_path = sources_path?;
     let trimmed = sources_path.to_string_lossy().trim().to_string();
     if trimmed.is_empty() {
         return None;
     }
-    Some(std::path::PathBuf::from(trimmed))
+    Some(PathBuf::from(trimmed))
 }
 
 pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan) -> Vec<String> {
     let mut lines = Vec::new();
     for candidate in &plan.to_capture {
-        let tags = crate::repo::snapshot_tag_summary::format_snapshot_tag_summary(
-            &candidate.snapshot_tags,
-        );
+        let tags = format_snapshot_tag_summary(&candidate.snapshot_tags);
         if candidate.error.is_some() {
             lines.push(format!(
                 "Capture new snapshot from {} (tags {}): previously reported {}",
@@ -136,10 +152,10 @@ pub fn describe_snapshot_sources_capture_plan(plan: &SnapshotSourcesCapturePlan)
 pub fn capture_snapshot_sources(
     repo_root: &Path,
     sources_path: &Path,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<SnapshotSourcesCaptureResult> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         control.checkpoint()?;
         let plan = plan_snapshot_sources_capture(repo_root, Some(sources_path))?;
         if !plan.sources_ready {
@@ -154,16 +170,13 @@ pub fn capture_snapshot_sources(
 
         let total_steps = plan.to_capture.len();
 
-        let build_pool = crate::capture::execute::build_capture_pool(
-            control,
-            &crate::runtime::RuntimeResourceHints::default(),
-        )?;
+        let build_pool = build_capture_pool(control, &RuntimeResourceHints::default())?;
 
-        let repo_paths = crate::repo::paths::RepoPaths::from_repo_root(repo_root);
+        let repo_paths = RepoPaths::from_repo_root(repo_root);
         let _existing_state_span = control.profile_span_with_args(
             "capture.prepare_source.load_existing_store_state",
             || {
-                std::collections::BTreeMap::from([(
+                BTreeMap::from([(
                     "source_count".to_string(),
                     serde_json::json!(plan.to_capture.len()),
                 )])
@@ -194,7 +207,7 @@ pub fn capture_snapshot_sources(
             captured_count += 1;
         }
 
-        let _ = crate::repo::cleanup::cleanup_orphan_artifacts_in_repo(repo_root, control)?;
+        let _ = cleanup_orphan_artifacts_in_repo(repo_root, control)?;
 
         progress::emit_progress(
             control.progress(),
@@ -214,14 +227,14 @@ pub fn capture_snapshot_sources(
 
         Ok(SnapshotSourcesCaptureResult { captured_count })
     })
-    .map_err(crate::capture::execute::capture_error)
+    .map_err(capture_error)
 }
 
 fn capture_source_snapshot(
     repo_root: &Path,
     candidate: &SourceSnapshotOperationCandidate,
-    control: &crate::progress::OperationControl,
-    reuse_state: &mut crate::capture::reuse::CaptureReuseState,
+    control: &OperationControl,
+    reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<()> {
     let candidate_control = if let Some(sink) = control.progress() {
@@ -232,18 +245,18 @@ fn capture_source_snapshot(
     } else {
         control.clone()
     };
-    crate::capture::execute::capture_repo_snapshot_with_existing_reuse_state(
-        crate::capture::contracts::SnapshotCaptureRequest {
+    capture_repo_snapshot_with_existing_reuse_state(
+        SnapshotCaptureRequest {
             repo_root: repo_root.to_path_buf(),
-            source_dir: std::path::PathBuf::from(&candidate.path),
+            source_dir: PathBuf::from(&candidate.path),
             explicit_tags: candidate.snapshot_tags.clone(),
-            chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB,
-            chunker: crate::artifact::profiles::Chunker::FastCdc,
-            bundle_profile: crate::artifact::profiles::BundleSizingPreset::Bundle8MiB,
-            compression_algorithm: crate::artifact::profiles::CompressionKind::Zstd,
+            chunk_profile: ChunkSizingPreset::Chunk128KiB,
+            chunker: Chunker::FastCdc,
+            bundle_profile: BundleSizingPreset::Bundle8MiB,
+            compression_algorithm: CompressionKind::Zstd,
             compression_level: Some(3),
-            storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
-            runtime_hints: crate::runtime::RuntimeResourceHints::default(),
+            storage_mode: ArtifactStorageMode::Bundled,
+            runtime_hints: RuntimeResourceHints::default(),
             control: candidate_control,
         },
         reuse_state,

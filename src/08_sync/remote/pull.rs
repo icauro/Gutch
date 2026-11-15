@@ -24,16 +24,46 @@ use super::provider::RepoPullStats;
 use super::verify_remote_artifact;
 use crate::Error;
 use crate::Result;
+use crate::artifact::bundle::BundleIdentityWriter;
+use crate::filesystem::from_json_bytes;
+use crate::filesystem::write_atomic_with;
+use crate::manifest::SnapshotProductMetadata;
+use crate::manifest::repo_manifest::RepoManifest;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::progress::OperationKind;
 use crate::progress::ProgressPhase;
+use crate::repo::cleanup::remove_snapshot_from_repo;
+use crate::repo::coordination;
+use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
 use crate::repo::index::load_chunk_index;
+use crate::repo::index::preserve_local_chunk_locations;
 use crate::repo::index::required_bundle_ids;
+use crate::repo::index::write_chunk_index;
+use crate::repo::inventory::list_repo_snapshot_ids;
 use crate::repo::paths::RepoPaths;
+use crate::repo::paths::bundle_id_from_bundle_path;
+use crate::repo::paths::bundle_path;
+use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::write_gutch_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
+use crate::repo::snapshot_manifests::snapshot_manifest_from_parts;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::repo::snapshot_manifests::snapshot_product_metadata_path;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
+use crate::repo::updates::validate_existing_constraints;
+use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::verify::verify_snapshot_artifacts;
+use crate::snapshot::identity::compute_snapshot_id_from_entries;
+use crate::transfer::http::DownloadClient;
+use crate::transfer::http::build_download_client;
+use crate::transfer::http::download_url_streaming;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs;
+use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -71,16 +101,15 @@ pub(super) fn compute_pull_plan(
             &local_snapshot_blueprint_hash_b3(repo_paths, &snapshot.snapshot_id)?,
             &snapshot.blueprint_hash_b3,
         ) && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
-            && crate::snapshot::identity::compute_snapshot_id_from_entries(&local.entries)
-                == snapshot.snapshot_id
+            && compute_snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
             && let Ok((_, local_repo)) = load_gutch_repo_manifest(repo_root)
             && let Ok(index) = load_chunk_index(repo_paths)
-            && crate::repo::verify::verify_snapshot_artifacts(
+            && verify_snapshot_artifacts(
                 repo_paths,
                 &index,
                 &local_repo.compression_profile(),
                 &snapshot.snapshot_id,
-                crate::repo::verify::RepoArtifactVerification::Identity,
+                RepoArtifactVerification::Identity,
             )
             .is_ok_and(|result| result.ok)
         {
@@ -92,10 +121,7 @@ pub(super) fn compute_pull_plan(
         } else {
             &snapshot.uploaded_at
         };
-        let metadata_path = crate::repo::snapshot_manifests::snapshot_metadata_path(
-            repo_paths,
-            &snapshot.snapshot_id,
-        )?;
+        let metadata_path = snapshot_metadata_path(repo_paths, &snapshot.snapshot_id)?;
         let mut decision = decide_artifact(
             metadata_path.exists(),
             local_snapshot_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
@@ -113,10 +139,7 @@ pub(super) fn compute_pull_plan(
             decision = ArtifactDecision::Fetch;
         }
         let product_metadata_path =
-            crate::repo::snapshot_manifests::snapshot_product_metadata_path(
-                repo_paths,
-                &snapshot.snapshot_id,
-            )?;
+            snapshot_product_metadata_path(repo_paths, &snapshot.snapshot_id)?;
         let product_metadata_decision = decide_artifact(
             product_metadata_path.exists(),
             local_snapshot_product_metadata_hash_b3(repo_paths, &snapshot.snapshot_id)?,
@@ -151,7 +174,7 @@ pub(super) fn compute_pull_plan(
         .collect();
     let mut local_only_snapshots = Vec::new();
     if repo_paths.snapshots_root.exists() {
-        for snapshot_id in crate::repo::inventory::list_repo_snapshot_ids(repo_paths)? {
+        for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
             if !remote_snapshot_ids.contains(snapshot_id.as_str()) {
                 local_only_snapshots.push(snapshot_id);
             }
@@ -185,7 +208,7 @@ pub(crate) fn plan_pull(
 
 fn source_bytes(
     source: &RemoteArtifactSource,
-    client: &crate::transfer::http::DownloadClient,
+    client: &DownloadClient,
     maximum_bytes: u64,
     control: &OperationControl,
 ) -> Result<Vec<u8>> {
@@ -196,7 +219,7 @@ fn source_bytes(
 
 fn write_source(
     source: &RemoteArtifactSource,
-    client: &crate::transfer::http::DownloadClient,
+    client: &DownloadClient,
     maximum_bytes: u64,
     control: &OperationControl,
     output: &mut impl Write,
@@ -210,7 +233,7 @@ fn write_source(
             output.write_all(bytes)?;
             Ok(())
         }
-        RemoteArtifactSource::Url(url) => crate::transfer::http::download_url_streaming(
+        RemoteArtifactSource::Url(url) => download_url_streaming(
             client,
             url,
             control,
@@ -226,18 +249,17 @@ fn write_source(
 
 fn download_and_publish_bundle(
     source: &RemoteArtifactSource,
-    client: &crate::transfer::http::DownloadClient,
+    client: &DownloadClient,
     bundle_id: &str,
     path: &Path,
     control: &OperationControl,
 ) -> Result<()> {
     control.checkpoint()?;
-    crate::filesystem::write_atomic_with(path, |file| {
+    write_atomic_with(path, |file| {
         // Hash while streaming so the bundle is not read back from disk. Keep
         // verification inside the atomic writer: failure leaves the previous
         // cached artifact in place and drops only the owned temporary file.
-        let mut writer =
-            crate::artifact::bundle::BundleIdentityWriter::new(std::io::BufWriter::new(file));
+        let mut writer = BundleIdentityWriter::new(BufWriter::new(file));
         write_source(
             source,
             client,
@@ -256,18 +278,15 @@ fn download_and_publish_bundle(
 fn write_remote_snapshot_artifacts(
     repo_paths: &RepoPaths,
     snapshot_id: &str,
-    metadata: &crate::manifest::snapshot::SnapshotManifest,
-    product_metadata: Option<&crate::manifest::SnapshotProductMetadata>,
+    metadata: &SnapshotManifest,
+    product_metadata: Option<&SnapshotProductMetadata>,
     blueprint_bytes: &[u8],
 ) -> Result<()> {
     let mut metadata = metadata.clone();
     metadata.snapshot_id = snapshot_id.to_string();
-    let manifest = crate::repo::snapshot_manifests::snapshot_manifest_from_parts(
-        metadata,
-        product_metadata.cloned(),
-        blueprint_bytes,
-    )?;
-    crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(repo_paths, &manifest)?;
+    let manifest =
+        snapshot_manifest_from_parts(metadata, product_metadata.cloned(), blueprint_bytes)?;
+    write_snapshot_manifest_artifacts(repo_paths, &manifest)?;
     Ok(())
 }
 
@@ -297,7 +316,7 @@ pub(super) fn required_bundle_ids_by_snapshot(
     if !repo_paths.snapshots_root.exists() {
         return Ok(by_snapshot);
     }
-    for snapshot_id in crate::repo::inventory::list_repo_snapshot_ids(repo_paths)? {
+    for snapshot_id in list_repo_snapshot_ids(repo_paths)? {
         let manifest = load_snapshot_manifest(repo_paths, &snapshot_id)?;
         let mut ids: Vec<String> = required_bundle_ids(&manifest, &chunk_index)?
             .into_iter()
@@ -320,7 +339,7 @@ pub(super) fn local_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
         let entry = entry?;
         if (entry.file_type().is_file()
             || (entry.file_type().is_symlink() && entry.path().is_file()))
-            && crate::repo::paths::bundle_id_from_bundle_path(entry.path()).is_some()
+            && bundle_id_from_bundle_path(entry.path()).is_some()
         {
             paths.push(entry.into_path());
         }
@@ -388,7 +407,7 @@ fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
     repository: &RemoteRepository,
     snapshot: &RemoteSnapshot,
     provider: &P,
-    download_client: &crate::transfer::http::DownloadClient,
+    download_client: &DownloadClient,
     control: &OperationControl,
 ) -> Result<()> {
     let snapshot_id = snapshot.snapshot_id.as_str();
@@ -404,10 +423,7 @@ fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
         &snapshot.metadata_hash_b3,
         "snapshot metadata",
     )?;
-    let metadata = crate::repo::snapshot_manifests::snapshot_manifest_from_download(
-        snapshot_id,
-        &metadata_bytes,
-    )?;
+    let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
     let product_metadata = if let Some(source) = sources.product_metadata {
         let product_metadata_bytes =
             source_bytes(&source, download_client, MAX_REMOTE_JSON_BYTES, control)?;
@@ -416,7 +432,7 @@ fn download_and_publish_snapshot<P: RemoteRepositoryReader + ?Sized>(
             &snapshot.product_metadata_hash_b3,
             "snapshot product metadata",
         )?;
-        Some(crate::manifest::SnapshotProductMetadata::from_json_bytes(
+        Some(SnapshotProductMetadata::from_json_bytes(
             &product_metadata_bytes,
         )?)
     } else {
@@ -452,8 +468,8 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
     control: OperationControl,
 ) -> Result<RepoPullStats> {
     let operation_root = repo.to_path_buf();
-    std::fs::create_dir_all(&operation_root)?;
-    crate::repo::coordination::write(&operation_root, || {
+    fs::create_dir_all(&operation_root)?;
+    coordination::write(&operation_root, || {
         control.checkpoint()?;
         let progress = RemoteProgress::new(&control, OperationKind::Pull);
         let bound_remote_repo_id = bound_remote_repo_id(&repo)?;
@@ -461,7 +477,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
         let repo_paths = RepoPaths::from_repo_root(&repo);
         let repository_existed = repo_paths.repo_metadata_path.exists();
-        crate::repo::paths::ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
+        ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
         progress.emit(
             ProgressPhase::Planning,
             "Planning pull changes",
@@ -480,7 +496,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
         }
         let plan = compute_pull_plan(&repo, &repo_paths, &repository, &snapshots, policy)?;
         control.checkpoint()?;
-        let download_client = crate::transfer::http::build_download_client()?;
+        let download_client = build_download_client()?;
 
         let mut stats = RepoPullStats {
             command: "repo pull",
@@ -522,8 +538,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 &control,
             )?;
             verify_remote_artifact(&bytes, &repository.metadata_hash_b3, "repo metadata")?;
-            let mut manifest: crate::manifest::repo_manifest::RepoManifest =
-                crate::filesystem::from_json_bytes(&bytes)?;
+            let mut manifest: RepoManifest = from_json_bytes(&bytes)?;
             let local_constraints = load_gutch_repo_manifest(&repo)?
                 .1
                 .constraints
@@ -534,13 +549,9 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                     "remote repository constraints differ; explicitly update local constraints before pulling",
                 ));
             }
-            crate::repo::updates::validate_existing_constraints(
-                &repo,
-                &incoming_constraints,
-                "pull",
-            )?;
+            validate_existing_constraints(&repo, &incoming_constraints, "pull")?;
             manifest.remote_repo_id = repository.id.clone();
-            crate::repo::paths::write_gutch_repo_manifest(&repo_paths, &manifest)?;
+            write_gutch_repo_manifest(&repo_paths, &manifest)?;
             stats.repo_manifest_downloaded = true;
         }
 
@@ -562,10 +573,9 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 &control,
             )?;
             verify_remote_artifact(&bytes, &repository.chunk_map_hash_b3, "chunk index")?;
-            let mut chunk_index =
-                crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes(&bytes)?;
-            crate::repo::index::preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
-            crate::repo::index::write_chunk_index(&repo_paths, &chunk_index)?;
+            let mut chunk_index = load_chunk_index_binary_from_bytes(&bytes)?;
+            preserve_local_chunk_locations(&repo_paths, &mut chunk_index)?;
+            write_chunk_index(&repo_paths, &chunk_index)?;
             stats.chunk_map_downloaded = true;
         }
 
@@ -618,7 +628,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             .collect();
         let mut missing_bundles = Vec::new();
         for id in &required_set {
-            if !crate::repo::paths::bundle_path(&repo_paths, id)?.is_file() {
+            if !bundle_path(&repo_paths, id)?.is_file() {
                 missing_bundles.push(id.clone());
             }
         }
@@ -664,7 +674,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 Some(bundle_id.clone()),
                 false,
             );
-            let bundle_path = crate::repo::paths::bundle_path(&repo_paths, bundle_id)?;
+            let bundle_path = bundle_path(&repo_paths, bundle_id)?;
             download_and_publish_bundle(
                 source,
                 &download_client,
@@ -690,15 +700,15 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             );
             for snapshot_id in &plan.local_only_snapshots {
                 control.checkpoint()?;
-                crate::repo::cleanup::remove_snapshot_from_repo(&repo, snapshot_id)?;
+                remove_snapshot_from_repo(&repo, snapshot_id)?;
                 stats.pruned_snapshot_count += 1;
             }
             for path in local_bundle_paths(&repo_paths.bundles_root)? {
                 control.checkpoint()?;
-                if let Some(bundle_id) = crate::repo::paths::bundle_id_from_bundle_path(&path)
+                if let Some(bundle_id) = bundle_id_from_bundle_path(&path)
                     && !required_set.contains(&bundle_id)
                 {
-                    std::fs::remove_file(&path)?;
+                    fs::remove_file(&path)?;
                     stats.pruned_bundle_count += 1;
                 }
             }

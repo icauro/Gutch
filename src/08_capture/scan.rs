@@ -9,17 +9,32 @@ use rayon::prelude::*;
 
 use crate::Error;
 use crate::Result;
+use crate::artifact::chunk::scan_file_chunks;
+use crate::artifact::format::size_u32;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::profiles::ChunkSizingProfile;
 use crate::capture::build::progress::BuildProgressTracker;
 use crate::capture::build::types::BuildTimings;
 use crate::capture::build::types::ChunkPayload;
+use crate::filesystem::constraints::validate_paths;
+use crate::filesystem::paths::manifest_path_from_native;
 use crate::manifest;
 use crate::manifest::ChunkRef;
 use crate::manifest::DirectoryManifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotEntry;
 use crate::manifest::SymlinkManifest;
+use crate::manifest::constraints::RepositoryConstraints;
+use crate::profiling::file_trace_args;
+use crate::progress::OperationControl;
+use crate::progress::ProgressPhase;
 use rayon::ThreadPool;
+use std::collections::BTreeMap;
+use std::fs;
+use std::fs::Metadata;
+use std::path::Component;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 pub(crate) struct FileBuildEntry {
     pub(crate) manifest: FileManifest,
@@ -43,23 +58,23 @@ pub(crate) struct ChunkPlacementKey {
 
 pub(crate) struct ScanDirectoryOptions<'a> {
     pub previous_file_manifests: &'a HashMap<String, Vec<FileManifest>>,
-    pub chunking_profile: &'a crate::artifact::profiles::ChunkSizingProfile,
+    pub chunking_profile: &'a ChunkSizingProfile,
     pub available_chunk_sizes: &'a HashMap<ChunkHash, u64>,
     pub worker_count: usize,
     pub worker_pool: &'a ThreadPool,
-    pub control: crate::progress::OperationControl,
+    pub control: OperationControl,
 }
 
 pub(crate) struct SourceFileEntry {
     pub(crate) path: PathBuf,
     pub(crate) normalized_relative: String,
-    pub(crate) metadata: std::fs::Metadata,
+    pub(crate) metadata: Metadata,
 }
 
 pub(crate) struct SourceInventory {
     pub(crate) metadata_entries: Vec<SnapshotEntry>,
     pub(crate) files: Vec<SourceFileEntry>,
-    pub(crate) source_modified_at: std::time::SystemTime,
+    pub(crate) source_modified_at: SystemTime,
 }
 
 pub(crate) fn accumulate_entry_timings(timings: &mut BuildTimings, entry: &FileBuildEntry) {
@@ -138,7 +153,7 @@ fn normalized_relative(root: &Path, path: &Path) -> Result<String> {
         path: path.to_path_buf(),
         reason: error.to_string(),
     })?;
-    crate::filesystem::paths::manifest_path_from_native(relative)
+    manifest_path_from_native(relative)
 }
 
 fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Result<String> {
@@ -161,9 +176,9 @@ fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Re
     let mut parts = Vec::new();
     for component in combined.components() {
         match component {
-            std::path::Component::Normal(part) => parts.push(part.to_os_string()),
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
+            Component::Normal(part) => parts.push(part.to_os_string()),
+            Component::CurDir => {}
+            Component::ParentDir => {
                 if parts.pop().is_none() {
                     return Err(Error::manifest(format!(
                         "symbolic link '{}' escapes the snapshot root",
@@ -175,12 +190,12 @@ fn normalize_link_target(link_path: &Path, raw_target: &Path, root: &Path) -> Re
         }
     }
     let normalized = parts.iter().collect::<PathBuf>();
-    crate::filesystem::paths::manifest_path_from_native(&normalized)
+    manifest_path_from_native(&normalized)
 }
 
 pub(crate) fn scan_source_inventory(
     root: &Path,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     worker_count: usize,
     worker_pool: &ThreadPool,
 ) -> Result<SourceInventory> {
@@ -193,12 +208,12 @@ pub(crate) fn scan_source_inventory(
         path: PathBuf,
         normalized_relative: String,
         kind: MetadataEntryKind,
-        metadata: std::fs::Metadata,
+        metadata: Metadata,
     }
 
     let mut metadata_entries = Vec::new();
     let mut files = Vec::new();
-    let mut max_file_modified_at = std::time::SystemTime::UNIX_EPOCH;
+    let mut max_file_modified_at = SystemTime::UNIX_EPOCH;
     let mut found_file = false;
     {
         let _enumerate_span = control.profile_span("capture.scan_source.inventory");
@@ -255,7 +270,7 @@ pub(crate) fn scan_source_inventory(
                 read_only: entry.metadata.permissions().readonly(),
             })),
             MetadataEntryKind::Symlink => {
-                let raw_target = std::fs::read_link(&entry.path)?;
+                let raw_target = fs::read_link(&entry.path)?;
                 Ok(SnapshotEntry::Symlink(SymlinkManifest {
                     path: entry.normalized_relative.clone(),
                     target_path: normalize_link_target(&entry.path, &raw_target, root)?,
@@ -279,7 +294,7 @@ pub(crate) fn scan_source_inventory(
     let source_modified_at = if found_file {
         max_file_modified_at
     } else {
-        std::fs::metadata(root)?.modified()?
+        fs::metadata(root)?.modified()?
     };
 
     Ok(SourceInventory {
@@ -296,17 +311,14 @@ pub(crate) fn scan_directory_into_file_entries(
     options
         .control
         .profile_event_with_args("capture.scan_source.inventory.complete", || {
-            std::collections::BTreeMap::from([(
+            BTreeMap::from([(
                 "file_count".to_string(),
                 serde_json::json!(inventory.files.len()),
             )])
         });
 
-    let progress = BuildProgressTracker::new(
-        &options.control,
-        crate::progress::ProgressPhase::Scan,
-        "Scanning files",
-    );
+    let progress =
+        BuildProgressTracker::new(&options.control, ProgressPhase::Scan, "Scanning files");
     progress.start(inventory.files.len());
 
     let progress_for_scan = progress.clone();
@@ -324,7 +336,7 @@ pub(crate) fn scan_directory_into_file_entries(
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             let _file_span = control_for_scan.profile_span_with_args("capture.scan.file", || {
-                crate::profiling::file_trace_args(&normalized_relative, source_metadata.len())
+                file_trace_args(&normalized_relative, source_metadata.len())
             });
 
             scan_changed_file(ScanChangedFileRequest {
@@ -368,11 +380,11 @@ pub(crate) fn scan_directory_into_file_entries(
 struct ScanChangedFileRequest<'a> {
     path: &'a Path,
     normalized_relative: String,
-    source_metadata: &'a std::fs::Metadata,
+    source_metadata: &'a Metadata,
     metadata: Duration,
     previous_candidates: &'a [FileManifest],
     options: &'a ScanDirectoryOptions<'a>,
-    control: &'a crate::progress::OperationControl,
+    control: &'a OperationControl,
 }
 
 fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEntry> {
@@ -393,7 +405,7 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
     };
     #[cfg(not(unix))]
     let executable = false;
-    let (chunk_scan, chunk_timings) = crate::artifact::chunk::scan_file_chunks(
+    let (chunk_scan, chunk_timings) = scan_file_chunks(
         path,
         source_metadata.len(),
         options.chunking_profile,
@@ -441,14 +453,14 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
         let mut chunks = Vec::with_capacity(chunk_scan.chunks.len());
         let mut new_chunk_offsets = Vec::with_capacity(chunk_scan.chunks.len());
         let mut file_offset = 0u64;
-        let source = std::sync::Arc::new(path.to_path_buf());
+        let source = Arc::new(path.to_path_buf());
         for cr in chunk_scan.chunks {
             control.checkpoint()?;
             let chunk_hash = ChunkHash::from_blake3(cr.hash);
             let raw_size = cr.size;
             chunk_refs.push(ChunkRef {
                 chunk_hash,
-                raw_size: crate::artifact::format::size_u32(raw_size)?,
+                raw_size: size_u32(raw_size)?,
             });
             if !options.available_chunk_sizes.contains_key(&chunk_hash) {
                 let payload = ChunkPayload {
@@ -492,9 +504,9 @@ fn scan_changed_file(request: ScanChangedFileRequest<'_>) -> Result<FileBuildEnt
 /// Apply repository filename constraints to the complete pre-read inventory.
 pub(crate) fn validate_source_inventory(
     inventory: &SourceInventory,
-    constraints: &crate::manifest::constraints::RepositoryConstraints,
+    constraints: &RepositoryConstraints,
 ) -> Result<()> {
-    crate::filesystem::constraints::validate_paths(
+    validate_paths(
         &constraints.targets,
         inventory
             .metadata_entries
@@ -540,9 +552,7 @@ pub(crate) fn verify_source_inventory_stable(
         }
     }
 
-    fn file_observation(
-        entry: &SourceFileEntry,
-    ) -> Result<(String, u64, std::time::SystemTime, bool, bool)> {
+    fn file_observation(entry: &SourceFileEntry) -> Result<(String, u64, SystemTime, bool, bool)> {
         // Compare the metadata captured during that inventory's scan, never a
         // fresh read: re-reading current state for both sides would always
         // agree with itself.
@@ -560,13 +570,13 @@ pub(crate) fn verify_source_inventory_stable(
     }
 
     #[cfg(unix)]
-    fn is_executable(metadata: &std::fs::Metadata) -> bool {
+    fn is_executable(metadata: &Metadata) -> bool {
         use std::os::unix::fs::PermissionsExt;
         metadata.permissions().mode() & 0o111 != 0
     }
 
     #[cfg(not(unix))]
-    fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+    fn is_executable(_metadata: &Metadata) -> bool {
         false
     }
 

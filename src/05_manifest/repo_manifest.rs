@@ -8,6 +8,8 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::{CONTENT_REPO_FORMAT, PUBLIC_METADATA_FORMAT_VERSION};
+use crate::artifact::compression::validate_profile;
+use crate::artifact::profiles::validate_packaging_sizes;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -65,14 +67,13 @@ fn deserialize_artifact_profile<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<ArtifactProfile, D::Error> {
     let profile = ArtifactProfile::deserialize(deserializer)?;
-    crate::artifact::profiles::validate_packaging_sizes(
+    validate_packaging_sizes(
         &ChunkSizingProfile::for_preset(profile.chunk),
         &BundleSizingProfile::for_preset(profile.bundle),
         profile.storage,
     )
     .map_err(serde::de::Error::custom)?;
-    crate::artifact::compression::validate_profile(&profile.compression_profile())
-        .map_err(serde::de::Error::custom)?;
+    validate_profile(&profile.compression_profile()).map_err(serde::de::Error::custom)?;
     Ok(profile)
 }
 

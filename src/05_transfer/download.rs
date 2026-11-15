@@ -21,15 +21,18 @@ use std::time::Instant;
 
 use crate::Error;
 use crate::Result;
+use crate::artifact::reference::ArtifactRef;
 use crate::progress::CancellationHook;
 use crate::progress::OperationControl;
+use crate::transfer::http::DownloadClient;
 use crate::transfer::types::TransferConcurrencyPolicy;
+use std::collections::BTreeMap;
 
 const MAX_TRANSFER_CONCURRENCY: usize = 16;
 
 #[derive(Clone)]
 pub(crate) struct PendingArtifactDownload {
-    pub artifact: crate::artifact::reference::ArtifactRef,
+    pub artifact: ArtifactRef,
     pub artifact_id: String,
     pub url: String,
     pub artifact_path: PathBuf,
@@ -58,7 +61,7 @@ impl ArtifactPriority {
 }
 
 pub(crate) enum ArtifactDownloadEvent {
-    Ready(crate::artifact::reference::ArtifactRef),
+    Ready(ArtifactRef),
     Failed(Error),
     WorkerDone,
 }
@@ -126,9 +129,9 @@ pub(crate) struct ArtifactDownloadScheduler {
 impl ArtifactDownloadScheduler {
     pub(crate) fn new(
         pending: &[PendingArtifactDownload],
-        priorities: HashMap<crate::artifact::reference::ArtifactRef, ArtifactPriority>,
+        priorities: HashMap<ArtifactRef, ArtifactPriority>,
         policy: TransferConcurrencyPolicy,
-        download_client: &crate::transfer::http::DownloadClient,
+        download_client: &DownloadClient,
         control: &OperationControl,
         transfer_progress: Arc<FetchTransferProgress>,
     ) -> Result<Self> {
@@ -290,7 +293,7 @@ fn next_artifact(shared: &ArtifactDownloadQueueShared) -> Option<PendingArtifact
 fn artifact_download_worker(
     shared: Arc<ArtifactDownloadQueueShared>,
     event_tx: mpsc::Sender<ArtifactDownloadEvent>,
-    download_client: crate::transfer::http::DownloadClient,
+    download_client: DownloadClient,
     control: OperationControl,
     transfer_progress: Arc<FetchTransferProgress>,
 ) {
@@ -381,10 +384,7 @@ fn run_adaptive_transfer_controller(
             .target_worker_count
             .store(new_target, AtomicOrdering::Release);
         control.profile_event_with_args("transfer.concurrency", || {
-            std::collections::BTreeMap::from([(
-                "target_workers".to_string(),
-                serde_json::json!(new_target),
-            )])
+            BTreeMap::from([("target_workers".to_string(), serde_json::json!(new_target))])
         });
         transfer_progress.adjustment_recorded();
         shared.wake.notify_all();
@@ -392,8 +392,8 @@ fn run_adaptive_transfer_controller(
 }
 
 impl PendingArtifactDownload {
-    pub(super) fn trace_args(&self) -> std::collections::BTreeMap<String, serde_json::Value> {
-        std::collections::BTreeMap::from([
+    pub(super) fn trace_args(&self) -> BTreeMap<String, serde_json::Value> {
+        BTreeMap::from([
             (
                 "artifact_id".to_string(),
                 serde_json::json!(self.artifact.id()),

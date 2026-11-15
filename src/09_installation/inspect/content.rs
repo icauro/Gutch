@@ -3,10 +3,16 @@ use super::types::{RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings};
 use super::{PreparedFileMetadata, PreparedVerifyFile, marker_name};
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::integrity::verify_full_file_integrity;
 use crate::manifest;
 use crate::manifest::typed::typed_file_manifest;
 use crate::profiling::ProfileInstant;
+use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
+use std::fs;
+use std::fs::File;
+use std::io;
+use std::io::BufReader;
 use std::io::Read;
 use std::path::Path;
 
@@ -19,7 +25,7 @@ pub(super) fn verify_manifest_file(
 ) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
     let file_manifest = prepared_file.manifest;
     let _file_span = control.profile_span_with_args(marker_name(marker_namespace, "file"), || {
-        crate::profiling::file_trace_args(&file_manifest.path, file_manifest.size)
+        file_trace_args(&file_manifest.path, file_manifest.size)
     });
     control.checkpoint()?;
     let mut timings = VerifyTimings {
@@ -40,9 +46,9 @@ pub(super) fn verify_manifest_file(
         }
         PreparedFileMetadata::ResolveDuringVerification => {
             let metadata_read_started = ProfileInstant::detailed(control.profiler());
-            let metadata = match std::fs::symlink_metadata(&prepared_file.path) {
+            let metadata = match fs::symlink_metadata(&prepared_file.path) {
                 Ok(metadata) => metadata,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
                     return Ok((
                         vec![RepairIssue {
                             kind: RepairIssueKind::Missing,
@@ -156,7 +162,7 @@ fn verify_file_fast(
     control: &OperationControl,
 ) -> Result<Vec<RepairIssue>> {
     let expected_full_hash = ChunkHash::parse_hex(&prepared_file.manifest.full_file_hash)?;
-    let integrity = crate::artifact::integrity::verify_full_file_integrity(
+    let integrity = verify_full_file_integrity(
         &prepared_file.path,
         prepared_file.manifest.size,
         expected_full_hash,
@@ -178,9 +184,9 @@ fn verify_file_streaming(
     control: &OperationControl,
 ) -> Result<Vec<RepairIssue>> {
     let typed_file =
-        typed_file_manifest(file_manifest).map_err(|err| std::io::Error::other(err.to_string()))?;
-    let file = std::fs::File::open(file_path)?;
-    let mut reader = std::io::BufReader::new(file);
+        typed_file_manifest(file_manifest).map_err(|err| io::Error::other(err.to_string()))?;
+    let file = File::open(file_path)?;
+    let mut reader = BufReader::new(file);
     let mut issues = Vec::new();
     let mut full_file_hasher = blake3::Hasher::new();
     let mut chunk_buffer = Vec::new();
@@ -220,7 +226,7 @@ fn verify_file_streaming(
 
         if verify_mode.checks_chunk_hashes() {
             let chunk_hash_started = ProfileInstant::detailed(control.profiler());
-            let chunk_hash_actual = crate::artifact::hash::ChunkHash::of(&chunk_buffer);
+            let chunk_hash_actual = ChunkHash::of(&chunk_buffer);
             timings.chunk_hash += chunk_hash_started.elapsed();
             timings.chunk_hash_bytes += raw_size;
             if chunk_hash_actual != chunk_ref.chunk_hash {

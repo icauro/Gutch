@@ -3,12 +3,18 @@
 use std::path::Path;
 
 use crate::Result;
+use crate::filesystem;
+use crate::filesystem::constraints::validate_paths;
+use crate::manifest::SnapshotTagSet;
 use crate::manifest::constraints::RepositoryConstraints;
+use crate::repo::coordination;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::write_gutch_repo_manifest;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 pub fn read_repository_constraints(repo_root: &Path) -> Result<RepositoryConstraints> {
-    crate::repo::coordination::read(repo_root, || {
+    coordination::read(repo_root, || {
         Ok(load_gutch_repo_manifest(repo_root)?
             .1
             .constraints
@@ -26,7 +32,7 @@ pub(crate) fn validate_existing_constraints(
     let (paths, _) = load_gutch_repo_manifest(repo_root)?;
     for id in super::inventory::list_repo_snapshot_ids(&paths)? {
         let manifest = super::snapshot_manifests::load_snapshot_manifest(&paths, &id)?;
-        crate::filesystem::constraints::validate_paths(
+        validate_paths(
             &constraints.targets,
             manifest.entries.iter().map(|entry| entry.path()),
             operation,
@@ -40,7 +46,7 @@ pub fn plan_repository_constraints(
     repo_root: &Path,
     mut constraints: RepositoryConstraints,
 ) -> Result<RepositoryConstraints> {
-    crate::repo::coordination::read(repo_root, || {
+    coordination::read(repo_root, || {
         constraints.targets.sort();
         constraints.targets.dedup();
         validate_existing_constraints(repo_root, &constraints, "change constraints")?;
@@ -49,7 +55,7 @@ pub fn plan_repository_constraints(
 }
 
 pub fn plan_repo_rename(repo_root: &Path, name: &str) -> Result<String> {
-    crate::repo::coordination::read(repo_root, || {
+    coordination::read(repo_root, || {
         load_gutch_repo_manifest(repo_root)?;
         validated_repo_name(name)
     })
@@ -72,7 +78,7 @@ pub fn update_repository_constraints(
     repo_root: &Path,
     mut constraints: RepositoryConstraints,
 ) -> Result<()> {
-    crate::repo::coordination::write(repo_root, || {
+    coordination::write(repo_root, || {
         constraints.targets.sort();
         constraints.targets.dedup();
         validate_existing_constraints(repo_root, &constraints, "change constraints")?;
@@ -88,7 +94,7 @@ pub fn update_repository_constraints(
 
 pub fn rename_repo(repo_root: &Path, name: &str) -> Result<()> {
     let operation_root = (repo_root).to_path_buf();
-    crate::repo::coordination::write(&operation_root, || {
+    coordination::write(&operation_root, || {
         let name = validated_repo_name(name)?;
         let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
         repo_manifest.name = name;
@@ -108,7 +114,7 @@ pub(crate) fn validate_repository_tag_constraints(
 pub(crate) fn validate_proposed_snapshot_tags(
     repo_root: &Path,
     constraints: &RepositoryConstraints,
-    replacements: &std::collections::BTreeMap<String, crate::manifest::SnapshotTagSet>,
+    replacements: &BTreeMap<String, SnapshotTagSet>,
 ) -> Result<()> {
     constraints.validate_definition()?;
     if constraints.snapshot_tags.key_value.is_empty()
@@ -120,11 +126,11 @@ pub(crate) fn validate_proposed_snapshot_tags(
     if !paths.snapshots_root.exists() {
         return Ok(());
     }
-    let mut expected_keys: Option<(String, std::collections::BTreeSet<String>)> = None;
+    let mut expected_keys: Option<(String, BTreeSet<String>)> = None;
     let mut violations = Vec::new();
     for id in super::inventory::list_repo_snapshot_ids(&paths)? {
         let path = super::snapshot_manifests::snapshot_metadata_path(&paths, &id)?;
-        let json = crate::filesystem::read_to_string(&path)?;
+        let json = filesystem::read_to_string(&path)?;
         let snapshot =
             super::snapshot_manifests::load_snapshot_metadata_from_json_text(&id, &json)?;
         let tags = replacements.get(&id).unwrap_or(&snapshot.snapshot_tags);
@@ -132,11 +138,7 @@ pub(crate) fn validate_proposed_snapshot_tags(
             violations.push(error.to_string());
         }
         if constraints.require_matching_tag_keys_across_snapshots {
-            let keys = tags
-                .key_value
-                .keys()
-                .cloned()
-                .collect::<std::collections::BTreeSet<_>>();
+            let keys = tags.key_value.keys().cloned().collect::<BTreeSet<_>>();
             if let Some((first_id, expected)) = &expected_keys {
                 if &keys != expected {
                     let missing: Vec<_> = expected.difference(&keys).cloned().collect();

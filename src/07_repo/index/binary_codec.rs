@@ -13,16 +13,26 @@ use crate::artifact::format::CHUNK_INDEX_MAGIC as CHUNK_INDEX_BINARY_MAGIC;
 use crate::artifact::binary_io::{
     BinaryReader, read_chunk_hash, read_u32, write_chunk_hash, write_u32,
 };
+use crate::artifact::format::FORMAT_VERSION;
+use crate::artifact::format::MAX_RAW_BUNDLE_SIZE;
+use crate::artifact::format::MAX_RAW_CHUNK_SIZE;
+use crate::artifact::metadata;
+use crate::artifact::metadata::read_file;
+use crate::artifact::profiles::ArtifactStorageMode;
+use crate::filesystem::write_atomic_with;
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::ChunkIndexEntries;
+use crate::repo::index::ChunkIndexEntry;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 const LOOSE_CHUNK_ARTIFACT_ROW: u32 = u32::MAX;
 
-pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<crate::repo::index::ChunkIndex> {
-    load_chunk_index_binary_from_bytes(&crate::artifact::metadata::read_file(path)?)
+pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<ChunkIndex> {
+    load_chunk_index_binary_from_bytes(&read_file(path)?)
 }
 
-fn decode_artifact_table(
-    bytes: &[u8],
-) -> Result<Vec<std::sync::Arc<super::records::IndexedArtifact>>> {
+fn decode_artifact_table(bytes: &[u8]) -> Result<Vec<Arc<super::records::IndexedArtifact>>> {
     let mut reader = BinaryReader {
         inner: bytes,
         remaining: bytes.len() as u64,
@@ -40,10 +50,10 @@ fn decode_artifact_table(
             return Err(Error::manifest("invalid or unsorted index artifact"));
         }
         previous_artifact_id = Some(artifact_id);
-        artifacts.push(std::sync::Arc::new(super::records::IndexedArtifact {
+        artifacts.push(Arc::new(super::records::IndexedArtifact {
             bundle_id: smol_str::SmolStr::new(artifact_id.to_hex()),
             artifact_size,
-            storage_mode: crate::artifact::profiles::ArtifactStorageMode::Bundled,
+            storage_mode: ArtifactStorageMode::Bundled,
         }));
     }
     if reader.remaining != 0 {
@@ -52,7 +62,7 @@ fn decode_artifact_table(
     Ok(artifacts)
 }
 
-fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::ChunkIndex> {
+fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<ChunkIndex> {
     let artifacts = decode_artifact_table(&groups[0])?;
     let mut reader = BinaryReader {
         inner: groups[1].as_slice(),
@@ -71,14 +81,14 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
     let (mut chunk_raw_sizes, trailing_bytes) = remaining_columns.split_at(row_count * 4);
     let mut rows = Vec::with_capacity(row_count);
     let mut bundle_raw_byte_totals = vec![0u64; artifacts.len()];
-    let mut seen_bundle_chunk_ordinals = std::collections::HashSet::new();
+    let mut seen_bundle_chunk_ordinals = HashSet::new();
     for _ in 0..row_count {
         let chunk_hash = read_chunk_hash(&mut chunk_hashes)?;
         let artifact_table_row = read_u32(&mut artifact_table_rows)?;
         let chunk_ordinal_or_artifact_size = read_u32(&mut chunk_ordinals_or_artifact_sizes)?;
         let chunk_raw_size = read_u32(&mut chunk_raw_sizes)?;
         let raw_size = u64::from(chunk_raw_size);
-        if raw_size == 0 || raw_size > crate::artifact::format::MAX_RAW_CHUNK_SIZE {
+        if raw_size == 0 || raw_size > MAX_RAW_CHUNK_SIZE {
             return Err(Error::manifest("invalid index chunk size"));
         }
         let (record, chunk_ordinal) = if artifact_table_row == LOOSE_CHUNK_ARTIFACT_ROW {
@@ -86,10 +96,10 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
                 return Err(Error::manifest("invalid loose artifact size"));
             }
             (
-                std::sync::Arc::new(super::records::IndexedArtifact {
+                Arc::new(super::records::IndexedArtifact {
                     bundle_id: smol_str::SmolStr::new(chunk_hash.to_hex()),
                     artifact_size: chunk_ordinal_or_artifact_size,
-                    storage_mode: crate::artifact::profiles::ArtifactStorageMode::LooseChunks,
+                    storage_mode: ArtifactStorageMode::LooseChunks,
                 }),
                 0,
             )
@@ -105,15 +115,13 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
             bundle_raw_byte_totals[artifact_table_row as usize] = bundle_raw_byte_totals
                 [artifact_table_row as usize]
                 .checked_add(raw_size)
-                .filter(|bundle_raw_bytes| {
-                    *bundle_raw_bytes <= crate::artifact::format::MAX_RAW_BUNDLE_SIZE
-                })
+                .filter(|bundle_raw_bytes| *bundle_raw_bytes <= MAX_RAW_BUNDLE_SIZE)
                 .ok_or_else(|| Error::manifest("indexed bundle exceeds raw size limit"))?;
             (record.clone(), chunk_ordinal_or_artifact_size)
         };
         rows.push((
             chunk_hash,
-            crate::repo::index::ChunkIndexEntry {
+            ChunkIndexEntry {
                 artifact: record,
                 chunk_ordinal,
                 raw_size: chunk_raw_size,
@@ -123,43 +131,34 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<crate::repo::index::Chu
     if !trailing_bytes.is_empty() {
         return Err(Error::manifest("chunk index contains trailing bytes"));
     }
-    let entries = crate::repo::index::ChunkIndexEntries::from_sorted_rows(rows)?;
-    Ok(crate::repo::index::ChunkIndex {
-        format_version: crate::artifact::format::FORMAT_VERSION.to_string(),
+    let entries = ChunkIndexEntries::from_sorted_rows(rows)?;
+    Ok(ChunkIndex {
+        format_version: FORMAT_VERSION.to_string(),
         entries,
     })
 }
 
-pub(crate) fn load_chunk_index_binary_from_bytes(
-    bytes: &[u8],
-) -> Result<crate::repo::index::ChunkIndex> {
-    read_chunk_index_binary(&crate::artifact::metadata::decode(
-        bytes,
-        CHUNK_INDEX_BINARY_MAGIC,
-        2,
-    )?)
+pub(crate) fn load_chunk_index_binary_from_bytes(bytes: &[u8]) -> Result<ChunkIndex> {
+    read_chunk_index_binary(&metadata::decode(bytes, CHUNK_INDEX_BINARY_MAGIC, 2)?)
 }
 
-pub(crate) fn write_chunk_index_binary(
-    path: &Path,
-    index: &crate::repo::index::ChunkIndex,
-) -> Result<()> {
+pub(crate) fn write_chunk_index_binary(path: &Path, index: &ChunkIndex) -> Result<()> {
     let mut artifacts = BTreeMap::new();
     for (hash, entry) in &index.entries {
         if entry.raw_size == 0
-            || u64::from(entry.raw_size) > crate::artifact::format::MAX_RAW_CHUNK_SIZE
+            || u64::from(entry.raw_size) > MAX_RAW_CHUNK_SIZE
             || entry.artifact_size == 0
         {
             return Err(Error::manifest("invalid indexed artifact or chunk size"));
         }
-        if entry.storage_mode == crate::artifact::profiles::ArtifactStorageMode::LooseChunks
+        if entry.storage_mode == ArtifactStorageMode::LooseChunks
             && (ChunkHash::parse_hex(&entry.bundle_id)? != *hash || entry.chunk_ordinal != 0)
         {
             return Err(Error::manifest(
                 "loose index identity or ordinal is inconsistent",
             ));
         }
-        if entry.storage_mode == crate::artifact::profiles::ArtifactStorageMode::Bundled {
+        if entry.storage_mode == ArtifactStorageMode::Bundled {
             let id = entry.bundle_id.as_str();
             if let Some((_, size)) = artifacts.get(id) {
                 if *size != entry.artifact_size {
@@ -202,12 +201,8 @@ pub(crate) fn write_chunk_index_binary(
         write_u32(
             &mut chunk_group,
             match entry.storage_mode {
-                crate::artifact::profiles::ArtifactStorageMode::Bundled => {
-                    artifact_rows[entry.bundle_id.as_str()]
-                }
-                crate::artifact::profiles::ArtifactStorageMode::LooseChunks => {
-                    LOOSE_CHUNK_ARTIFACT_ROW
-                }
+                ArtifactStorageMode::Bundled => artifact_rows[entry.bundle_id.as_str()],
+                ArtifactStorageMode::LooseChunks => LOOSE_CHUNK_ARTIFACT_ROW,
             },
         )?;
     }
@@ -215,21 +210,18 @@ pub(crate) fn write_chunk_index_binary(
         write_u32(
             &mut chunk_group,
             match entry.storage_mode {
-                crate::artifact::profiles::ArtifactStorageMode::Bundled => entry.chunk_ordinal,
-                crate::artifact::profiles::ArtifactStorageMode::LooseChunks => entry.artifact_size,
+                ArtifactStorageMode::Bundled => entry.chunk_ordinal,
+                ArtifactStorageMode::LooseChunks => entry.artifact_size,
             },
         )?;
     }
     for entry in index.entries.values() {
         write_u32(&mut chunk_group, entry.raw_size)?;
     }
-    let bytes = crate::artifact::metadata::encode(
-        CHUNK_INDEX_BINARY_MAGIC,
-        &[artifact_group, chunk_group],
-    )?;
+    let bytes = metadata::encode(CHUNK_INDEX_BINARY_MAGIC, &[artifact_group, chunk_group])?;
     // Apply exactly the reader's invariants before publishing writer input.
     load_chunk_index_binary_from_bytes(&bytes)?;
-    crate::filesystem::write_atomic_with(path, |file| {
+    write_atomic_with(path, |file| {
         file.write_all(&bytes)?;
         Ok(())
     })

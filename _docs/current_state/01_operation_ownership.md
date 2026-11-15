@@ -118,7 +118,12 @@ modules directly; only hosts go through `api`.
 Keep phase types with their owner and tests beside the code they exercise; a
 separate test file is named after the file it tests (`x_tests.rs`, or
 `mod_tests.rs` for a folder's `mod.rs`). Each source file opens with a `//!`
-line naming its responsibility.
+line naming its responsibility. Code imports the items it uses instead of
+spelling `crate::` or `std::` paths inline. Functions with single-word names or
+`std::fs` names are called through their module (`fs::write`, `output::line`),
+and `io::Result`, `io::Error` and `fmt::Result` stay module-qualified so `Result`
+and `Error` always mean the crate's own types. Platform-gated code keeps its
+`std::os::*` paths inline.
 Packaging profiles belong to `artifact/profiles`; codecs do not import manifest
 schemas. Manifest validation may consume artifact profiles, hashes and codecs.
 Capture groups source selection under `capture/sources` and artifact packing

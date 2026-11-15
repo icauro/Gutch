@@ -10,6 +10,9 @@ use crate::Error;
 use crate::Result;
 use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
+use crate::repo::tag_references::TagReference;
+use crate::repo::tag_references::TagReferenceStatus;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct RemoteRepository {
@@ -182,7 +185,7 @@ pub struct RemoteRepositorySummary {
 pub struct RemoteTagReferencesResult {
     pub repo_root: String,
     pub remote_repo_id: String,
-    pub referenced_tags: Vec<crate::repo::tag_references::TagReferenceStatus>,
+    pub referenced_tags: Vec<TagReferenceStatus>,
 }
 
 /// The host application supplies this context to Gutch's remote CLI.
@@ -191,16 +194,12 @@ pub struct RemoteTagReferencesResult {
 /// provider-neutral operations needed to synchronize repos and evaluate tags.
 pub trait RemoteRepositoryCommandProvider {
     /// Let the host enforce its publication policy before CLI synchronization.
-    fn prepare_repository_push(&self, _repo: &std::path::Path) -> Result<()> {
+    fn prepare_repository_push(&self, _repo: &Path) -> Result<()> {
         Ok(())
     }
 
     /// Apply host requirements when a local repository is linked.
-    fn configure_repository_binding(
-        &self,
-        _repo: &std::path::Path,
-        _remote_repo_id: &str,
-    ) -> Result<()> {
+    fn configure_repository_binding(&self, _repo: &Path, _remote_repo_id: &str) -> Result<()> {
         Ok(())
     }
 
@@ -212,10 +211,8 @@ pub trait RemoteRepositoryCommandProvider {
 
     fn delete_remote_repository(&self, repository: &RemoteRepository) -> Result<()>;
 
-    fn referenced_tag_references(
-        &self,
-        repository: &RemoteRepository,
-    ) -> Result<Vec<crate::repo::tag_references::TagReference>>;
+    fn referenced_tag_references(&self, repository: &RemoteRepository)
+    -> Result<Vec<TagReference>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

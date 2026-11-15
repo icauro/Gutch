@@ -2,6 +2,7 @@
 
 use crate::artifact::profiles::ChunkSizingProfile;
 use crate::progress::OperationControl;
+use std::io::ErrorKind;
 use std::io::Read;
 
 /// Stateless boundary kernels must return 1..=min(input.len(), max_size())
@@ -111,7 +112,7 @@ impl<R: Read, C: ChunkBoundary> ChunkStream<R, C> {
                 match self.reader.read(&mut self.buffer[self.end..]) {
                     Ok(0) => self.eof = true,
                     Ok(count) => self.end += count,
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) if error.kind() == ErrorKind::Interrupted => continue,
                     Err(error) => return Err(crate::Error::Chunk(error.to_string())),
                 }
             }

@@ -5,6 +5,8 @@ pub(crate) mod progress;
 pub(crate) mod types;
 
 use crate::Result;
+use crate::capture::scan::validate_source_inventory;
+use crate::capture::scan::verify_source_inventory_stable;
 use crate::capture::scan::{SourceInventory, scan_source_inventory};
 use crate::manifest::constraints::RepositoryConstraints;
 use std::path::Path;
@@ -37,7 +39,7 @@ pub(crate) fn build_with_stable_source(
     let stable_after_build =
         scan_source_inventory(source_dir, &build_config.control, worker_count, build_pool)
             .and_then(|fresh| {
-                crate::capture::scan::verify_source_inventory_stable(&source_inventory, &fresh)?;
+                verify_source_inventory_stable(&source_inventory, &fresh)?;
                 Ok(fresh)
             });
     source_inventory = match stable_after_build {
@@ -45,7 +47,7 @@ pub(crate) fn build_with_stable_source(
         Err(_) => {
             source_inventory =
                 scan_source_inventory(source_dir, &build_config.control, worker_count, build_pool)?;
-            crate::capture::scan::validate_source_inventory(&source_inventory, constraints)?;
+            validate_source_inventory(&source_inventory, constraints)?;
             (result, timings) = self::pipeline::build_with_config_timed_on_pool_with_inventory(
                 source_dir,
                 build_config,
@@ -54,7 +56,7 @@ pub(crate) fn build_with_stable_source(
             )?;
             let fresh =
                 scan_source_inventory(source_dir, &build_config.control, worker_count, build_pool)?;
-            crate::capture::scan::verify_source_inventory_stable(&source_inventory, &fresh)?;
+            verify_source_inventory_stable(&source_inventory, &fresh)?;
             fresh
         }
     };

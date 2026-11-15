@@ -5,6 +5,8 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::Result;
+use std::cmp::Ordering;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,7 +21,7 @@ pub struct ExternalProductDependencyRequirement {
 pub(crate) fn validate_external_product_dependency_requirements(
     requirements: &[ExternalProductDependencyRequirement],
 ) -> Result<()> {
-    let mut dependency_ids = std::collections::HashSet::new();
+    let mut dependency_ids = HashSet::new();
     for requirement in requirements {
         validate_dependency_id(&requirement.dependency_id)?;
         if !dependency_ids.insert(requirement.dependency_id.as_str()) {
@@ -36,7 +38,7 @@ pub(crate) fn validate_external_product_dependency_requirements(
         if let (Some(minimum), Some(maximum)) = (
             requirement.minimum_version.as_deref(),
             requirement.maximum_version_exclusive.as_deref(),
-        ) && compare_versions(minimum, maximum) != std::cmp::Ordering::Less
+        ) && compare_versions(minimum, maximum) != Ordering::Less
         {
             return Err(Error::manifest(
                 "external dependency maximum_version_exclusive must be greater than minimum_version",
@@ -87,7 +89,7 @@ fn validate_version(field: &str, version: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+fn compare_versions(left: &str, right: &str) -> Ordering {
     // Components are validated digit strings of any length; compare them as
     // decimal numbers without parsing, which could overflow.
     let significant_digits = |part| str::trim_start_matches(part, '0');
@@ -97,11 +99,11 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
         let left_part = left.get(index).copied().unwrap_or("");
         let right_part = right.get(index).copied().unwrap_or("");
         match (left_part.len(), left_part).cmp(&(right_part.len(), right_part)) {
-            std::cmp::Ordering::Equal => {}
+            Ordering::Equal => {}
             ordering => return ordering,
         }
     }
-    std::cmp::Ordering::Equal
+    Ordering::Equal
 }
 
 #[cfg(test)]

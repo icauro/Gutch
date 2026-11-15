@@ -1,13 +1,31 @@
 //! Publish verified staged bundles and loose chunks.
 use crate::Result;
+use crate::artifact::reference::ArtifactRef;
+use crate::capture::build::types::BuildResult;
+use crate::capture::build::types::BuiltBundle;
+use crate::capture::build::types::BuiltLooseChunk;
+use crate::capture::reuse::CaptureReuseState;
+use crate::capture::reuse::add_built_bundles_to_chunk_index;
+use crate::capture::reuse::add_built_loose_chunks_to_chunk_index;
+use crate::filesystem;
+use crate::profiling::file_trace_args;
+use crate::progress::OperationControl;
+use crate::repo::artifacts::required_artifacts;
+use crate::repo::index::write_chunk_index;
+use crate::repo::paths::RepoPaths;
+use crate::repo::paths::bundle_path_in_root;
+use crate::repo::paths::chunk_path_in_root;
+use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use rayon::prelude::*;
+use std::collections::BTreeMap;
 use std::path::Path;
+use std::path::PathBuf;
 
 fn write_bundles(
     bundles_root: &Path,
-    bundles: &[crate::capture::build::types::BuiltBundle],
+    bundles: &[BuiltBundle],
     pool: &rayon::ThreadPool,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     let _phase_span =
         control.profile_span_with_args("capture.publish_snapshot.write_bundle_artifacts", || {
@@ -22,8 +40,7 @@ fn write_bundles(
             .par_iter()
             .map(|bundle| {
                 control_for_work.checkpoint()?;
-                let bundle_path =
-                    crate::repo::paths::bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
+                let bundle_path = bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
                 let _bundle_span =
                     control_for_work.profile_span_with_args("capture.bundle.publish", || {
                         capture_artifact_write_trace_args(
@@ -34,7 +51,7 @@ fn write_bundles(
                         )
                     });
                 if let Some(parent) = bundle_path.parent() {
-                    crate::filesystem::create_dir_all(parent)?;
+                    filesystem::create_dir_all(parent)?;
                 }
                 bundle.staged_file.promote_unless_present(&bundle_path)
             })
@@ -45,9 +62,9 @@ fn write_bundles(
 
 fn write_loose_chunks(
     chunks_root: &Path,
-    chunks: &[crate::capture::build::types::BuiltLooseChunk],
+    chunks: &[BuiltLooseChunk],
     pool: &rayon::ThreadPool,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<()> {
     let total_bytes = chunks
         .iter()
@@ -64,9 +81,9 @@ fn write_loose_chunks(
             .map(|chunk| {
                 control_for_work.checkpoint()?;
                 let chunk_hash = chunk.chunk_hash.to_string();
-                let chunk_path = crate::repo::paths::chunk_path_in_root(chunks_root, &chunk_hash)?;
+                let chunk_path = chunk_path_in_root(chunks_root, &chunk_hash)?;
                 if let Some(parent) = chunk_path.parent() {
-                    crate::filesystem::create_dir_all(parent)?;
+                    filesystem::create_dir_all(parent)?;
                 }
                 chunk.staged_file.promote_unless_present(&chunk_path)
             })
@@ -75,11 +92,8 @@ fn write_loose_chunks(
     Ok(())
 }
 
-fn capture_count_bytes_trace_args(
-    count: usize,
-    bytes: u64,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    std::collections::BTreeMap::from([
+fn capture_count_bytes_trace_args(count: usize, bytes: u64) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
         ("count".to_string(), serde_json::json!(count)),
         ("size_bytes".to_string(), serde_json::json!(bytes)),
     ])
@@ -90,8 +104,8 @@ fn capture_artifact_write_trace_args(
     artifact_id: &str,
     path: &Path,
     bytes: u64,
-) -> std::collections::BTreeMap<String, serde_json::Value> {
-    let mut args = crate::profiling::file_trace_args(path.display().to_string(), bytes);
+) -> BTreeMap<String, serde_json::Value> {
+    let mut args = file_trace_args(path.display().to_string(), bytes);
     args.insert("artifact_kind".to_string(), serde_json::json!(kind));
     args.insert("artifact_id".to_string(), serde_json::json!(artifact_id));
     args
@@ -101,12 +115,12 @@ fn capture_artifact_write_trace_args(
 /// the additive index, then snapshot metadata as the commit marker.
 /// Returns the manifest path and the distinct bundle count from the validated artifact set.
 pub(super) fn publish_snapshot_artifacts(
-    control: &crate::progress::OperationControl,
-    repo_paths: &crate::repo::paths::RepoPaths,
-    result: &crate::capture::build::types::BuildResult,
-    reuse_state: &mut crate::capture::reuse::CaptureReuseState,
+    control: &OperationControl,
+    repo_paths: &RepoPaths,
+    result: &BuildResult,
+    reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
-) -> Result<(std::path::PathBuf, usize)> {
+) -> Result<(PathBuf, usize)> {
     // Snapshot publication below persists the captured snapshot. The snapshot
     // manifest is published last as the commit marker: immutable bundles and
     // loose chunks go first, then the additive chunk index, then the snapshot
@@ -132,18 +146,12 @@ pub(super) fn publish_snapshot_artifacts(
     {
         let _bundle_index_span =
             control.profile_span("capture.publish_snapshot.index_bundle_entries");
-        crate::capture::reuse::add_built_bundles_to_chunk_index(
-            &mut reuse_state.chunk_index,
-            &result.bundles,
-        )?;
+        add_built_bundles_to_chunk_index(&mut reuse_state.chunk_index, &result.bundles)?;
     }
     {
         let _chunk_index_span =
             control.profile_span("capture.publish_snapshot.index_loose_chunk_entries");
-        crate::capture::reuse::add_built_loose_chunks_to_chunk_index(
-            &mut reuse_state.chunk_index,
-            &result.loose_chunks,
-        )?;
+        add_built_loose_chunks_to_chunk_index(&mut reuse_state.chunk_index, &result.loose_chunks)?;
     }
     drop(_index_span);
 
@@ -174,32 +182,24 @@ pub(super) fn publish_snapshot_artifacts(
     }
     let _chunk_index_write_span =
         control.profile_span("capture.publish_snapshot.write_chunk_index");
-    crate::repo::index::write_chunk_index(repo_paths, &reuse_state.chunk_index)?;
+    write_chunk_index(repo_paths, &reuse_state.chunk_index)?;
     drop(_chunk_index_write_span);
     let mut required_bundle_count = 0;
-    for artifact in crate::repo::artifacts::required_artifacts(
-        &result.snapshot_manifest,
-        &reuse_state.chunk_index,
-    )? {
+    for artifact in required_artifacts(&result.snapshot_manifest, &reuse_state.chunk_index)? {
         if !artifact.local_path(repo_paths)?.is_file() {
             return Err(crate::Error::manifest(format!(
                 "capture is missing required artifact '{}'",
                 artifact.id()
             )));
         }
-        if matches!(
-            &artifact,
-            crate::artifact::reference::ArtifactRef::Bundle { .. }
-        ) {
+        if matches!(&artifact, ArtifactRef::Bundle { .. }) {
             required_bundle_count += 1;
         }
     }
     let _manifest_write_span =
         control.profile_span("capture.publish_snapshot.write_snapshot_manifest");
-    let (manifest_path, _) = crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
-        repo_paths,
-        &result.snapshot_manifest,
-    )?;
+    let (manifest_path, _) =
+        write_snapshot_manifest_artifacts(repo_paths, &result.snapshot_manifest)?;
     drop(_manifest_write_span);
     Ok((manifest_path, required_bundle_count))
 }

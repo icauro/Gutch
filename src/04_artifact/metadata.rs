@@ -6,6 +6,8 @@ use crate::artifact::binary_io::{
     read_exact_array, read_u8, read_u16, read_u32, write_u16, write_u32,
 };
 use crate::{Error, Result};
+use std::fs::File;
+use std::path::Path;
 
 pub(crate) const MAX_METADATA_BYTES: usize = 256 * 1024 * 1024;
 const VERSION: u16 = 1;
@@ -138,8 +140,8 @@ pub(crate) fn decode(bytes: &[u8], magic: &[u8; 16], group_count: usize) -> Resu
     Ok(groups)
 }
 
-pub(crate) fn read_file(path: &std::path::Path) -> Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
+pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>> {
+    let file = File::open(path)?;
     if file.metadata()?.len() > MAX_METADATA_BYTES as u64 {
         return Err(Error::manifest("metadata exceeds encoded size limit"));
     }

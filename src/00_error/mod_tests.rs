@@ -1,4 +1,6 @@
 use super::*;
+use std::io::ErrorKind;
+use std::path::Path;
 
 #[test]
 fn error_display_bundle() {
@@ -35,7 +37,7 @@ fn error_display_reconstruct() {
 
 #[test]
 fn error_display_io() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+    let io_err = std::io::Error::new(ErrorKind::NotFound, "file not found");
     let e = Error::from(io_err);
     assert!(e.to_string().contains("I/O error:"));
 }
@@ -89,7 +91,7 @@ fn error_is_debug() {
 fn contextual_io_preserves_native_error_and_typed_failures() {
     let native = std::io::Error::from_raw_os_error(5);
     let expected_kind = native.kind();
-    let error = Error::io_context("opening output", std::path::Path::new("output.bin"), native);
+    let error = Error::io_context("opening output", Path::new("output.bin"), native);
     assert!(error.to_string().contains("opening output"));
     assert!(error.to_string().contains("output.bin"));
     assert!(error.to_string().contains("os error 5"));
@@ -101,7 +103,7 @@ fn contextual_io_preserves_native_error_and_typed_failures() {
     assert_eq!(source.kind(), expected_kind);
     assert!(error.is_retryable_download());
     assert!(matches!(
-        Error::Cancelled.with_io_context("writing", std::path::Path::new("x")),
+        Error::Cancelled.with_io_context("writing", Path::new("x")),
         Error::Cancelled
     ));
 }

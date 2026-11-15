@@ -1,9 +1,14 @@
 //! Physical inventory and symlink-parent classification for inspection.
+use crate::filesystem::paths::ManifestPathResolver;
+use crate::filesystem::paths::validate_manifest_relative_path;
+use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::{Result, manifest};
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::fs::Metadata;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,14 +41,14 @@ pub(super) fn build_filesystem_inventory(
     let expected_paths: Vec<&str> = snapshot_manifest
         .entries
         .iter()
-        .map(crate::manifest::SnapshotEntry::path)
+        .map(SnapshotEntry::path)
         .collect();
     for path in &expected_paths {
-        crate::filesystem::paths::validate_manifest_relative_path(path, false)?;
+        validate_manifest_relative_path(path, false)?;
     }
     let canonical_root = match dir.canonicalize() {
         Ok(path) => path,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Err(error) if error.kind() == ErrorKind::NotFound => {
             return Ok(FilesystemInventory {
                 canonical_root: dir.to_path_buf(),
                 entries: HashMap::new(),
@@ -140,7 +145,7 @@ pub(super) fn augment_inventory_for_symlinked_parents(
     if !needs_fallback {
         return Ok(());
     }
-    let path_resolver = crate::filesystem::paths::ManifestPathResolver::new(dir)?;
+    let path_resolver = ManifestPathResolver::new(dir)?;
     for entry in &snapshot_manifest.entries {
         control.checkpoint()?;
         let key = inventory_path_key(entry.path());
@@ -155,9 +160,9 @@ pub(super) fn augment_inventory_for_symlinked_parents(
                 path_resolver.resolve_entry(entry.path())?
             }
         };
-        let metadata = match std::fs::symlink_metadata(&path) {
+        let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
             Err(error) => return Err(error.into()),
         };
         let kind = if metadata.file_type().is_symlink() {

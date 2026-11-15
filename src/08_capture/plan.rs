@@ -8,6 +8,8 @@ use crate::manifest::SnapshotTagSet;
 use crate::repo::Result;
 
 use crate::capture::contracts::SnapshotCapturePlan;
+use crate::progress::OperationControl;
+use crate::repo::paths::load_gutch_repo_manifest;
 impl SnapshotCapturePlan {
     pub fn from_candidate(candidate: SourceSnapshotOperationCandidate) -> Self {
         Self {
@@ -42,7 +44,7 @@ pub fn plan_snapshot_capture_with_control(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<SnapshotCapturePlan> {
     let _plan_span = control.profile_span("capture.prepare_source.plan_snapshot");
     plan_snapshot_capture(repo_root, source_dir, explicit_tags)
@@ -54,7 +56,7 @@ pub(crate) fn plan_snapshot_capture_with_source_modified_at(
     explicit_tags: &SnapshotTagSet,
     source_modified_at: String,
 ) -> Result<SnapshotCapturePlan> {
-    let (_, repository) = crate::repo::paths::load_gutch_repo_manifest(repo_root)?;
+    let (_, repository) = load_gutch_repo_manifest(repo_root)?;
     repository
         .constraints
         .unwrap_or_default()

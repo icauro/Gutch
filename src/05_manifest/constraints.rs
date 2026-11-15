@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 pub use crate::filesystem::constraints::FilesystemTarget;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 /// Optional repository invariants; an empty value imposes no constraints.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
@@ -21,14 +23,8 @@ impl PartialEq for RepositoryConstraints {
         self.snapshot_tags == other.snapshot_tags
             && self.require_matching_tag_keys_across_snapshots
                 == other.require_matching_tag_keys_across_snapshots
-            && self
-                .targets
-                .iter()
-                .collect::<std::collections::BTreeSet<_>>()
-                == other
-                    .targets
-                    .iter()
-                    .collect::<std::collections::BTreeSet<_>>()
+            && self.targets.iter().collect::<BTreeSet<_>>()
+                == other.targets.iter().collect::<BTreeSet<_>>()
     }
 }
 
@@ -36,7 +32,7 @@ impl PartialEq for RepositoryConstraints {
 #[serde(deny_unknown_fields)]
 pub struct SnapshotTagConstraints {
     #[serde(default)]
-    pub key_value: std::collections::BTreeMap<String, SnapshotTagRule>,
+    pub key_value: BTreeMap<String, SnapshotTagRule>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

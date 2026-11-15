@@ -1,7 +1,12 @@
 use super::*;
+use crate::artifact::profiles::ChunkSizingPreset;
+use crate::progress::CancellationHook;
 use clap::ValueEnum;
 use fastcdc::v2020::{FastCDC, Normalization};
 use std::io::{self, Cursor};
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 fn random_bytes(length: usize, mut seed: u64) -> Vec<u8> {
     (0..length)
@@ -62,7 +67,7 @@ fn compare(bytes: &[u8], profile: &ChunkSizingProfile, hint: u64, read_limit: us
 #[test]
 fn every_preset_matches_upstream_across_refills_and_short_reads() {
     let bytes = random_bytes(2 * 1024 * 1024 + 37, 917);
-    for preset in crate::artifact::profiles::ChunkSizingPreset::value_variants() {
+    for preset in ChunkSizingPreset::value_variants() {
         let profile = ChunkSizingProfile::for_preset(*preset);
         for (hint, limit) in [
             (0, 4093),
@@ -79,8 +84,7 @@ fn every_preset_matches_upstream_across_refills_and_short_reads() {
 
 #[test]
 fn repeated_bytes_and_largest_windows_preserve_exact_boundaries() {
-    let profile =
-        ChunkSizingProfile::for_preset(crate::artifact::profiles::ChunkSizingPreset::Chunk4MiB);
+    let profile = ChunkSizingProfile::for_preset(ChunkSizingPreset::Chunk4MiB);
     let length = 2 * profile.max_chunk_bytes as usize + 3;
     compare(&vec![0; length], &profile, length as u64, usize::MAX);
     compare(
@@ -94,7 +98,7 @@ fn repeated_bytes_and_largest_windows_preserve_exact_boundaries() {
 #[test]
 fn randomized_profiles_and_inputs_match_upstream() {
     bolero::check!().for_each(|input: &[u8]| {
-        let presets = crate::artifact::profiles::ChunkSizingPreset::value_variants();
+        let presets = ChunkSizingPreset::value_variants();
         let index = input.first().copied().unwrap_or(0) as usize % presets.len();
         let profile = ChunkSizingProfile::for_preset(presets[index]);
         compare(input, &profile, input.len() as u64, 113);
@@ -127,15 +131,14 @@ fn stream_propagates_read_errors_and_retries_interruption() {
 #[test]
 fn cancellation_is_checked_during_buffer_refill() {
     #[derive(Debug)]
-    struct CancelAfterTwoChecks(std::sync::atomic::AtomicUsize);
-    impl crate::progress::CancellationHook for CancelAfterTwoChecks {
+    struct CancelAfterTwoChecks(AtomicUsize);
+    impl CancellationHook for CancelAfterTwoChecks {
         fn is_cancelled(&self) -> bool {
-            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
+            self.0.fetch_add(1, Ordering::Relaxed) >= 2
         }
     }
-    let control = OperationControl::default().with_cancellation(std::sync::Arc::new(
-        CancelAfterTwoChecks(std::sync::atomic::AtomicUsize::new(0)),
-    ));
+    let control = OperationControl::default()
+        .with_cancellation(Arc::new(CancelAfterTwoChecks(AtomicUsize::new(0))));
     let mut stream = ChunkStream::new(io::repeat(4).take(1), &ChunkSizingProfile::default(), 0);
     assert!(matches!(
         stream.next(&control),

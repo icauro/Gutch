@@ -21,6 +21,7 @@ use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::runtime::RuntimeResourceHints;
 use crate::test_util;
+use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -40,7 +41,7 @@ fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String>
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        control: crate::progress::OperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap()
     .0
@@ -53,7 +54,7 @@ fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairCla
         dir,
         mode: VerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
-        control: crate::progress::OperationControl::default(),
+        control: OperationControl::default(),
     })
     .unwrap()
     .0
@@ -67,28 +68,28 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     let repo_dir = root.join("repo");
     let destination_dir = root.join("destination");
     let staging_dir = root.join(".staging");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&v1_dir).unwrap();
-    std::fs::create_dir_all(&v2_dir).unwrap();
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&v1_dir).unwrap();
+    fs::create_dir_all(&v2_dir).unwrap();
 
-    std::fs::write(v1_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
-    std::fs::write(v1_dir.join("old.txt"), b"old content").unwrap();
-    std::fs::write(v2_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
-    std::fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
+    fs::write(v1_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
+    fs::write(v1_dir.join("old.txt"), b"old content").unwrap();
+    fs::write(v2_dir.join("shared.txt"), b"same content".repeat(200)).unwrap();
+    fs::write(v2_dir.join("new.txt"), b"new content").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let v1 = build_from_directory(&v1_dir, &tags).unwrap();
     let tags_v2 = exclusive_tags("2.0.0", "windows", "x86_64", "base");
     let v2 = build_from_directory(&v2_dir, &tags_v2).unwrap();
 
-    std::fs::create_dir_all(&destination_dir).unwrap();
-    std::fs::copy(
+    fs::create_dir_all(&destination_dir).unwrap();
+    fs::copy(
         v1_dir.join("shared.txt"),
         destination_dir.join("shared.txt"),
     )
     .unwrap();
-    std::fs::copy(v1_dir.join("old.txt"), destination_dir.join("old.txt")).unwrap();
-    std::fs::write(destination_dir.join("player.log"), b"local runtime log").unwrap();
+    fs::copy(v1_dir.join("old.txt"), destination_dir.join("old.txt")).unwrap();
+    fs::write(destination_dir.join("player.log"), b"local runtime log").unwrap();
 
     let repo_paths = RepoPaths::from_repo_root(&repo_dir);
     ensure_gutch_repo_layout(&repo_paths, "test").unwrap();
@@ -96,8 +97,8 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
     write_snapshot_manifest_artifacts(&repo_paths, &v2.snapshot_manifest).unwrap();
     for bundle in &v2.bundles {
         let bundle_path = bundle_path(&repo_paths, &bundle.bundle_id).unwrap();
-        std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
-        std::fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
+        fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+        fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
     }
     let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
     add_built_bundles_to_chunk_index(&mut chunk_index, &v2.bundles).unwrap();
@@ -132,7 +133,7 @@ fn test_apply_snapshot_ops_reuses_verified_source_destination() {
         verify_errors
     );
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -157,7 +158,7 @@ fn test_gutch_repo_paths_from_store_root() {
 #[test]
 fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
     let repo_root = test_util::temp_path("gutch_test_gutch_repo_layout");
-    let _ = std::fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&repo_root);
     let paths = RepoPaths::from_repo_root(&repo_root);
 
     let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
@@ -167,7 +168,7 @@ fn test_ensure_gutch_repo_layout_writes_repo_manifest() {
     assert!(paths.snapshots_root.exists());
     assert!(paths.bundles_root.exists());
 
-    let _ = std::fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&repo_root);
 }
 
 #[test]
@@ -191,7 +192,7 @@ fn test_verify_directory_missing_file() {
     assert!(!errors.is_empty());
     assert!(errors[0].contains("missing"));
 
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -199,8 +200,8 @@ fn test_verify_directory_reports_extra_file() {
     let dir = test_util::temp_path("gutch_test_verify_extra");
     test_util::recreate_dir(&dir);
 
-    std::fs::write(dir.join("expected.txt"), b"hello world").unwrap();
-    std::fs::write(dir.join("extra.log"), b"left behind").unwrap();
+    fs::write(dir.join("expected.txt"), b"hello world").unwrap();
+    fs::write(dir.join("extra.log"), b"left behind").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let result = build_from_directory(&dir, &tags).unwrap();
@@ -220,7 +221,7 @@ fn test_verify_directory_reports_extra_file() {
         errors
     );
 
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -228,15 +229,15 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     let dir = test_util::temp_path("gutch_test_classify_directory");
     test_util::recreate_dir(&dir);
 
-    std::fs::write(dir.join("healthy.txt"), b"healthy file").unwrap();
-    std::fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
+    fs::write(dir.join("healthy.txt"), b"healthy file").unwrap();
+    fs::write(dir.join("corrupt.txt"), b"original contents").unwrap();
 
     let tags = exclusive_tags("1.0.0", "windows", "x86_64", "base");
     let result = build_from_directory(&dir, &tags).unwrap();
 
-    std::fs::remove_file(dir.join("healthy.txt")).unwrap();
-    std::fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
-    std::fs::write(dir.join("notes.tmp"), b"user scratch").unwrap();
+    fs::remove_file(dir.join("healthy.txt")).unwrap();
+    fs::write(dir.join("corrupt.txt"), b"modified contents").unwrap();
+    fs::write(dir.join("notes.tmp"), b"user scratch").unwrap();
 
     let classification = classify_test_directory(&result.snapshot_manifest, &dir);
 
@@ -252,7 +253,7 @@ fn test_classify_directory_separates_missing_corrupt_and_extra() {
     assert_eq!(classification.extra_files.len(), 1);
     assert_eq!(classification.extra_files[0].path, "notes.tmp");
 
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -263,7 +264,7 @@ fn test_large_game_build_200mb() {
     test_util::recreate_dir(&artifacts_dir);
 
     for sub in &["audio", "textures", "data"] {
-        std::fs::create_dir_all(root.join(sub)).unwrap();
+        fs::create_dir_all(root.join(sub)).unwrap();
     }
 
     let t0 = Instant::now();
@@ -328,13 +329,13 @@ fn test_large_game_build_200mb() {
 
     let manifest_path = artifacts_dir.join("manifest.json");
     let manifest_json = serde_json::to_string_pretty(&result.snapshot_manifest.metadata()).unwrap();
-    std::fs::write(&manifest_path, manifest_json).unwrap();
+    fs::write(&manifest_path, manifest_json).unwrap();
     for bundle in &result.bundles {
         let bundle_dir = artifacts_dir.join("bundles");
-        std::fs::create_dir_all(&bundle_dir).unwrap();
+        fs::create_dir_all(&bundle_dir).unwrap();
         let bundle_path = bundle_path_in_root(&bundle_dir, &bundle.bundle_id).unwrap();
-        std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
-        std::fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
+        fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+        fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
     }
     let artifacts_total = test_util::dir_size(&artifacts_dir);
 
@@ -344,8 +345,8 @@ fn test_large_game_build_200mb() {
     write_snapshot_manifest_artifacts(&repo_paths, &result.snapshot_manifest).unwrap();
     for bundle in &result.bundles {
         let bundle_path = bundle_path(&repo_paths, &bundle.bundle_id).unwrap();
-        std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
-        std::fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
+        fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
+        fs::copy(bundle.staged_file.path(), bundle_path).unwrap();
     }
     let mut chunk_index = load_chunk_index(&repo_paths).unwrap();
     add_built_bundles_to_chunk_index(&mut chunk_index, &result.bundles).unwrap();
@@ -353,7 +354,7 @@ fn test_large_game_build_200mb() {
 
     let t2 = Instant::now();
     let out_dir = test_util::temp_path("gutch_test_200mb_reconstructed");
-    let _ = std::fs::remove_dir_all(&out_dir);
+    let _ = fs::remove_dir_all(&out_dir);
     reconstruct_snapshot(InstallationRequest {
         repo_path: repo_root.clone(),
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
@@ -413,8 +414,8 @@ fn test_large_game_build_200mb() {
         gen_ms + build_ms + recon_ms + verify_ms
     );
     println!();
-    let _ = std::fs::remove_dir_all(&root);
-    let _ = std::fs::remove_dir_all(&artifacts_dir);
-    let _ = std::fs::remove_dir_all(&repo_root);
-    let _ = std::fs::remove_dir_all(&out_dir);
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&artifacts_dir);
+    let _ = fs::remove_dir_all(&repo_root);
+    let _ = fs::remove_dir_all(&out_dir);
 }

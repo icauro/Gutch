@@ -5,9 +5,15 @@ pub(crate) mod configured;
 pub(crate) mod discovery;
 
 use crate::Result;
+use crate::artifact::profiles::BundleSizingProfile;
+use crate::artifact::profiles::ChunkSizingProfile;
+use crate::artifact::profiles::validate_packaging_sizes;
 use crate::capture::contracts::SnapshotCapturePlan;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
+use crate::capture::execute::capture_error;
+use crate::capture::execute::capture_snapshot;
+use crate::capture::plan::plan_snapshot_capture_with_control;
 use crate::manifest::SnapshotTagSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -52,12 +58,12 @@ pub fn plan_snapshot_captures(
     requests
         .iter()
         .map(|request| {
-            crate::artifact::profiles::validate_packaging_sizes(
-                &crate::artifact::profiles::ChunkSizingProfile::for_preset(request.chunk_profile),
-                &crate::artifact::profiles::BundleSizingProfile::for_preset(request.bundle_profile),
+            validate_packaging_sizes(
+                &ChunkSizingProfile::for_preset(request.chunk_profile),
+                &BundleSizingProfile::for_preset(request.bundle_profile),
                 request.storage_mode,
             )?;
-            crate::capture::plan::plan_snapshot_capture_with_control(
+            plan_snapshot_capture_with_control(
                 &request.repo_root,
                 &request.source_dir,
                 &request.explicit_tags,
@@ -71,11 +77,8 @@ pub fn plan_snapshot_captures(
 pub fn capture_snapshots(
     requests: Vec<SnapshotCaptureRequest>,
 ) -> Result<Vec<SnapshotCaptureResult>> {
-    plan_snapshot_captures(&requests).map_err(crate::capture::execute::capture_error)?;
-    requests
-        .into_iter()
-        .map(crate::capture::execute::capture_snapshot)
-        .collect()
+    plan_snapshot_captures(&requests).map_err(capture_error)?;
+    requests.into_iter().map(capture_snapshot).collect()
 }
 
 fn collect_capture_sources(
@@ -116,9 +119,7 @@ fn collect_capture_sources(
 /// The config is read from the directory's parent when present; it is never
 /// generated automatically for a single capture. Returns the entry's explicit
 /// tags when the source is listed in explicit mode.
-fn resolve_single_source_config_tags(
-    dir: &Path,
-) -> crate::Result<Option<crate::manifest::SnapshotTagSet>> {
+fn resolve_single_source_config_tags(dir: &Path) -> crate::Result<Option<SnapshotTagSet>> {
     let parent = dir.parent().ok_or_else(|| {
         crate::Error::manifest(format!(
             "snapshot input has no parent directory: {}",
@@ -149,13 +150,12 @@ fn resolve_single_source_config_tags(
                 });
             match entry {
                 Some(rule) => {
-                    let tags = crate::manifest::SnapshotTagSet::from_compact_strings(&rule.tags)
-                        .map_err(|err| {
-                            crate::Error::manifest(format!(
-                                "invalid tags for explicit snapshot '{}': {err}",
-                                rule.path
-                            ))
-                        })?;
+                    let tags = SnapshotTagSet::from_compact_strings(&rule.tags).map_err(|err| {
+                        crate::Error::manifest(format!(
+                            "invalid tags for explicit snapshot '{}': {err}",
+                            rule.path
+                        ))
+                    })?;
                     Ok(Some(tags))
                 }
                 None => Ok(None),

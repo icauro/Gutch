@@ -2,27 +2,37 @@
 use super::entries::finalize_snapshot_entries;
 use crate::Error;
 use crate::Result;
+use crate::filesystem;
+use crate::filesystem::paths::ManifestPathResolver;
+use crate::filesystem::paths::resolve_manifest_relative_path;
+use crate::filesystem::set_read_only;
 use crate::installation::contracts::SnapshotRepairResult;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::RepairIssue;
 use crate::installation::inspect::RepairIssueKind;
+use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_expected_entries_with_marker_namespace_and_pool;
 use crate::installation::plan::InstallationChanges;
 use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
 use rayon::ThreadPool;
+use std::cmp::Reverse;
+use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process;
 
 pub(crate) enum Publication<'a> {
     ReplaceDirectory,
     Selective {
         target: &'a SnapshotManifest,
-        changes: &'a crate::installation::plan::InstallationChanges,
+        changes: &'a InstallationChanges,
         remove_extra_files: bool,
     },
 }
@@ -42,7 +52,7 @@ pub(crate) struct FinalizeRepairRequest<'a> {
     pub(crate) remove_added_files: bool,
     pub(crate) runtime_hints: &'a RuntimeResourceHints,
     pub(crate) repair_plan: &'a InstallationChanges,
-    pub(crate) control: &'a crate::progress::OperationControl,
+    pub(crate) control: &'a OperationControl,
     pub(crate) operation_pool: Option<&'a ThreadPool>,
 }
 
@@ -100,7 +110,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
             destination_dir,
             snapshot_manifest,
         )?;
-        let _ = crate::filesystem::remove_dir_all(preserved_extra_dir);
+        let _ = filesystem::remove_dir_all(preserved_extra_dir);
     }
 
     if remove_added_files {
@@ -114,10 +124,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     let mut verification_manifest = repair_plan.affected_manifest.clone();
     if !repair_plan.metadata_updates.is_empty() {
         for entry in &repair_plan.metadata_updates {
-            let path = crate::filesystem::paths::resolve_manifest_relative_path(
-                destination_dir,
-                entry.path(),
-            )?;
+            let path = resolve_manifest_relative_path(destination_dir, entry.path())?;
             match entry {
                 SnapshotEntry::File(file) => super::entries::apply_entry_permissions(
                     &path,
@@ -143,7 +150,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
             VerifyRequest {
                 snapshot_manifest: &verification_manifest,
                 dir: destination_dir,
-                mode: crate::installation::inspect::VerifyMode::Fast,
+                mode: VerifyMode::Fast,
                 runtime_hints,
                 control: control.clone(),
             },
@@ -153,7 +160,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         .0
     };
     if remove_added_files {
-        let path_resolver = crate::filesystem::paths::ManifestPathResolver::new(destination_dir)?;
+        let path_resolver = ManifestPathResolver::new(destination_dir)?;
         for issue in &repair_plan.classification.extra_files {
             let path = path_resolver.resolve(&issue.path)?;
             if fs::symlink_metadata(path).is_ok() {
@@ -208,12 +215,12 @@ fn preserve_extra_files(
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("destination"),
-        std::process::id()
+        process::id()
     ));
     if preserve_dir.exists() {
-        crate::filesystem::remove_dir_all(&preserve_dir)?;
+        filesystem::remove_dir_all(&preserve_dir)?;
     }
-    crate::filesystem::create_dir_all(&preserve_dir)?;
+    filesystem::create_dir_all(&preserve_dir)?;
 
     let manifest_paths = manifest_paths_set(snapshot_manifest);
 
@@ -221,15 +228,13 @@ fn preserve_extra_files(
         if manifest_paths.contains(issue.path.as_str()) {
             continue;
         }
-        let source =
-            crate::filesystem::paths::resolve_manifest_relative_path(destination_dir, &issue.path)?;
+        let source = resolve_manifest_relative_path(destination_dir, &issue.path)?;
         if !source.is_file() {
             continue;
         }
-        let dest =
-            crate::filesystem::paths::resolve_manifest_relative_path(&preserve_dir, &issue.path)?;
+        let dest = resolve_manifest_relative_path(&preserve_dir, &issue.path)?;
         if let Some(parent) = dest.parent() {
-            crate::filesystem::create_dir_all(parent)?;
+            filesystem::create_dir_all(parent)?;
         }
         fs::copy(&source, &dest)?;
     }
@@ -241,7 +246,7 @@ fn promote_repaired_files(
     repaired_manifest: &SnapshotManifest,
     destination_dir: &Path,
     staging_dir: &Path,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     operation_pool: Option<&ThreadPool>,
 ) -> Result<()> {
     let mut directories = repaired_manifest
@@ -255,17 +260,14 @@ fn promote_repaired_files(
     directories.sort_by_key(|directory| directory.path.matches('/').count());
     let reopened_ancestors = reopen_read_only_directories(repaired_manifest, destination_dir)?;
     for directory in &directories {
-        let dest = crate::filesystem::paths::resolve_manifest_relative_path(
-            destination_dir,
-            &directory.path,
-        )?;
+        let dest = resolve_manifest_relative_path(destination_dir, &directory.path)?;
         let is_existing_directory = fs::symlink_metadata(&dest)
             .map(|metadata| metadata.file_type().is_dir() && !metadata.file_type().is_symlink())
             .unwrap_or(false);
         if !is_existing_directory {
             remove_existing_entry(&dest)?;
         }
-        crate::filesystem::create_dir_all(&dest)?;
+        filesystem::create_dir_all(&dest)?;
     }
 
     for entry in &repaired_manifest.entries {
@@ -274,10 +276,10 @@ fn promote_repaired_files(
             SnapshotEntry::Symlink(link) => &link.path,
             SnapshotEntry::Directory(_) => continue,
         };
-        let source = crate::filesystem::paths::resolve_manifest_relative_path(staging_dir, path)?;
-        let dest = crate::filesystem::paths::resolve_manifest_relative_path(destination_dir, path)?;
+        let source = resolve_manifest_relative_path(staging_dir, path)?;
+        let dest = resolve_manifest_relative_path(destination_dir, path)?;
         if let Some(parent) = dest.parent() {
-            crate::filesystem::create_dir_all(parent)?;
+            filesystem::create_dir_all(parent)?;
         }
         remove_existing_entry(&dest)?;
         if matches!(entry, SnapshotEntry::File(_)) {
@@ -294,19 +296,16 @@ fn promote_repaired_files(
         operation_pool.map_or(1, ThreadPool::current_num_threads),
         operation_pool,
     )?;
-    directories.sort_by_key(|directory| std::cmp::Reverse(directory.path.matches('/').count()));
+    directories.sort_by_key(|directory| Reverse(directory.path.matches('/').count()));
     for directory in directories {
-        let dest = crate::filesystem::paths::resolve_manifest_relative_path(
-            destination_dir,
-            &directory.path,
-        )?;
+        let dest = resolve_manifest_relative_path(destination_dir, &directory.path)?;
         let mut permissions = fs::metadata(&dest)?.permissions();
-        crate::filesystem::set_read_only(&mut permissions, directory.read_only);
+        set_read_only(&mut permissions, directory.read_only);
         fs::set_permissions(dest, permissions)?;
     }
     for path in reopened_ancestors {
         let mut permissions = fs::metadata(&path)?.permissions();
-        crate::filesystem::set_read_only(&mut permissions, true);
+        set_read_only(&mut permissions, true);
         fs::set_permissions(path, permissions)?;
     }
     Ok(())
@@ -327,7 +326,7 @@ fn reopen_read_only_directories(
         .filter(|entry| matches!(entry, SnapshotEntry::Directory(_)))
         .map(SnapshotEntry::path)
         .collect();
-    let mut directories = std::collections::BTreeSet::new();
+    let mut directories = BTreeSet::new();
     for entry in &repaired_manifest.entries {
         for (offset, _) in entry.path().match_indices('/') {
             directories.insert(&entry.path()[..offset]);
@@ -336,8 +335,7 @@ fn reopen_read_only_directories(
     directories.extend(repaired_directories.iter().copied());
     let mut reopened_ancestors = Vec::new();
     for directory in directories {
-        let path =
-            crate::filesystem::paths::resolve_manifest_relative_path(destination_dir, directory)?;
+        let path = resolve_manifest_relative_path(destination_dir, directory)?;
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };
@@ -345,7 +343,7 @@ fn reopen_read_only_directories(
             continue;
         }
         let mut permissions = metadata.permissions();
-        crate::filesystem::set_read_only(&mut permissions, false);
+        set_read_only(&mut permissions, false);
         fs::set_permissions(&path, permissions)?;
         if !repaired_directories.contains(directory) {
             reopened_ancestors.push(path);
@@ -357,13 +355,13 @@ fn reopen_read_only_directories(
 fn remove_existing_entry(path: &Path) -> Result<()> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
     };
     if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
-        crate::filesystem::remove_dir_all(path)
+        filesystem::remove_dir_all(path)
     } else {
-        crate::filesystem::remove_file(path)
+        filesystem::remove_file(path)
     }
 }
 
@@ -389,13 +387,12 @@ fn reconstruct_preserved_extra_files(
         if manifest_paths.contains(relative.as_str()) {
             continue;
         }
-        let dest =
-            crate::filesystem::paths::resolve_manifest_relative_path(destination_dir, &relative)?;
+        let dest = resolve_manifest_relative_path(destination_dir, &relative)?;
         if dest.exists() {
             continue;
         }
         if let Some(parent) = dest.parent() {
-            crate::filesystem::create_dir_all(parent)?;
+            filesystem::create_dir_all(parent)?;
         }
         fs::copy(entry.path(), &dest)?;
         reconstructed += 1;
@@ -413,13 +410,12 @@ fn remove_extra_files(
     let mut removed = 0usize;
 
     let mut paths = extra_files.iter().collect::<Vec<_>>();
-    paths.sort_by_key(|issue| std::cmp::Reverse(issue.path.matches('/').count()));
+    paths.sort_by_key(|issue| Reverse(issue.path.matches('/').count()));
     for issue in paths {
         if manifest_paths.contains(issue.path.as_str()) {
             continue;
         }
-        let path =
-            crate::filesystem::paths::resolve_manifest_relative_path(destination_dir, &issue.path)?;
+        let path = resolve_manifest_relative_path(destination_dir, &issue.path)?;
         if fs::symlink_metadata(&path).is_ok() {
             remove_existing_entry(&path)?;
             removed += 1;

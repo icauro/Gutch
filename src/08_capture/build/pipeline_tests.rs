@@ -1,4 +1,17 @@
 use super::*;
+use crate::artifact::bundle::encoded_metadata_size;
+use crate::artifact::format::MAX_RAW_BUNDLE_SIZE;
+use crate::artifact::profiles::BundleSizingProfile;
+use crate::artifact::profiles::CompressionKind;
+use crate::artifact::profiles::CompressionProfile;
+use crate::progress::OperationControl;
+use std::fs;
+use std::num::NonZeroU64;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 #[test]
 fn bundle_sizing_policy_uses_preferred_encoded_target() {
@@ -37,7 +50,7 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
         (
             chunk_b,
             ChunkPayload {
-                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                source: Arc::new(PathBuf::from("unused")),
                 offset: 0,
                 size: 1,
                 hash: file_a,
@@ -46,7 +59,7 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
         (
             chunk_a_next_segment,
             ChunkPayload {
-                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                source: Arc::new(PathBuf::from("unused")),
                 offset: 0,
                 size: 1,
                 hash: file_a,
@@ -55,7 +68,7 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
         (
             chunk_a_first,
             ChunkPayload {
-                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                source: Arc::new(PathBuf::from("unused")),
                 offset: 0,
                 size: 1,
                 hash: file_a,
@@ -64,7 +77,7 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
         (
             chunk_a_middle,
             ChunkPayload {
-                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                source: Arc::new(PathBuf::from("unused")),
                 offset: 0,
                 size: 1,
                 hash: file_a,
@@ -73,7 +86,7 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
         (
             chunk_a_late,
             ChunkPayload {
-                source: std::sync::Arc::new(std::path::PathBuf::from("unused")),
+                source: Arc::new(PathBuf::from("unused")),
                 offset: 0,
                 size: 1,
                 hash: file_a,
@@ -140,28 +153,28 @@ fn bundle_chunk_sort_groups_by_file_locality_segment_and_offset() {
 fn source_range_payload_rejects_changes_between_scan_and_encoding() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source");
-    std::fs::write(&source, b"before").unwrap();
+    fs::write(&source, b"before").unwrap();
     let payload = ChunkPayload {
-        source: std::sync::Arc::new(source.clone()),
+        source: Arc::new(source.clone()),
         offset: 0,
         size: 6,
         hash: ChunkHash::of(b"before"),
     };
     assert_eq!(payload.load_bytes().unwrap(), b"before");
-    std::fs::write(&source, b"after!").unwrap();
+    fs::write(&source, b"after!").unwrap();
     assert!(payload.load_bytes().is_err());
-    std::fs::write(&source, b"short").unwrap();
+    fs::write(&source, b"short").unwrap();
     assert!(payload.load_bytes().is_err());
 }
 
 #[test]
 fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
     let root = tempfile::tempdir().unwrap();
-    let source = std::sync::Arc::new(root.path().join("source"));
+    let source = Arc::new(root.path().join("source"));
     let bytes = [vec![b'a'; 32], vec![b'b'; 32]].concat();
-    std::fs::write(source.as_ref(), &bytes).unwrap();
+    fs::write(source.as_ref(), &bytes).unwrap();
     let staging = root.path().join("artifacts");
-    std::fs::create_dir(&staging).unwrap();
+    fs::create_dir(&staging).unwrap();
     let planned: Vec<_> = (0..2)
         .map(|index| {
             let hash = ChunkHash::of(&bytes[index * 32..(index + 1) * 32]);
@@ -176,11 +189,8 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
             )
         })
         .collect();
-    let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
-        crate::artifact::profiles::CompressionKind::None,
-        None,
-    );
-    let control = crate::progress::OperationControl::default();
+    let profile = CompressionProfile::for_algorithm(CompressionKind::None, None);
+    let control = OperationControl::default();
     let exact =
         build_bounded_bundle_groups(planned.clone(), 216, &profile, &staging, &control).unwrap();
     assert_eq!(exact.len(), 1);
@@ -206,7 +216,7 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
         planned.clone(),
         &placements,
         &profile,
-        &crate::artifact::profiles::BundleSizingProfile::default(),
+        &BundleSizingProfile::default(),
         BundleSizingPolicy::new(215, 64),
         &pool,
         &control,
@@ -227,7 +237,7 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
         build_bounded_bundle_groups(vec![planned[0].clone()], 147, &profile, &staging, &control)
             .is_err()
     );
-    assert_eq!(std::fs::read_dir(staging).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(staging).unwrap().count(), 0);
 }
 
 #[test]
@@ -238,7 +248,7 @@ fn optimistic_probe_cannot_exceed_raw_bundle_cap() {
             0.00001,
             BundleSizingPolicy::new(256 * 1024 * 1024, 128 * 1024 * 1024)
         ),
-        crate::artifact::format::MAX_RAW_BUNDLE_SIZE
+        MAX_RAW_BUNDLE_SIZE
     );
 }
 
@@ -248,7 +258,7 @@ fn memory_admission_keeps_capture_results_in_input_order() {
         .num_threads(4)
         .build()
         .unwrap();
-    let control = crate::progress::OperationControl::default();
+    let control = OperationControl::default();
     let result = super::run_parallel_chunk_work(
         (0..32).collect(),
         &pool,
@@ -270,10 +280,10 @@ fn payload_reader_seeks_switches_sources_and_detects_mutation() {
     let temp = tempfile::tempdir().unwrap();
     let first = temp.path().join("first");
     let second = temp.path().join("second");
-    std::fs::write(&first, b"abcdef").unwrap();
-    std::fs::write(&second, b"uvwxyz").unwrap();
-    let chunk = |path: &std::path::Path, offset, bytes: &[u8]| ChunkPayload {
-        source: std::sync::Arc::new(path.to_path_buf()),
+    fs::write(&first, b"abcdef").unwrap();
+    fs::write(&second, b"uvwxyz").unwrap();
+    let chunk = |path: &Path, offset, bytes: &[u8]| ChunkPayload {
+        source: Arc::new(path.to_path_buf()),
         offset,
         size: bytes.len() as u64,
         hash: ChunkHash::of(bytes),
@@ -289,17 +299,17 @@ fn payload_reader_seeks_switches_sources_and_detects_mutation() {
         assert_eq!(
             blake3::hash(&reader.load(&payload).unwrap()),
             blake3::hash(
-                &std::fs::read(payload.source.as_ref()).unwrap()
+                &fs::read(payload.source.as_ref()).unwrap()
                     [payload.offset as usize..(payload.offset + payload.size) as usize]
             )
         );
     }
     let expected = chunk(&first, 0, b"abc");
-    std::fs::write(&first, b"ABCdef").unwrap();
+    fs::write(&first, b"ABCdef").unwrap();
     assert!(reader.load(&expected).is_err());
-    std::fs::write(&first, b"a").unwrap();
+    fs::write(&first, b"a").unwrap();
     assert!(reader.load(&expected).is_err());
-    std::fs::write(&first, b"abcdef").unwrap();
+    fs::write(&first, b"abcdef").unwrap();
     assert_eq!(reader.load(&expected).unwrap(), b"abc");
 }
 
@@ -314,7 +324,7 @@ fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
             (
                 hash,
                 ChunkPayload {
-                    source: std::sync::Arc::new(temp.path().join("missing")),
+                    source: Arc::new(temp.path().join("missing")),
                     offset: 0,
                     size: bytes.len() as u64,
                     hash,
@@ -322,15 +332,12 @@ fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
             )
         })
         .collect();
-    let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(
-        crate::artifact::profiles::CompressionKind::None,
-        None,
-    );
+    let profile = CompressionProfile::for_algorithm(CompressionKind::None, None);
     for (target, selected) in [(0, 1), (2, 1), (3, 2), (6, 2), (7, 3), (99, 3)] {
         let selected_segments = &segments[..selected];
         let raw: usize = selected_segments.iter().map(|s| s.len()).sum();
         let encoded = compress::compressed_size(selected_segments, &profile).unwrap()
-            + crate::artifact::bundle::encoded_metadata_size(selected as u64);
+            + encoded_metadata_size(selected as u64);
         let (ratio, read_bytes) =
             estimate_bundle_compression_ratio_from_probe(&chunks, &profile, target).unwrap();
         assert_eq!(ratio, encoded as f64 / raw as f64);
@@ -352,15 +359,15 @@ fn capture_result_slots_join_workers_before_returning_an_error() {
         .num_threads(4)
         .build()
         .unwrap();
-    let completed = std::sync::atomic::AtomicUsize::new(0);
+    let completed = AtomicUsize::new(0);
     let result = super::run_parallel_chunk_work(
         (0..32).collect(),
         &pool,
-        &crate::progress::OperationControl::default(),
+        &OperationControl::default(),
         4,
         |_| 1,
         |index, _| {
-            completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            completed.fetch_add(1, Ordering::Relaxed);
             if index == 3 {
                 Err(crate::Error::manifest("worker failed"))
             } else {
@@ -369,7 +376,7 @@ fn capture_result_slots_join_workers_before_returning_an_error() {
         },
     );
     assert!(result.is_err());
-    assert_eq!(completed.load(std::sync::atomic::Ordering::Relaxed), 32);
+    assert_eq!(completed.load(Ordering::Relaxed), 32);
 }
 
 #[test]
@@ -390,7 +397,7 @@ fn single_raw_group_skips_probe_but_keeps_placement_and_source_checks() {
         (
             hash,
             ChunkPayload {
-                source: std::sync::Arc::new(directory.path().join("missing")),
+                source: Arc::new(directory.path().join("missing")),
                 offset: 0,
                 size: 32,
                 hash,
@@ -412,7 +419,7 @@ fn single_raw_group_skips_probe_but_keeps_placement_and_source_checks() {
         })
         .collect::<HashMap<_, _>>();
     let bundle_profile = BundleSizingProfile::default();
-    let control = crate::progress::OperationControl::default();
+    let control = OperationControl::default();
     for codec in [
         CompressionKind::None,
         CompressionKind::Zstd,
@@ -503,12 +510,12 @@ fn single_raw_group_skips_probe_but_keeps_placement_and_source_checks() {
 fn source_change_after_single_group_planning_fails_encoding() {
     let directory = tempfile::tempdir().unwrap();
     let source = directory.path().join("source");
-    std::fs::write(&source, b"before").unwrap();
+    fs::write(&source, b"before").unwrap();
     let hash = ChunkHash::of(b"before");
     let chunks = vec![(
         hash,
         ChunkPayload {
-            source: std::sync::Arc::new(source.clone()),
+            source: Arc::new(source.clone()),
             offset: 0,
             size: 6,
             hash,
@@ -525,19 +532,19 @@ fn source_change_after_single_group_planning_fails_encoding() {
         .num_threads(1)
         .build()
         .unwrap();
-    let profile = crate::artifact::profiles::CompressionProfile::default();
-    let control = crate::progress::OperationControl::default();
+    let profile = CompressionProfile::default();
+    let control = OperationControl::default();
     let plan = plan_bundle_compressed_groups(
         chunks,
         &placements,
         &profile,
-        &crate::artifact::profiles::BundleSizingProfile::default(),
+        &BundleSizingProfile::default(),
         BundleSizingPolicy::default(),
         &pool,
         &control,
     )
     .unwrap();
-    std::fs::write(source, b"after!").unwrap();
+    fs::write(source, b"after!").unwrap();
     assert!(
         build_bundle_compressed_group(
             plan.groups.into_iter().next().unwrap(),
@@ -552,14 +559,14 @@ fn source_change_after_single_group_planning_fails_encoding() {
 #[test]
 fn streaming_bundle_admission_does_not_require_all_raw_chunks_at_once() {
     let source = tempfile::tempdir().unwrap();
-    std::fs::write(source.path().join("first"), b"first").unwrap();
-    std::fs::write(source.path().join("second"), b"second").unwrap();
+    fs::write(source.path().join("first"), b"first").unwrap();
+    fs::write(source.path().join("second"), b"second").unwrap();
     let tags = SnapshotTagSet::default();
     let mut config = BuildConfig::for_snapshot(&tags);
     config.runtime_hints.jobs = Some(1);
     // Fits the six-byte largest chunk, but cannot admit the eleven-byte group.
     config.runtime_hints.memory_budget_bytes =
-        std::num::NonZeroU64::new(compress::ENCODE_WORKING_MEMORY_BYTES + 6);
+        NonZeroU64::new(compress::ENCODE_WORKING_MEMORY_BYTES + 6);
     let (result, _) = build_with_config_timed(source.path(), &config).unwrap();
     assert_eq!(result.snapshot_manifest.file_count(), 2);
     assert_eq!(result.bundles.len(), 1);
@@ -573,8 +580,8 @@ fn probe_readers_preserve_sample_order_across_hits_seeks_and_evictions() {
     for index in 0..12u8 {
         let head = vec![index; 64];
         let tail = vec![index + 32; 96];
-        let path = std::sync::Arc::new(directory.path().join(format!("{index}.bin")));
-        std::fs::write(path.as_ref(), [&head[..], &tail[..]].concat()).unwrap();
+        let path = Arc::new(directory.path().join(format!("{index}.bin")));
+        fs::write(path.as_ref(), [&head[..], &tail[..]].concat()).unwrap();
         for (offset, bytes) in [(0, head), (64, tail)] {
             let hash = ChunkHash::of(&bytes);
             chunks.push((
@@ -595,11 +602,11 @@ fn probe_readers_preserve_sample_order_across_hits_seeks_and_evictions() {
         .map(|bytes| bytes.len() as u64)
         .sum();
     for codec in [
-        crate::artifact::profiles::CompressionKind::None,
-        crate::artifact::profiles::CompressionKind::Zstd,
-        crate::artifact::profiles::CompressionKind::Lz4,
+        CompressionKind::None,
+        CompressionKind::Zstd,
+        CompressionKind::Lz4,
     ] {
-        let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(codec, None);
+        let profile = CompressionProfile::for_algorithm(codec, None);
         for target in [0, 1, 512, total_bytes, total_bytes + 1] {
             let mut selected = Vec::new();
             let mut raw_size = 0;
@@ -612,13 +619,13 @@ fn probe_readers_preserve_sample_order_across_hits_seeks_and_evictions() {
                 }
             }
             let expected_size = compress::compressed_size(&selected, &profile).unwrap()
-                + crate::artifact::bundle::encoded_metadata_size(selected.len() as u64);
+                + encoded_metadata_size(selected.len() as u64);
             let (ratio, read_bytes) =
                 estimate_bundle_compression_ratio_from_probe(&chunks, &profile, target).unwrap();
             assert_eq!(ratio, expected_size as f64 / raw_size as f64);
             assert_eq!(
                 read_bytes,
-                if codec == crate::artifact::profiles::CompressionKind::None {
+                if codec == CompressionKind::None {
                     0
                 } else {
                     raw_size
@@ -631,8 +638,8 @@ fn probe_readers_preserve_sample_order_across_hits_seeks_and_evictions() {
 #[test]
 fn probe_reader_cache_hits_still_verify_source_hashes() {
     let directory = tempfile::tempdir().unwrap();
-    let path = std::sync::Arc::new(directory.path().join("source"));
-    std::fs::write(path.as_ref(), b"abcDEF").unwrap();
+    let path = Arc::new(directory.path().join("source"));
+    fs::write(path.as_ref(), b"abcDEF").unwrap();
     let first_hash = ChunkHash::of(b"abc");
     let wrong_hash = ChunkHash::of(b"bad");
     let chunks = vec![
@@ -655,11 +662,8 @@ fn probe_reader_cache_hits_still_verify_source_hashes() {
             },
         ),
     ];
-    for codec in [
-        crate::artifact::profiles::CompressionKind::Zstd,
-        crate::artifact::profiles::CompressionKind::Lz4,
-    ] {
-        let profile = crate::artifact::profiles::CompressionProfile::for_algorithm(codec, None);
+    for codec in [CompressionKind::Zstd, CompressionKind::Lz4] {
+        let profile = CompressionProfile::for_algorithm(codec, None);
         let error = estimate_bundle_compression_ratio_from_probe(&chunks, &profile, 6).unwrap_err();
         assert!(error.to_string().contains("source changed during capture"));
     }

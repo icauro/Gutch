@@ -8,6 +8,15 @@ use std::path::PathBuf;
 
 use crate::Error;
 use crate::Result;
+use crate::filesystem;
+use crate::filesystem::write_atomic_with;
+use crate::progress::OperationControl;
+use crate::repo::paths::validate_path_component;
+use std::fs;
+use std::fs::TryLockError;
+use std::io;
+use std::thread;
+use std::time::Duration;
 
 thread_local! {
     static HELD_REPOSITORY_LOCKS: RefCell<HashMap<PathBuf, bool>> = RefCell::new(HashMap::new());
@@ -33,32 +42,22 @@ impl Drop for RepositoryLockGuard {
 }
 
 pub(crate) fn read<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
-    with_repository_transaction(
-        root,
-        false,
-        &crate::progress::OperationControl::default(),
-        work,
-    )
+    with_repository_transaction(root, false, &OperationControl::default(), work)
 }
 pub(crate) fn write<T>(root: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
-    with_repository_transaction(
-        root,
-        true,
-        &crate::progress::OperationControl::default(),
-        work,
-    )
+    with_repository_transaction(root, true, &OperationControl::default(), work)
 }
 
 pub(crate) fn read_with_control<T>(
     root: &Path,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     with_repository_transaction(root, false, control, work)
 }
 pub(crate) fn write_with_control<T>(
     root: &Path,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     with_repository_transaction(root, true, control, work)
@@ -67,10 +66,10 @@ pub(crate) fn write_with_control<T>(
 fn with_repository_transaction<T>(
     root: &Path,
     write: bool,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
-    let root = std::fs::canonicalize(root)?;
+    let root = fs::canonicalize(root)?;
     if let Some(exclusive) = HELD_REPOSITORY_LOCKS.with(|held| held.borrow().get(&root).copied()) {
         if write && !exclusive {
             return Err(Error::manifest("repository lock upgrade is not allowed"));
@@ -78,7 +77,7 @@ fn with_repository_transaction<T>(
         return work();
     }
     for owned in [".gutch-lock", ".gutch-transactions"] {
-        if std::fs::symlink_metadata(root.join(owned))
+        if fs::symlink_metadata(root.join(owned))
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
         {
             return Err(Error::manifest(
@@ -106,10 +105,8 @@ fn with_repository_transaction<T>(
         };
         match result {
             Ok(()) => break,
-            Err(std::fs::TryLockError::WouldBlock) => {
-                std::thread::sleep(std::time::Duration::from_millis(25))
-            }
-            Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+            Err(TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(25)),
+            Err(TryLockError::Error(error)) => return Err(error.into()),
         }
     }
     HELD_REPOSITORY_LOCKS.with(|held| {
@@ -128,16 +125,16 @@ fn with_repository_transaction<T>(
             ));
         }
         restore_committed(&root, &journal)?;
-        std::fs::remove_file(&pending)?;
+        fs::remove_file(&pending)?;
     }
     if !write {
         return work();
     }
-    std::fs::create_dir_all(&journal)?;
+    fs::create_dir_all(&journal)?;
     // Save a complete generation before any mutation, including repositories
     // whose metadata was created by initialization or explicit fixture setup.
     publish_generation(&root, &journal)?;
-    crate::filesystem::write(&pending, b"1")?;
+    filesystem::write(&pending, b"1")?;
     DEFERRED_ARTIFACT_DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
     match work().and_then(|value| {
         control.checkpoint()?;
@@ -151,41 +148,41 @@ fn with_repository_transaction<T>(
     }) {
         Ok(value) => {
             publish_generation(&root, &journal)?;
-            std::fs::remove_file(&pending)?;
+            fs::remove_file(&pending)?;
             let paths = DEFERRED_ARTIFACT_DELETIONS
                 .with(|paths| paths.borrow_mut().remove(&root).unwrap_or_default());
             for path in paths {
                 // Metadata is committed. Locked obsolete artifacts remain
                 // orphans for a later cleanup; they cannot undo this mutation.
-                let _ = std::fs::remove_file(path);
+                let _ = fs::remove_file(path);
             }
             Ok(value)
         }
         Err(error) => {
             DEFERRED_ARTIFACT_DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
             restore_committed(&root, &journal)?;
-            std::fs::remove_file(&pending)?;
+            fs::remove_file(&pending)?;
             Err(error)
         }
     }
 }
 
 fn copy_entry(source: &Path, target: &Path) -> Result<()> {
-    let metadata = std::fs::symlink_metadata(source)?;
+    let metadata = fs::symlink_metadata(source)?;
     if metadata.file_type().is_symlink() {
         return Err(Error::manifest(
             "repository metadata must not contain symbolic links",
         ));
     }
     if metadata.is_dir() {
-        std::fs::create_dir_all(target)?;
-        for entry in std::fs::read_dir(source)? {
+        fs::create_dir_all(target)?;
+        for entry in fs::read_dir(source)? {
             let entry = entry?;
             copy_entry(&entry.path(), &target.join(entry.file_name()))?;
         }
     } else if metadata.is_file() {
-        crate::filesystem::write_atomic_with(target, |output| {
-            std::io::copy(&mut File::open(source)?, output)?;
+        write_atomic_with(target, |output| {
+            io::copy(&mut File::open(source)?, output)?;
             Ok(())
         })?;
     } else {
@@ -195,8 +192,8 @@ fn copy_entry(source: &Path, target: &Path) -> Result<()> {
 }
 
 fn committed_directory(journal: &Path) -> Result<PathBuf> {
-    let name = std::fs::read_to_string(journal.join("committed"))?;
-    crate::repo::paths::validate_path_component(&name, "metadata generation")?;
+    let name = fs::read_to_string(journal.join("committed"))?;
+    validate_path_component(&name, "metadata generation")?;
     if !name.starts_with("generation-") {
         return Err(Error::manifest("invalid metadata generation"));
     }
@@ -225,11 +222,11 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::manifest("invalid generated directory name"))?;
-    crate::filesystem::write(&journal.join("committed"), name.as_bytes())?;
+    filesystem::write(&journal.join("committed"), name.as_bytes())?;
     let committed_generation = generation.keep();
     // The pointer is committed. Retry obsolete generations left by interrupted
     // or blocked cleanup, without making publication depend on their removal.
-    if let Ok(entries) = std::fs::read_dir(journal) {
+    if let Ok(entries) = fs::read_dir(journal) {
         for entry in entries.flatten() {
             if entry.path() != committed_generation
                 && entry
@@ -238,7 +235,7 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
                     .starts_with("generation-")
                 && entry.file_type().is_ok_and(|kind| kind.is_dir())
             {
-                let _ = std::fs::remove_dir_all(entry.path());
+                let _ = fs::remove_dir_all(entry.path());
             }
         }
     }
@@ -250,14 +247,14 @@ fn restore_committed(root: &Path, journal: &Path) -> Result<()> {
     for name in REPOSITORY_METADATA_ENTRIES {
         let target = root.join(name);
         if target.exists() {
-            let metadata = std::fs::symlink_metadata(&target)?;
+            let metadata = fs::symlink_metadata(&target)?;
             if metadata.file_type().is_symlink() {
                 return Err(Error::manifest("unsafe metadata recovery target"));
             }
             if metadata.is_dir() {
-                std::fs::remove_dir_all(&target)?;
+                fs::remove_dir_all(&target)?;
             } else {
-                std::fs::remove_file(&target)?;
+                fs::remove_file(&target)?;
             }
         }
         let source = generation.join(name);
@@ -269,7 +266,7 @@ fn restore_committed(root: &Path, journal: &Path) -> Result<()> {
 }
 
 pub(crate) fn defer_artifact_deletion(path: &Path) -> Result<bool> {
-    let path = std::fs::canonicalize(path)?;
+    let path = fs::canonicalize(path)?;
     let owner = HELD_REPOSITORY_LOCKS.with(|held| {
         held.borrow()
             .iter()

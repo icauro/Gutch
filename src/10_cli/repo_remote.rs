@@ -4,13 +4,31 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::Error;
+use crate::cli::Profile;
+use crate::cli::control_with_profile;
+use crate::cli::output;
+use crate::cli::output::dry_run;
+use crate::cli::prompt_yes_no;
 use crate::cli::reporting::ensure_parent_directory;
+use crate::filesystem;
 use crate::progress::ProgressEvent;
 use crate::progress::ProgressSink;
+use crate::repo::read::load_gutch_repo_manifest;
 use crate::sync::remote::PullConflictPolicy;
 use crate::sync::remote::RemoteRepositoryCommandProvider;
 use crate::sync::remote::RemoteRepositorySummary;
 use crate::sync::remote::RemoteTagReferencesResult;
+use crate::sync::remote::RepoPullPlan;
+use crate::sync::remote::RepoPushPlan;
+use crate::sync::remote::bind_remote_repo;
+use crate::sync::remote::create_remote_repo;
+use crate::sync::remote::inspect_repo_tag_references;
+use crate::sync::remote::list_remote_repositories;
+use crate::sync::remote::plan_pull_with_provider;
+use crate::sync::remote::plan_push_with_provider;
+use crate::sync::remote::pull_repo;
+use crate::sync::remote::push_repo;
+use crate::sync::remote::unbind_remote_repo;
 
 #[derive(Debug)]
 struct CliProgressSink;
@@ -33,45 +51,45 @@ pub(crate) fn push(
     repo: PathBuf,
     yes: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-    profile: &crate::cli::Profile,
+    profile: &Profile,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let repository_provider = provider.repository_provider();
-    let plan = crate::sync::remote::plan_push_with_provider(&repo, repository_provider)?;
+    let plan = plan_push_with_provider(&repo, repository_provider)?;
     print_push_plan(&plan);
-    crate::cli::output::record(&plan)?;
-    if crate::cli::output::dry_run() {
+    output::record(&plan)?;
+    if dry_run() {
         return Ok(());
     }
-    if !yes && !crate::cli::prompt_yes_no("Proceed?", true)? {
-        crate::cli::output::line(format_args!("push cancelled"));
+    if !yes && !prompt_yes_no("Proceed?", true)? {
+        output::line(format_args!("push cancelled"));
         return Ok(());
     }
 
     provider.prepare_repository_push(&repo)?;
     let progress = Arc::new(CliProgressSink);
-    let stats = crate::sync::remote::push_repo(
+    let stats = push_repo(
         repo,
         repository_provider,
-        crate::cli::control_with_profile(profile).with_progress(progress),
+        control_with_profile(profile).with_progress(progress),
     )?;
-    crate::cli::output::record(&stats)?;
-    crate::cli::output::line(format_args!(
+    output::record(&stats)?;
+    output::line(format_args!(
         "pushed repo {} to remote repo {}",
         stats.repo_root, stats.remote_repo_id
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "snapshots added: {}, removed: {}, updated: {}, unchanged: {}",
         stats.snapshot_added_count,
         stats.snapshot_removed_count,
         stats.snapshot_updated_count,
         stats.snapshot_unchanged_count
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "repository metadata uploaded: {}, chunk index uploaded: {}",
         stats.repo_manifest_uploaded, stats.chunk_index_uploaded
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "snapshot metadata uploaded: {}, bundles uploaded: {}, bundles skipped: {}",
         stats.snapshot_manifest_uploaded_count,
         stats.bundle_uploaded_count,
@@ -87,44 +105,39 @@ pub(crate) fn pull(
     prune: bool,
     yes: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-    profile: &crate::cli::Profile,
+    profile: &Profile,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
     let policy = PullConflictPolicy::parse(&on_conflict)?;
     let repository_provider = provider.repository_provider();
-    let plan = crate::sync::remote::plan_pull_with_provider(
-        &repo,
-        repository_provider,
-        remote.as_deref(),
-        policy,
-    )?;
+    let plan = plan_pull_with_provider(&repo, repository_provider, remote.as_deref(), policy)?;
     print_pull_plan(&plan);
-    crate::cli::output::record(&plan)?;
-    if crate::cli::output::dry_run() {
+    output::record(&plan)?;
+    if dry_run() {
         return Ok(());
     }
-    if !yes && !crate::cli::prompt_yes_no("Proceed?", true)? {
-        crate::cli::output::line(format_args!("pull cancelled"));
+    if !yes && !prompt_yes_no("Proceed?", true)? {
+        output::line(format_args!("pull cancelled"));
         return Ok(());
     }
 
     let progress = Arc::new(CliProgressSink);
-    let stats = crate::sync::remote::pull_repo(
+    let stats = pull_repo(
         repo,
         repository_provider,
         remote,
         policy,
         prune,
-        crate::cli::control_with_profile(profile).with_progress(progress),
+        control_with_profile(profile).with_progress(progress),
     )?;
-    crate::cli::output::record(&stats)?;
-    crate::cli::output::line(format_args!(
+    output::record(&stats)?;
+    output::line(format_args!(
         "pulled repo {} from remote repo {} ({})",
         stats.repo_root,
         stats.remote_repo_id,
         if prune { "with prune" } else { "no prune" }
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "snapshots downloaded: {}, skipped: {}, bundles downloaded: {}, bundles skipped: {}",
         stats.snapshot_downloaded_count,
         stats.snapshot_skipped_count,
@@ -138,17 +151,17 @@ pub(crate) fn list(
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
-    let entries = crate::sync::remote::list_remote_repositories(provider)?;
-    crate::cli::output::record(&entries)?;
+    let entries = list_remote_repositories(provider)?;
+    output::record(&entries)?;
     for entry in &entries {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "{}/{}",
             scope_label(entry),
             entry.repository_name
         ));
     }
     if entries.is_empty() {
-        crate::cli::output::line(format_args!("no remote repos found"));
+        output::line(format_args!("no remote repos found"));
     }
     Ok(())
 }
@@ -159,10 +172,10 @@ pub(crate) fn create(
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
-    crate::sync::remote::create_remote_repo(&repo, &scope_id, provider)?;
-    let (_, manifest) = crate::repo::read::load_gutch_repo_manifest(&repo)?;
+    create_remote_repo(&repo, &scope_id, provider)?;
+    let (_, manifest) = load_gutch_repo_manifest(&repo)?;
     provider.configure_repository_binding(&repo, &manifest.remote_repo_id)?;
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "bound repo '{}' to remote repo {} (scope {})",
         repo.display(),
         manifest.remote_repo_id,
@@ -179,8 +192,8 @@ pub(crate) fn bind(
     if let Some(provider) = provider {
         provider.configure_repository_binding(&repo, &remote_repo_id)?;
     }
-    crate::sync::remote::bind_remote_repo(&repo, &remote_repo_id)?;
-    crate::cli::output::line(format_args!(
+    bind_remote_repo(&repo, &remote_repo_id)?;
+    output::line(format_args!(
         "bound repo '{}' to remote repo {}",
         repo.display(),
         remote_repo_id.trim()
@@ -193,9 +206,9 @@ pub(crate) fn unbind(
     delete_remote: bool,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()> {
-    let (paths, manifest) = crate::repo::read::load_gutch_repo_manifest(&repo)?;
+    let (paths, manifest) = load_gutch_repo_manifest(&repo)?;
     if !manifest.is_linked() {
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "repo '{}' is not bound, nothing to do.",
             paths.repo_root().display()
         ));
@@ -208,11 +221,11 @@ pub(crate) fn unbind(
     } else {
         None
     };
-    crate::sync::remote::unbind_remote_repo(&repo, delete_remote, provider)?;
+    unbind_remote_repo(&repo, delete_remote, provider)?;
     if delete_remote {
-        crate::cli::output::line(format_args!("deleted remote repo {remote_repo_id}"));
+        output::line(format_args!("deleted remote repo {remote_repo_id}"));
     }
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "unbound repo '{}'",
         paths.repo_root().display()
     ));
@@ -225,27 +238,26 @@ pub(crate) fn tag_references(
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
 ) -> crate::Result<()> {
     let provider = require_provider(remote_provider)?;
-    let result: RemoteTagReferencesResult =
-        crate::sync::remote::inspect_repo_tag_references(&repo, provider)?;
+    let result: RemoteTagReferencesResult = inspect_repo_tag_references(&repo, provider)?;
     if let Some(json_out) = json_out.as_ref() {
         ensure_parent_directory(json_out)?;
-        crate::filesystem::write(json_out, serde_json::to_vec_pretty(&result)?)?;
+        filesystem::write(json_out, serde_json::to_vec_pretty(&result)?)?;
     }
 
-    crate::cli::output::line(format_args!("repo: {}", result.repo_root));
-    crate::cli::output::line(format_args!("remote_repo_id: {}", result.remote_repo_id));
+    output::line(format_args!("repo: {}", result.repo_root));
+    output::line(format_args!("remote_repo_id: {}", result.remote_repo_id));
     for tag in &result.referenced_tags {
         let values = if tag.referenced_values.is_empty() {
             "any non-empty value".to_string()
         } else {
             tag.referenced_values.join(", ")
         };
-        crate::cli::output::line(format_args!(
+        output::line(format_args!(
             "{} | {} | {} | {}",
             tag.status, tag.tag_name, tag.tag_kind, values
         ));
     }
-    crate::cli::output::line(format_args!("advisory_only: true"));
+    output::line(format_args!("advisory_only: true"));
     Ok(())
 }
 
@@ -269,14 +281,14 @@ fn scope_label(entry: &RemoteRepositorySummary) -> &str {
     }
 }
 
-fn print_push_plan(plan: &crate::sync::remote::RepoPushPlan) {
-    crate::cli::output::line(format_args!("Push plan"));
-    crate::cli::output::line(format_args!("repo: {}", plan.repo_root));
-    crate::cli::output::line(format_args!(
+fn print_push_plan(plan: &RepoPushPlan) {
+    output::line(format_args!("Push plan"));
+    output::line(format_args!("repo: {}", plan.repo_root));
+    output::line(format_args!(
         "snapshots: local={} remote={}",
         plan.snapshot_count, plan.remote_snapshot_count
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "changes: add={} remove={} update={} unchanged={}",
         plan.to_add.len(),
         plan.to_remove.len(),
@@ -285,14 +297,14 @@ fn print_push_plan(plan: &crate::sync::remote::RepoPushPlan) {
     ));
 }
 
-fn print_pull_plan(plan: &crate::sync::remote::RepoPullPlan) {
-    crate::cli::output::line(format_args!("Pull plan"));
-    crate::cli::output::line(format_args!("repo: {}", plan.repo_root));
-    crate::cli::output::line(format_args!(
+fn print_pull_plan(plan: &RepoPullPlan) {
+    output::line(format_args!("Pull plan"));
+    output::line(format_args!("repo: {}", plan.repo_root));
+    output::line(format_args!(
         "remote: repo {} ({})",
         plan.remote_repo_id, plan.remote_repo_name
     ));
-    crate::cli::output::line(format_args!(
+    output::line(format_args!(
         "changes: repo_metadata={} chunk_index={} snapshots_download={} snapshots_skip={} local_only={} kept_newer_local={}",
         plan.repo_manifest_needed,
         plan.chunk_map_needed,

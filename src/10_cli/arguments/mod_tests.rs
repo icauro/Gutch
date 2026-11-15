@@ -6,6 +6,8 @@ use super::RepoCommands;
 use super::RepoTagsCommands;
 use super::TransferPolicyArg;
 use clap::Parser;
+use std::env::current_dir;
+use std::iter;
 
 #[test]
 fn parses_provider_neutral_remote_commands() {
@@ -234,7 +236,7 @@ fn rejects_retired_operation_names() {
         vec!["repo", "rebuild-index"],
         vec!["path", "compare"],
     ] {
-        let error = Cli::try_parse_from(std::iter::once("gutch").chain(command))
+        let error = Cli::try_parse_from(iter::once("gutch").chain(command))
             .err()
             .expect("retired command names have no aliases");
         assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
@@ -332,7 +334,7 @@ fn cli_resolves_relative_filesystem_paths() {
     else {
         panic!("expected status");
     };
-    assert_eq!(repo, std::env::current_dir().unwrap().join("relative/repo"));
+    assert_eq!(repo, current_dir().unwrap().join("relative/repo"));
 }
 
 #[test]
@@ -377,6 +379,6 @@ fn cli_resolves_absolute_and_relative_profile_output() {
     .unwrap();
     assert_eq!(
         cli.profile_out.unwrap(),
-        std::env::current_dir().unwrap().join("relative.trace.json")
+        current_dir().unwrap().join("relative.trace.json")
     );
 }

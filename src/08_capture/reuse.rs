@@ -1,28 +1,39 @@
 //! Reuse state from the repository: known chunks and previous file manifests.
 
 use crate::Result;
+use crate::artifact::format::size_u32;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
+use crate::capture::build::types::BuiltBundle;
+use crate::capture::build::types::BuiltLooseChunk;
 use crate::manifest::FileManifest;
+use crate::manifest::SnapshotEntry;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
+use crate::repo::index::ChunkIndex;
+use crate::repo::index::ChunkIndexEntry;
 use crate::repo::index::{
     collect_file_paths, empty_chunk_index, load_chunk_index,
     rebuild_chunk_index_from_bundles_with_pool,
 };
+use crate::repo::inventory::list_repo_snapshot_ids;
+use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::{RepoPaths, bundle_id_from_bundle_path, chunk_path};
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct CaptureReuseState {
     pub bundle_ids: HashSet<String>,
-    pub chunk_index: crate::repo::index::ChunkIndex,
+    pub chunk_index: ChunkIndex,
     /// Encoded byte estimates for chunks with usable local artifacts.
     /// Artifact locations remain authoritative in chunk_index.
-    pub available_chunk_sizes: std::collections::HashMap<ChunkHash, u64>,
-    pub previous_file_manifests: std::collections::HashMap<String, Vec<FileManifest>>,
+    pub available_chunk_sizes: HashMap<ChunkHash, u64>,
+    pub previous_file_manifests: HashMap<String, Vec<FileManifest>>,
 }
 
 impl Default for CaptureReuseState {
@@ -30,8 +41,8 @@ impl Default for CaptureReuseState {
         Self {
             bundle_ids: HashSet::new(),
             chunk_index: empty_chunk_index(),
-            available_chunk_sizes: std::collections::HashMap::new(),
-            previous_file_manifests: std::collections::HashMap::new(),
+            available_chunk_sizes: HashMap::new(),
+            previous_file_manifests: HashMap::new(),
         }
     }
 }
@@ -44,11 +55,11 @@ impl Default for CaptureReuseState {
 pub fn load_capture_reuse_state(
     paths: &RepoPaths,
     pool: &rayon::ThreadPool,
-    control: &crate::progress::OperationControl,
+    control: &OperationControl,
 ) -> Result<CaptureReuseState> {
     let mut state = CaptureReuseState::default();
     let chunk_index = load_chunk_index(paths)?;
-    let (_, repo_manifest) = crate::repo::paths::load_gutch_repo_manifest(&paths.repo_root)?;
+    let (_, repo_manifest) = load_gutch_repo_manifest(&paths.repo_root)?;
     let compression_profile = repo_manifest.compression_profile();
 
     let _bundle_ids_span =
@@ -105,11 +116,9 @@ pub fn load_capture_reuse_state(
 }
 
 fn collect_snapshot_manifest_paths(paths: &RepoPaths) -> Result<Vec<PathBuf>> {
-    crate::repo::inventory::list_repo_snapshot_ids(paths)?
+    list_repo_snapshot_ids(paths)?
         .into_iter()
-        .map(|snapshot_id| {
-            crate::repo::snapshot_manifests::snapshot_metadata_path(paths, &snapshot_id)
-        })
+        .map(|snapshot_id| snapshot_metadata_path(paths, &snapshot_id))
         .collect()
 }
 
@@ -120,11 +129,11 @@ fn snapshot_id_from_manifest_path(path: &Path) -> Option<&str> {
 }
 
 fn add_previous_file_manifests(
-    previous_file_manifests: &mut std::collections::HashMap<String, Vec<FileManifest>>,
+    previous_file_manifests: &mut HashMap<String, Vec<FileManifest>>,
     manifest: SnapshotManifest,
 ) {
     for entry in manifest.entries {
-        let crate::manifest::SnapshotEntry::File(file) = entry else {
+        let SnapshotEntry::File(file) = entry else {
             continue;
         };
         let candidates = previous_file_manifests
@@ -139,13 +148,13 @@ fn add_previous_file_manifests(
 }
 
 pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
-    chunk_index: &crate::repo::index::ChunkIndex,
+    chunk_index: &ChunkIndex,
     paths: &RepoPaths,
     pool: &rayon::ThreadPool,
     available_bundle_ids: &HashSet<String>,
-) -> Result<std::collections::HashMap<ChunkHash, u64>> {
+) -> Result<HashMap<ChunkHash, u64>> {
     // Attribute encoded bytes across every indexed chunk, not just the current source's chunks.
-    let mut raw_bytes_by_bundle = std::collections::HashMap::new();
+    let mut raw_bytes_by_bundle = HashMap::new();
     for (_, entry) in &chunk_index.entries {
         if entry.storage_mode == ArtifactStorageMode::Bundled {
             *raw_bytes_by_bundle
@@ -184,8 +193,8 @@ pub(crate) fn available_chunk_sizes_from_index_with_pool_and_bundle_ids(
 }
 
 pub(crate) fn add_built_bundles_to_chunk_index(
-    chunk_index: &mut crate::repo::index::ChunkIndex,
-    bundles: &[crate::capture::build::types::BuiltBundle],
+    chunk_index: &mut ChunkIndex,
+    bundles: &[BuiltBundle],
 ) -> Result<()> {
     let mut updates = Vec::new();
     for bundle in bundles {
@@ -193,8 +202,8 @@ pub(crate) fn add_built_bundles_to_chunk_index(
         for (ordinal, chunk) in bundle.entries.iter().enumerate() {
             updates.push((
                 chunk.chunk_hash,
-                crate::repo::index::ChunkIndexEntry::new(
-                    crate::artifact::format::size_u32(bundle.size)?,
+                ChunkIndexEntry::new(
+                    size_u32(bundle.size)?,
                     ordinal as u32,
                     shared_bundle_id.clone(),
                     chunk.raw_size,
@@ -208,19 +217,19 @@ pub(crate) fn add_built_bundles_to_chunk_index(
 }
 
 pub(crate) fn add_built_loose_chunks_to_chunk_index(
-    chunk_index: &mut crate::repo::index::ChunkIndex,
-    chunks: &[crate::capture::build::types::BuiltLooseChunk],
+    chunk_index: &mut ChunkIndex,
+    chunks: &[BuiltLooseChunk],
 ) -> Result<()> {
     let mut updates = Vec::new();
     for chunk in chunks {
         let chunk_hash = chunk.chunk_hash.to_string();
         updates.push((
             ChunkHash::parse_hex(&chunk_hash)?,
-            crate::repo::index::ChunkIndexEntry::new(
-                crate::artifact::format::size_u32(chunk.compressed_size)?,
+            ChunkIndexEntry::new(
+                size_u32(chunk.compressed_size)?,
                 0,
                 chunk_hash.into(),
-                crate::artifact::format::size_u32(chunk.raw_size)?,
+                size_u32(chunk.raw_size)?,
                 ArtifactStorageMode::LooseChunks,
             ),
         ));

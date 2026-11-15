@@ -5,7 +5,10 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::artifact::integrity::hash_file;
+use crate::filesystem::paths::normalize_link_target;
 use serde::Serialize;
+use std::fs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ComparableKind {
@@ -172,8 +175,8 @@ fn entries_match(
     if expected.kind != actual.kind {
         return Ok(false);
     }
-    let expected_metadata = std::fs::symlink_metadata(&expected.path)?;
-    let actual_metadata = std::fs::symlink_metadata(&actual.path)?;
+    let expected_metadata = fs::symlink_metadata(&expected.path)?;
+    let actual_metadata = fs::symlink_metadata(&actual.path)?;
     if expected_metadata.permissions().readonly() != actual_metadata.permissions().readonly() {
         return Ok(false);
     }
@@ -194,14 +197,13 @@ fn entries_match(
                     return Ok(false);
                 }
             }
-            Ok(crate::artifact::integrity::hash_file(&expected.path)?
-                == crate::artifact::integrity::hash_file(&actual.path)?)
+            Ok(hash_file(&expected.path)? == hash_file(&actual.path)?)
         }
     }
 }
 
 fn normalized_link_target(relative_path: &str, link_path: &Path) -> crate::Result<String> {
-    crate::filesystem::paths::normalize_link_target(relative_path, &std::fs::read_link(link_path)?)
+    normalize_link_target(relative_path, &fs::read_link(link_path)?)
 }
 
 #[cfg(test)]

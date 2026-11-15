@@ -8,6 +8,7 @@ use serde::Serialize;
 use super::snapshot::SnapshotManifest;
 use crate::Error;
 use crate::Result;
+use crate::filesystem::paths::validate_manifest_relative_path;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedLaunchConfiguration {
@@ -103,13 +104,11 @@ pub(crate) fn validate_resolved_launch_for_snapshot_os(
 }
 
 pub(crate) fn validate_launch_path(value: &str, allow_install_root: bool) -> Result<()> {
-    crate::filesystem::paths::validate_manifest_relative_path(value, allow_install_root).map_err(
-        |error| {
-            Error::manifest(format!(
-                "launch path must be normalized inside the installation: {error}"
-            ))
-        },
-    )
+    validate_manifest_relative_path(value, allow_install_root).map_err(|error| {
+        Error::manifest(format!(
+            "launch path must be normalized inside the installation: {error}"
+        ))
+    })
 }
 
 fn validate_arguments(arguments: &[String]) -> Result<()> {

@@ -1,6 +1,10 @@
 //! Invocation-local output. Human messages never mix with structured stdout.
 use std::cell::RefCell;
+use std::fmt::Arguments;
+use std::fs::File;
+use std::io;
 use std::io::Write;
+use std::mem;
 
 #[derive(Default)]
 struct OutputState {
@@ -11,7 +15,7 @@ struct OutputState {
     result: Option<serde_json::Value>,
     messages: Vec<String>,
     events: Vec<serde_json::Value>,
-    error: Option<std::io::Error>,
+    error: Option<io::Error>,
 }
 
 thread_local! {
@@ -21,9 +25,9 @@ thread_local! {
 pub(crate) fn begin(cli: &super::Cli) -> crate::Result<()> {
     let writer: Box<dyn Write> = if let Some(path) = &cli.output {
         super::reporting::ensure_parent_directory(path)?;
-        Box::new(std::fs::File::create(path)?)
+        Box::new(File::create(path)?)
     } else {
-        Box::new(std::io::stdout())
+        Box::new(io::stdout())
     };
     OUTPUT.with(|state| {
         *state.borrow_mut() = OutputState {
@@ -41,7 +45,7 @@ pub(crate) fn dry_run() -> bool {
     OUTPUT.with(|state| state.borrow().dry_run)
 }
 
-pub(crate) fn line(arguments: std::fmt::Arguments<'_>) {
+pub(crate) fn line(arguments: Arguments<'_>) {
     OUTPUT.with(|state| {
         let mut state = state.borrow_mut();
         if state.json || state.json_lines {
@@ -93,7 +97,7 @@ pub(crate) fn event(value: &impl serde::Serialize) -> crate::Result<()> {
 
 pub(crate) fn finish(result: &crate::Result<()>) -> crate::Result<()> {
     OUTPUT.with(|state| {
-        let mut state = std::mem::take(&mut *state.borrow_mut());
+        let mut state = mem::take(&mut *state.borrow_mut());
         if let Some(error) = state.error {
             return Err(error.into());
         }
