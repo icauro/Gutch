@@ -203,5 +203,5 @@ fn normalized_link_target(relative_path: &str, link_path: &Path) -> crate::Resul
 }
 
 #[cfg(test)]
-#[path = "path_compare_tests.rs"]
+#[path = "05_path_compare_tests.rs"]
 mod tests;

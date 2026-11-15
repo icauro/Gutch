@@ -179,7 +179,7 @@ and delete unnecessary additional operations. It keeps the original run, has a
 120-second/32-attempt budget and writes a replayable result. It does not reduce
 the mandatory lifecycle or claim a globally minimal dataset.
 
-Native targets live in `src/artifact/fuzz_tests.rs`. Ordinary Rust tests run sampled
+Native targets live in `src/04_artifact/fuzz_tests.rs`. Ordinary Rust tests run sampled
 inputs; `cargo bolero test engine_fuzz::fuzz_binary_decoders -T 30s -l 65536` and
 `cargo bolero test engine_fuzz::fuzz_bundle_roundtrip -T 30s -l 65536` run instrumented fuzzing
 with cargo-bolero and a compatible Rust toolchain. Inputs are capped at 64 KiB;

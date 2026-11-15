@@ -130,8 +130,8 @@ Publication is not an atomic multi-file transaction. An I/O failure during
 promotion can leave some entries repaired and others unchanged; retry inspects
 that state and repairs what remains. Cancellation is deferred during publication,
 but this does not turn failures into rollback. Directory replacement uses the
-shared backup/recovery primitive in `filesystem/directory.rs`; repository snapshot
-metadata uses that primitive too. Selective policy lives in `installation/publish.rs`.
+shared backup/recovery primitive in `03_filesystem/directory.rs`; repository snapshot
+metadata uses that primitive too. Selective policy lives in `09_installation/publish.rs`.
 
 ## Failure Boundaries
 

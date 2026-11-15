@@ -10,15 +10,15 @@ code in the retained Git history.
 
 | Component | Included files | License and attribution |
 | --- | --- | --- |
-| FastCDC v2020, fastcdc-rs 5.0.0 | `src/artifact/fastcdc_v2020/mod.rs`, `src/artifact/gear.rs` | MIT; Nathan Fiedler. Preserve the [upstream license](src/artifact/fastcdc_v2020/LICENSE) and source copyright notices. |
-| Plakar-compatible JC chunker and Gear table | `src/artifact/jc.rs`, `src/artifact/jc_gear.rs` | ISC; copyright (c) 2024 Gilles Chehade. Full text: [jc.LICENSE](src/artifact/jc.LICENSE). |
-| RAM / VectorCDC reference and adaptation | `src/artifact/ram.rs`, `tests/benchmarks/ram_reference.cpp` | Apache-2.0; copyright (c) 2023 WASL. Full text: [RAM license](src/artifact/ram/LICENSE). Changes for Gutch are identified in the source and [reference notes](src/artifact/ram/README.md). |
+| FastCDC v2020, fastcdc-rs 5.0.0 | `src/04_artifact/fastcdc_v2020/mod.rs`, `src/04_artifact/gear.rs` | MIT; Nathan Fiedler. Preserve the [upstream license](src/04_artifact/fastcdc_v2020/LICENSE) and source copyright notices. |
+| Plakar-compatible JC chunker and Gear table | `src/04_artifact/jc.rs`, `src/04_artifact/jc_gear.rs` | ISC; copyright (c) 2024 Gilles Chehade. Full text: [jc.LICENSE](src/04_artifact/jc.LICENSE). |
+| RAM / VectorCDC reference and adaptation | `src/04_artifact/ram.rs`, `tests/benchmarks/ram_reference.cpp` | Apache-2.0; copyright (c) 2023 WASL. Full text: [RAM license](src/04_artifact/ram/LICENSE). Changes for Gutch are identified in the source and [reference notes](src/04_artifact/ram/README.md). |
 
 Pinned upstream sources:
 
 - [fastcdc-rs, commit eeb3cbe8ed4eeef020aa346707bbdb29abd814ad](https://github.com/nlfiedler/fastcdc-rs/tree/eeb3cbe8ed4eeef020aa346707bbdb29abd814ad).
   Gutch retains the cut routine, masks and Gear table; it omits the upstream
-  owned iterators, seeded tables and unrelated APIs. See the [adaptation notes](src/artifact/fastcdc_v2020/README.md).
+  owned iterators, seeded tables and unrelated APIs. See the [adaptation notes](src/04_artifact/fastcdc_v2020/README.md).
 - [go-cdc-chunkers, commit b6c4abce19e9691184a0aceefc4e9f53fcfe79c8](https://github.com/PlakarKorp/go-cdc-chunkers/tree/b6c4abce19e9691184a0aceefc4e9f53fcfe79c8).
   The `jc-v1.1.0` name identifies an algorithm variant, not a repository release
   tag. Gutch ports that chunking rule and reference Gear table to Rust; keyed

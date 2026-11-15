@@ -44,7 +44,7 @@ boundaries and implementation ownership.
 | Component | Handles | Authority and handoff |
 |---|---|---|
 | Gutch engine | Repo, snapshot, artifact, reconstruction, verification, repair, and provider-neutral remote synchronization | Compares and mutates local repos, invokes the provider contract, and returns typed results and progress; it does not authorize URLs |
-| Gutch API | The sole cross-crate facade for typed operations and generic terminal parsing, implemented over private engine modules including `src/cli/` | Dispatches through `gutch::api::run_from_args`; remote commands require an injected provider context |
+| Gutch API | The sole cross-crate facade for typed operations and generic terminal parsing, implemented over private engine modules including `src/10_cli/` | Dispatches through `gutch::api::run_from_args`; remote commands require an injected provider context |
 | Host adapter | Authentication, remote response translation and application state | Supplies provider implementations and authorized artifact sources |
 | Host UI or CLI | Input, confirmation, progress and application lifecycle | Invokes Gutch and handles its final result |
 | Remote service | Authorization and remote records | Enforces the host's access policy |

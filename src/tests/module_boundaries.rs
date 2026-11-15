@@ -1,32 +1,13 @@
 //! Keeps the engine's top-level modules in acyclic dependency layers.
 //!
-//! A module's layer is one more than the highest layer its production code
-//! uses, so modules sharing a layer never use each other. Test modules are
-//! skipped because fixtures may build state through higher layers. `api` is the
-//! public facade over every other layer.
+//! Each module lives at `src/NN_name` and `lib.rs` loads it with a `#[path]`
+//! attribute; `NN` is its layer. A module's layer is one more than the highest
+//! layer its production code uses, so modules sharing a layer never use each
+//! other. Test modules are skipped because fixtures may build state through
+//! higher layers. `api` is the public facade over every other layer.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-
-const SOURCE_LAYERS: &[(&str, usize)] = &[
-    ("error", 0),
-    ("profile", 1),
-    ("progress", 2),
-    ("filesystem", 3),
-    ("runtime", 3),
-    ("artifact", 4),
-    ("config", 4),
-    ("manifest", 5),
-    ("path_compare", 5),
-    ("transfer", 5),
-    ("snapshot", 6),
-    ("repo", 7),
-    ("capture", 8),
-    ("sync", 8),
-    ("installation", 9),
-    ("cli", 10),
-    ("api", 11),
-];
 
 /// Crate-root re-exports declared in `lib.rs`, mapped to their owning module.
 const ROOT_ITEMS: &[(&str, &str)] = &[("Error", "error"), ("Result", "error")];
@@ -34,19 +15,18 @@ const ROOT_ITEMS: &[(&str, &str)] = &[("Error", "error"), ("Result", "error")];
 #[test]
 fn engine_modules_use_only_lower_layers() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let layers: BTreeMap<&str, usize> = SOURCE_LAYERS.iter().copied().collect();
-    let declared = declared_modules(&source_root.join("lib.rs"));
-    assert_eq!(
-        declared,
-        layers.keys().map(|name| name.to_string()).collect(),
-        "declare every top-level module in SOURCE_LAYERS"
-    );
+    let modules = declared_modules(&source_root.join("lib.rs"));
+    let layers: BTreeMap<&str, usize> = modules
+        .iter()
+        .map(|(name, module)| (name.as_str(), module.layer))
+        .collect();
 
     let mut violations = Vec::new();
-    for (module, layer) in &layers {
-        let used = used_modules(&source_root, module, &layers);
+    for (module, declared) in &modules {
+        let layer = declared.layer;
+        let used = used_modules(&source_root.join(&declared.path), module, &layers);
         for name in &used {
-            if layers[name.as_str()] >= *layer {
+            if layers[name.as_str()] >= layer {
                 violations.push(format!(
                     "{module} (layer {layer}) uses {name} (layer {})",
                     layers[name.as_str()]
@@ -58,27 +38,45 @@ fn engine_modules_use_only_lower_layers() {
             .map(|name| layers[name.as_str()] + 1)
             .max()
             .unwrap_or(0);
-        if expected != *layer {
+        if expected != layer {
             violations.push(format!(
-                "{module} is declared layer {layer} but its dependencies place it at {expected}: {used:?}"
+                "{module} is numbered layer {layer} but its dependencies place it at {expected}: {used:?}"
             ));
         }
     }
     assert!(
         violations.is_empty(),
-        "layering violations:\n{}",
-        violations.join("\n")
+        "layering violations:
+{}",
+        violations.join(
+            "
+"
+        )
     );
 }
 
-/// Production `mod name;` declarations, skipping any gated by `#[cfg(test)]`.
-fn declared_modules(lib: &Path) -> BTreeSet<String> {
+struct DeclaredModule {
+    /// Path from `src/` to the module's top directory or single file.
+    path: String,
+    layer: usize,
+}
+
+/// Production `mod name;` declarations with their `#[path = "NN_name..."]`,
+/// skipping any gated by `#[cfg(test)]`.
+fn declared_modules(lib: &Path) -> BTreeMap<String, DeclaredModule> {
     let source = std::fs::read_to_string(lib).unwrap();
     let mut test_only = false;
-    let mut modules = BTreeSet::new();
+    let mut path = None;
+    let mut modules = BTreeMap::new();
     for line in source.lines().map(str::trim) {
         if line.starts_with("#[") {
             test_only |= line == "#[cfg(test)]";
+            if let Some(value) = line
+                .strip_prefix("#[path = \"")
+                .and_then(|rest| rest.strip_suffix("\"]"))
+            {
+                path = Some(value.to_string());
+            }
             continue;
         }
         let declaration = line.strip_prefix("pub ").unwrap_or(line);
@@ -87,23 +85,34 @@ fn declared_modules(lib: &Path) -> BTreeSet<String> {
             .and_then(|rest| rest.strip_suffix(';'))
             && !test_only
         {
-            modules.insert(name.to_string());
+            let path = path
+                .take()
+                .unwrap_or_else(|| panic!("module {name} needs a #[path = \"NN_{name}...\"]"));
+            let top = path.split('/').next().unwrap().to_string();
+            let (layer, folder_name) = top
+                .split_once('_')
+                .unwrap_or_else(|| panic!("{top} lacks an NN_ layer prefix"));
+            assert_eq!(
+                folder_name.trim_end_matches(".rs"),
+                name,
+                "{top} must be named after module {name}"
+            );
+            let layer = layer
+                .parse()
+                .unwrap_or_else(|_| panic!("{top} lacks a numeric layer prefix"));
+            modules.insert(name.to_string(), DeclaredModule { path: top, layer });
         }
         test_only = false;
+        path = None;
     }
     modules
 }
 
-fn used_modules(
-    source_root: &Path,
-    module: &str,
-    layers: &BTreeMap<&str, usize>,
-) -> BTreeSet<String> {
-    let directory = source_root.join(module);
-    let files = if directory.is_dir() {
-        rust_files(&directory)
+fn used_modules(location: &Path, module: &str, layers: &BTreeMap<&str, usize>) -> BTreeSet<String> {
+    let files = if location.is_dir() {
+        rust_files(location)
     } else {
-        vec![source_root.join(format!("{module}.rs"))]
+        vec![location.to_path_buf()]
     };
     files
         .iter()

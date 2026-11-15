@@ -12,9 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
            "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc")
 SOURCE_NOTICES = (
-    "LICENSE", "THIRD_PARTY_NOTICES.md", "src/artifact/fastcdc_v2020/LICENSE",
-    "src/artifact/fastcdc_v2020/README.md",
-    "src/artifact/jc.LICENSE", "src/artifact/ram/LICENSE", "src/artifact/ram/README.md",
+    "LICENSE", "THIRD_PARTY_NOTICES.md", "src/04_artifact/fastcdc_v2020/LICENSE",
+    "src/04_artifact/fastcdc_v2020/README.md",
+    "src/04_artifact/jc.LICENSE", "src/04_artifact/ram/LICENSE", "src/04_artifact/ram/README.md",
 )
 
 

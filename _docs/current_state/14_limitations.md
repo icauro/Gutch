@@ -75,14 +75,14 @@ particular host deployment provides.
 
 ## Evidence
 
-- Surface and scope: [API](../../src/api.rs), [CLI](../../src/cli/arguments.rs),
+- Surface and scope: [API](../../src/11_api.rs), [CLI](../../src/10_cli/arguments.rs),
   [ownership](01_operation_ownership.md).
-- Persistence and recovery: [capture](../../src/capture/execute.rs),
-  [remote operations](../../src/sync/remote/mod.rs), [bundles](../../src/artifact/bundle.rs),
-  [cleanup](../../src/repo/cleanup.rs), [path safety](11_path_safety_and_conflicts.md).
-- Verification and capture: [repository verifier](../../src/repo/verify.rs),
-  [scanner](../../src/capture/scan.rs), [source ingestion](03_snapshot_source_ingestion.md).
-- Filesystem and delivery: [entry model](../../src/manifest/content.rs),
-  [identity](../../src/snapshot/identity.rs), [requests](../../src/installation/types.rs),
-  [transfer](../../src/transfer/download.rs), [packaging](05_packaging_and_bundles.md),
+- Persistence and recovery: [capture](../../src/08_capture/execute.rs),
+  [remote operations](../../src/08_sync/remote/mod.rs), [bundles](../../src/04_artifact/bundle.rs),
+  [cleanup](../../src/07_repo/cleanup.rs), [path safety](11_path_safety_and_conflicts.md).
+- Verification and capture: [repository verifier](../../src/07_repo/verify.rs),
+  [scanner](../../src/08_capture/scan.rs), [source ingestion](03_snapshot_source_ingestion.md).
+- Filesystem and delivery: [entry model](../../src/05_manifest/content.rs),
+  [identity](../../src/06_snapshot/identity.rs), [requests](../../src/09_installation/types.rs),
+  [transfer](../../src/05_transfer/download.rs), [packaging](05_packaging_and_bundles.md),
   [reconstruction](06_reconstruct_pipeline.md), [repair](08_installation_verification_and_repair.md).

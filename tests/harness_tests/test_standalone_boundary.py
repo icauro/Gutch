@@ -151,7 +151,7 @@ fn encode() { crate::repo::coordination::write(); }
 
 
 def test_repository_persistence_does_not_depend_on_capture_or_installation():
-    for path, source in implementation_sources("repo"):
+    for path, source in implementation_sources("07_repo"):
         assert not re.search(r"crate::(?:capture|installation)::", source), (
             path.relative_to(ROOT)
         )
@@ -161,19 +161,19 @@ def test_transfer_does_not_orchestrate_repository_or_installation_workflows():
     forbidden = re.compile(
         r"crate::(?:capture|installation)::|crate::repo::(?:coordination|paths|snapshot_manifests|fetch)::"
     )
-    for path, source in implementation_sources("transfer"):
+    for path, source in implementation_sources("05_transfer"):
         # ArtifactRef is the existing descriptor shared with the repository;
         # acquiring locks, reading snapshot metadata and publication belong to workflows.
         assert not forbidden.search(source), path.relative_to(ROOT)
 
 
 def test_artifact_codecs_do_not_depend_on_repository_workflows():
-    for path, source in implementation_sources("artifact"):
+    for path, source in implementation_sources("04_artifact"):
         assert not re.search(
             r"crate::(?:repo|capture|installation|manifest)::", source
         ), path.relative_to(ROOT)
 
 
 def test_public_api_only_reexports_owner_operations_and_contracts():
-    source = (ROOT / "src/api.rs").read_text(encoding="utf-8")
+    source = (ROOT / "src/11_api.rs").read_text(encoding="utf-8")
     assert not re.search(r"pub(?:\([^)]*\))?\s+fn\s", source)

@@ -65,7 +65,7 @@ def main():
         "GUTCH_CDC_REPETITIONS": str(args.repetitions),
         "GUTCH_CDC_OUTPUT": str(output / "results.json"),
     }
-    source_files = list((ROOT / "src/artifact").rglob("*.rs")) + [
+    source_files = list((ROOT / "src/04_artifact").rglob("*.rs")) + [
         Path(__file__).with_suffix(".rs"),
         Path(__file__).with_name("cdc_baseline.rs"),
     ]

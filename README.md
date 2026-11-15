@@ -78,13 +78,13 @@ for measurement meanings and recording limits.
 
 ## Source navigation
 
-Start with [the public API](src/api.rs). [Capture](src/capture/) owns source
-selection through packing; [installation](src/installation/) owns inspection,
-change planning, execution and publication. [Transfer](src/transfer/) supplies
+Start with [the public API](src/11_api.rs). [Capture](src/08_capture/) owns source
+selection through packing; [installation](src/09_installation/) owns inspection,
+change planning, execution and publication. [Transfer](src/05_transfer/) supplies
 artifact readiness, with separate scheduling, adaptive-policy and feedback owners.
-[Repository](src/repo/) owns acquisition, guarded readers, persistence, index
+[Repository](src/07_repo/) owns acquisition, guarded readers, persistence, index
 recovery and synchronization. Installation coordinates combined fetch and
-reconstruction; [artifact](src/artifact/) owns the binary codecs. The
+reconstruction; [artifact](src/04_artifact/) owns the binary codecs. The
 [module map](_docs/current_state/01_operation_ownership.md#crate-and-module-map) records dependency boundaries.
 
 Reconstruction and repair use the same executor. Reconstruction replaces a

@@ -288,7 +288,7 @@ detection happens once per file; unsupported CPUs use scalar RAM. Both paths
 persist `ram-v1` and have identical boundaries. RAM uses a maximum-byte search
 and a >= byte comparison, with no Gear table. The preset specifies the initial
 window, equivalent to DedupBench's `ram_avg_block_size` minus 256.
-The reference is pinned in `src/artifact/ram/README.md` with its Apache-2.0 license.
+The reference is pinned in `src/04_artifact/ram/README.md` with its Apache-2.0 license.
 
 The available `Blender_4_snapshot` dataset contains Windows x64 Blender 4.4.0,
 4.5.0, 5.0.0 and 5.1.0: 3,794,868,170 bytes across 23,371 files. Three rotating

@@ -24,7 +24,7 @@ owners.
 | Corrupt a reconstructed destination for tests/benchmarks | Private Gutch test/benchmark command operation; available through the CLI | Supply an explicit corruption plan and confirmation |
 | Remote repo pull/push/link/bind | Private Gutch repo engine, exposed through `gutch::api` | The host adapter supplies the provider contract and authorized context |
 | Install persistence and launch integration | Host application services and the GUI app layer | Own install records, job state, OS integration, and presentation |
-| Command parsing and terminal output | Private `src/cli/`, exposed through `gutch::api` | The embedding CLI supplies top-level routing, endpoint, and session context |
+| Command parsing and terminal output | Private `src/10_cli/`, exposed through `gutch::api` | The embedding CLI supplies top-level routing, endpoint, and session context |
 
 The public `gutch::api` functions above are the cross-crate entrypoints. Internal
 modules, worker functions, path helpers, and profiler recording machinery are
@@ -78,6 +78,9 @@ internal implementation owners.
 Internal callers import the owning module directly. Top-level modules form
 numbered dependency layers: each module's layer is one more than the highest
 layer its production code uses, so modules sharing a layer never use each other.
+Each module lives at `src/NN_name` with its layer as the prefix, so a listing of
+`src/` shows the dependency order; `lib.rs` loads it with `#[path]` because Rust
+module names cannot start with a digit.
 
 | Layer | Modules |
 |---|---|
@@ -96,9 +99,10 @@ layer its production code uses, so modules sharing a layer never use each other.
 
 A module never uses its own or a higher layer; test code may. Typed failure
 payloads carried by `Error` (path validation, directory promotion diagnostics
-and capture outcomes) live under `error/` so `error` stays at the bottom.
-`src/tests/module_boundaries.rs` enforces this map; a new top-level module or a
-dependency that changes a layer must update it. Artifact codecs do not call
+and capture outcomes) live under `00_error/` so `error` stays at the bottom.
+`src/tests/module_boundaries.rs` reads each layer from its folder prefix and
+checks it against the module's dependencies; a new top-level module or a
+dependency that changes a layer must rename the folder, its `#[path]` and this table. Artifact codecs do not call
 repository workflows; repository persistence does not call installation
 orchestration. Repository artifact verification uses its own structure/identity
 policy, independent of installation file/chunk inspection. Repository integrity

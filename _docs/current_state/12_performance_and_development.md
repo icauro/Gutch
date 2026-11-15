@@ -292,7 +292,7 @@ evenly spaced mask positions, and target/2 jumps. Both share the JC loop and
 Plakar Gear table; the paper preset is not advertised as an exact upstream
 implementation. That table differs from Gutch's and must remain distinct.
 
-The 24 frozen Go-oracle cases in `src/artifact/jc_tests.rs` use xorshift64
+The 24 frozen Go-oracle cases in `src/04_artifact/jc_tests.rs` use xorshift64
 (13-left, 7-right, 17-left), seed 917, emitting the low byte after each update.
 Each case records its exact size parameters, input length, and cut lengths.
 They were generated using the pinned Go library's `jc-v1.1.0` reader API.
@@ -318,7 +318,7 @@ with a directory containing the builds. The fixture compares FastCDC 128 KiB,
 JC 256 KiB, and VRAM-256 with a 128 KiB window, using zstd 3 and 8 MiB bundles.
 It runs three repetitions with reconstruction and corruption repair. Targets do
 not normalize actual chunk counts or reuse. See the implementation's
-[reference and provenance](../../src/artifact/ram/README.md).
+[reference and provenance](../../src/04_artifact/ram/README.md).
 
 
 ## Windows inventory metadata reuse

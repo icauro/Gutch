@@ -197,10 +197,10 @@ released through the same operation-owned artifact lifecycle.
 
 ## Implementation anchors
 
-The owning implementation is `src/capture/scan.rs` for inventory and per-file
-work, `src/capture/pipeline.rs` for runtime setup, dedupe, artifact grouping, and
-manifest finalization, `src/artifact/chunk.rs` for shared chunk scanning, and
-`src/runtime/mod.rs` for worker planning.
+The owning implementation is `src/08_capture/scan.rs` for inventory and per-file
+work, `src/08_capture/pipeline.rs` for runtime setup, dedupe, artifact grouping, and
+manifest finalization, `src/04_artifact/chunk.rs` for shared chunk scanning, and
+`src/03_runtime/mod.rs` for worker planning.
 
 ## Related pages
 
