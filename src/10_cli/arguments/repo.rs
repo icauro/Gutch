@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use super::parse_cli_path;
+use super::shared::parse_cli_path;
 use crate::manifest::constraints::FilesystemTarget;
 use crate::sync::remote::PullConflictPolicy;
 

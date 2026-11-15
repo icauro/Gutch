@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::Args;
 use clap::Subcommand;
 
-use super::{ArtifactBuildProfileArgs, RuntimeArgs, TransferArgs, parse_cli_path};
+use super::shared::{ArtifactBuildProfileArgs, RuntimeArgs, TransferArgs, parse_cli_path};
 
 #[derive(Subcommand)]
 pub(crate) enum SnapshotCommands {

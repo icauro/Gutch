@@ -1,10 +1,11 @@
+use super::super::InstallationCommands;
+use super::super::RemoteCommands;
+use super::super::RepoCommands;
+use super::super::RepoTagsCommands;
+use super::super::shared::TransferPolicyArg;
 use super::Cli;
 use super::Commands;
-use super::InstallationCommands;
-use super::RemoteCommands;
-use super::RepoCommands;
-use super::RepoTagsCommands;
-use super::TransferPolicyArg;
+use super::DebugCommands;
 use clap::Parser;
 use std::env::current_dir;
 use std::iter;
@@ -319,7 +320,7 @@ fn parses_installation_destination_commands() {
     assert!(matches!(
         cli.command,
         Commands::Debug {
-            command: super::DebugCommands::CorruptInstallation { yes: true, .. }
+            command: DebugCommands::CorruptInstallation { yes: true, .. }
         }
     ));
 }
@@ -328,8 +329,8 @@ fn parses_installation_destination_commands() {
 fn cli_resolves_relative_filesystem_paths() {
     let cli =
         Cli::try_parse_from(["gutch-cli", "repo", "status", "--repo", "relative/repo"]).unwrap();
-    let super::Commands::Repo {
-        command: super::RepoCommands::Status { repo, .. },
+    let Commands::Repo {
+        command: super::super::RepoCommands::Status { repo, .. },
     } = cli.command
     else {
         panic!("expected status");

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{RuntimeArgs, TransferArgs, parse_cli_path};
+use super::shared::{RuntimeArgs, TransferArgs, parse_cli_path};
 
 #[derive(Args)]
 pub(crate) struct ReconstructArgs {
