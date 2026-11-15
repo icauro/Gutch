@@ -38,7 +38,7 @@ pub(crate) fn run(
                     | SnapshotCommands::Delete { .. }
                     | SnapshotCommands::Tags { .. }
             } | Commands::Installation {
-                command: InstallationCommands::Preview { .. } | InstallationCommands::Repair { .. }
+                command: InstallationCommands::Preview(_) | InstallationCommands::Repair { .. }
             }
         ) || matches!(
             &cli.command,

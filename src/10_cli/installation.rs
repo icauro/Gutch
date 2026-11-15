@@ -2,6 +2,7 @@
 
 use crate::cli::InstallationCommands;
 use crate::cli::Profile;
+use crate::cli::arguments::PreviewArgs;
 use crate::cli::arguments::ReconstructArgs;
 use crate::cli::arguments::RuntimeArgs;
 use crate::cli::command_support::InstallationVerifyStats;
@@ -92,8 +93,8 @@ pub(crate) struct RepairCommand {
 
 pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result<()> {
     if dry_run() {
-        return run_installation(
-            InstallationCommands::Preview {
+        return preview(
+            PreviewArgs {
                 repo: command.repo,
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,
@@ -217,122 +218,8 @@ pub(crate) fn run_installation(
     profile: &Profile,
 ) -> crate::Result<()> {
     match command {
-        InstallationCommands::Reconstruct(arguments) => {
-            let ReconstructArgs {
-                repo,
-                snapshot_id,
-                destination,
-                staging_dir,
-                source_snapshot_id,
-                source_dir,
-                runtime,
-                fetch,
-                metadata_url,
-                product_metadata_url,
-                blueprint_url,
-                repo_metadata_url,
-                chunk_index_url,
-                bundle_downloads_endpoint,
-                session_id,
-                artifacts,
-                artifact_url_manifest,
-                transfer,
-                stats_json_out,
-            } = *arguments;
-            if fetch {
-                fetch_and_reconstruct(
-                    FetchAndReconstructCommand {
-                        fetch: FetchCommand {
-                            repo,
-                            snapshot_id,
-                            metadata_url: metadata_url
-                                .expect("Clap requires snapshot metadata with --fetch"),
-                            blueprint_url: blueprint_url
-                                .expect("Clap requires a blueprint with --fetch"),
-                            product_metadata_url,
-                            repo_metadata_url,
-                            chunk_index_url,
-                            bundle_downloads_endpoint,
-                            session_id,
-                            artifacts,
-                            artifact_url_manifest,
-                            transfer_policy: transfer.policy(),
-                        },
-                        destination,
-                        staging_dir,
-                        source_snapshot_id,
-                        source_dir,
-                        runtime_hints: runtime.hints(),
-                        stats_json_out,
-                    },
-                    profile,
-                )
-            } else {
-                reconstruct(
-                    ReconstructCommand {
-                        repo,
-                        snapshot_id,
-                        destination,
-                        staging_dir,
-                        source_snapshot_id,
-                        source_dir,
-                        runtime,
-                        stats_json_out,
-                    },
-                    profile,
-                )
-            }
-        }
-        InstallationCommands::Preview {
-            repo,
-            snapshot_id,
-            destination,
-            staging_dir,
-            publication,
-            remove_added_files,
-            metadata_only,
-            source_snapshot,
-            source_dir,
-            runtime,
-        } => {
-            let publication = if publication == "selective" {
-                InstallationPublication::Selective {
-                    extra_files: if remove_added_files {
-                        ExtraFilePolicy::Remove
-                    } else {
-                        ExtraFilePolicy::Preserve
-                    },
-                }
-            } else {
-                InstallationPublication::ReplaceDirectory
-            };
-            let summary = visit_installation_plan(
-                &InstallationRequest {
-                    repo_path: repo,
-                    snapshot_id,
-                    destination_dir: destination,
-                    staging_dir,
-                    source_snapshot_id: source_snapshot,
-                    source_dir,
-                    runtime_hints: runtime.hints(),
-                    control: control_with_profile(profile).with_progress(CliProgressSink::new()),
-                },
-                publication,
-                if metadata_only {
-                    InstallationInspection::MetadataOnly
-                } else {
-                    InstallationInspection::Content
-                },
-                &mut |event| output::event(&event),
-            )?;
-            output::record(&summary)?;
-            output::line(format_args!(
-                "{} entries; {} artifacts; {} bytes staging",
-                summary.entry_count, summary.required_artifact_count, summary.staging_file_bytes
-            ));
-            Ok(())
-        }
-
+        InstallationCommands::Reconstruct(arguments) => reconstruct_from_args(*arguments, profile),
+        InstallationCommands::Preview(arguments) => preview(arguments, profile),
         InstallationCommands::Verify {
             repo,
             snapshot_id,
@@ -374,6 +261,110 @@ pub(crate) fn run_installation(
     }
 }
 
+/// Reconstructs from the local repository, or fetches first with `--fetch`.
+fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate::Result<()> {
+    let ReconstructArgs {
+        repo,
+        snapshot_id,
+        destination,
+        staging_dir,
+        source_snapshot_id,
+        source_dir,
+        runtime,
+        fetch,
+        metadata_url,
+        product_metadata_url,
+        blueprint_url,
+        repo_metadata_url,
+        chunk_index_url,
+        bundle_downloads_endpoint,
+        session_id,
+        artifacts,
+        artifact_url_manifest,
+        transfer,
+        stats_json_out,
+    } = arguments;
+    if !fetch {
+        return reconstruct(
+            ReconstructCommand {
+                repo,
+                snapshot_id,
+                destination,
+                staging_dir,
+                source_snapshot_id,
+                source_dir,
+                runtime,
+                stats_json_out,
+            },
+            profile,
+        );
+    }
+    fetch_and_reconstruct(
+        FetchAndReconstructCommand {
+            fetch: FetchCommand {
+                repo,
+                snapshot_id,
+                metadata_url: metadata_url.expect("Clap requires snapshot metadata with --fetch"),
+                blueprint_url: blueprint_url.expect("Clap requires a blueprint with --fetch"),
+                product_metadata_url,
+                repo_metadata_url,
+                chunk_index_url,
+                bundle_downloads_endpoint,
+                session_id,
+                artifacts,
+                artifact_url_manifest,
+                transfer_policy: transfer.policy(),
+            },
+            destination,
+            staging_dir,
+            source_snapshot_id,
+            source_dir,
+            runtime_hints: runtime.hints(),
+            stats_json_out,
+        },
+        profile,
+    )
+}
+
+/// Prints each planned installation change and a summary line.
+fn preview(arguments: PreviewArgs, profile: &Profile) -> crate::Result<()> {
+    let publication = if arguments.publication == "selective" {
+        InstallationPublication::Selective {
+            extra_files: if arguments.remove_added_files {
+                ExtraFilePolicy::Remove
+            } else {
+                ExtraFilePolicy::Preserve
+            },
+        }
+    } else {
+        InstallationPublication::ReplaceDirectory
+    };
+    let inspection = if arguments.metadata_only {
+        InstallationInspection::MetadataOnly
+    } else {
+        InstallationInspection::Content
+    };
+    let request = InstallationRequest {
+        repo_path: arguments.repo,
+        snapshot_id: arguments.snapshot_id,
+        destination_dir: arguments.destination,
+        staging_dir: arguments.staging_dir,
+        source_snapshot_id: arguments.source_snapshot,
+        source_dir: arguments.source_dir,
+        runtime_hints: arguments.runtime.hints(),
+        control: control_with_profile(profile).with_progress(CliProgressSink::new()),
+    };
+    let summary = visit_installation_plan(&request, publication, inspection, &mut |event| {
+        output::event(&event)
+    })?;
+    output::record(&summary)?;
+    output::line(format_args!(
+        "{} entries; {} artifacts; {} bytes staging",
+        summary.entry_count, summary.required_artifact_count, summary.staging_file_bytes
+    ));
+    Ok(())
+}
+
 pub(crate) struct VerifyCommand {
     pub(crate) repo: PathBuf,
     pub(crate) snapshot_id: String,
@@ -386,8 +377,8 @@ pub(crate) struct VerifyCommand {
 
 pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> crate::Result<()> {
     if dry_run() {
-        return run_installation(
-            InstallationCommands::Preview {
+        return preview(
+            PreviewArgs {
                 repo: command.repo,
                 snapshot_id: command.snapshot_id,
                 destination: command.destination,

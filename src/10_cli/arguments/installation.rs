@@ -57,35 +57,38 @@ pub(crate) struct ReconstructArgs {
     pub(crate) stats_json_out: Option<PathBuf>,
 }
 
+#[derive(Args)]
+pub(crate) struct PreviewArgs {
+    #[arg(long, value_parser = parse_cli_path)]
+    pub(crate) repo: PathBuf,
+    #[arg(long = "snapshot")]
+    pub(crate) snapshot_id: String,
+    #[arg(long, value_parser = parse_cli_path)]
+    pub(crate) destination: PathBuf,
+    #[arg(long = "staging-dir", value_parser = parse_cli_path)]
+    pub(crate) staging_dir: Option<PathBuf>,
+    #[arg(long = "mode", value_parser = ["selective", "replace-directory"], default_value = "selective")]
+    pub(crate) publication: String,
+    /// Remove entries absent from the target snapshot. Repair preserves them by default.
+    #[arg(long = "remove-extra-files")]
+    pub(crate) remove_added_files: bool,
+    #[arg(long)]
+    pub(crate) metadata_only: bool,
+    #[arg(long = "reuse-snapshot")]
+    pub(crate) source_snapshot: Option<String>,
+    #[arg(long = "reuse-from", value_parser = parse_cli_path)]
+    pub(crate) source_dir: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+}
+
 #[derive(Subcommand)]
 pub(crate) enum InstallationCommands {
     /// Reconstruct a verified tree, replacing the entire destination including extra files.
     Reconstruct(Box<ReconstructArgs>),
 
     /// Preview installation changes without modifying files.
-    Preview {
-        #[arg(long, value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: String,
-        #[arg(long, value_parser = parse_cli_path)]
-        destination: PathBuf,
-        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
-        staging_dir: Option<PathBuf>,
-        #[arg(long = "mode", value_parser = ["selective", "replace-directory"], default_value = "selective")]
-        publication: String,
-        /// Remove entries absent from the target snapshot. Repair preserves them by default.
-        #[arg(long = "remove-extra-files")]
-        remove_added_files: bool,
-        #[arg(long)]
-        metadata_only: bool,
-        #[arg(long = "reuse-snapshot")]
-        source_snapshot: Option<String>,
-        #[arg(long = "reuse-from", value_parser = parse_cli_path)]
-        source_dir: Option<PathBuf>,
-        #[command(flatten)]
-        runtime: RuntimeArgs,
-    },
+    Preview(PreviewArgs),
 
     /// Verify expected content hashes and report missing, corrupt and extra entries.
     Verify {
