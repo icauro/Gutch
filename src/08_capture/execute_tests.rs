@@ -362,15 +362,12 @@ fn same_id_different_tags_returns_metadata_conflict() {
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     });
-    let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
-        panic!("expected a metadata conflict, got {conflict:?}");
-    };
-    let SnapshotCaptureOutcome::MetadataConflict {
+    let Err(crate::Error::SnapshotMetadataConflict {
         snapshot_id,
         differences,
-    } = outcome
+    }) = conflict
     else {
-        panic!("expected a metadata conflict outcome");
+        panic!("expected a metadata conflict, got {conflict:?}");
     };
     assert_eq!(snapshot_id, first.snapshot_id);
     assert!(
@@ -463,13 +460,11 @@ fn tampered_blueprint_returns_integrity_conflict() {
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     });
-    let Err(crate::Error::SnapshotCaptureConflict { outcome }) = conflict else {
-        panic!("expected an integrity conflict, got {conflict:?}");
-    };
-    assert!(matches!(
-        outcome,
-        SnapshotCaptureOutcome::IntegrityConflict { .. }
-    ));
+    assert!(
+        matches!(&conflict, Err(crate::Error::SnapshotIntegrityMismatch { snapshot_id })
+        if *snapshot_id == first.snapshot_id),
+        "expected an integrity mismatch, got {conflict:?}"
+    );
 }
 
 #[test]

@@ -16,7 +16,6 @@ use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::execute::build_capture_pool;
-use crate::capture::execute::capture_error;
 use crate::capture::execute::capture_snapshot_reusing_state;
 use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::load_capture_reuse_state;
@@ -227,7 +226,6 @@ pub fn capture_snapshot_sources(
 
         Ok(SnapshotSourcesCaptureResult { captured_count })
     })
-    .map_err(capture_error)
 }
 
 fn capture_source_snapshot(

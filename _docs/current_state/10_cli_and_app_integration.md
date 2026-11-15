@@ -209,7 +209,7 @@ artifact bytes, `Manifest` for snapshot manifest data, `Repository` for
 repository state and synchronization, `Capture` for source capture, and
 `Download`, `Verify` and `Reconstruct` for their operations. Structured kinds
 include `Cancelled`, `IoContext`, `HashMismatch`, `InvalidPath`,
-`SnapshotIntegrityMismatch` and `SnapshotCaptureConflict`.
+`SnapshotIntegrityMismatch` and `SnapshotMetadataConflict`.
 
 ## Output and previews
 

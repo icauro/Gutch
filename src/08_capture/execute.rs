@@ -1,7 +1,8 @@
 //! Captures one source into a repository snapshot and publishes it.
 
+use crate::capture::contracts::SnapshotCaptureOutcome;
 use crate::capture::contracts::{SnapshotCaptureRequest, SnapshotCaptureResult};
-use crate::error::capture_outcome::{MetadataFieldDifference, SnapshotCaptureOutcome};
+use crate::error::metadata_conflict::MetadataFieldDifference;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -86,7 +87,6 @@ pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptu
         write_gutch_repo_manifest(&repo_paths, &manifest)?;
         Ok(result)
     })
-    .map_err(capture_error)
 }
 
 pub(crate) fn capture_snapshot_reusing_state(
@@ -105,18 +105,6 @@ pub(crate) fn capture_snapshot_reusing_state(
         )?;
         execute_repo_snapshot_capture(request, reuse_state, build_pool)
     })
-    .map_err(capture_error)
-}
-
-pub(super) fn capture_error(error: crate::Error) -> crate::Error {
-    match error {
-        crate::Error::SnapshotIntegrityMismatch { snapshot_id } => {
-            crate::Error::SnapshotCaptureConflict {
-                outcome: SnapshotCaptureOutcome::IntegrityConflict { snapshot_id },
-            }
-        }
-        error => error,
-    }
 }
 
 fn execute_repo_snapshot_capture(
@@ -350,11 +338,9 @@ fn ensure_same_metadata(
     if differences.is_empty() {
         return Ok(());
     }
-    Err(crate::Error::SnapshotCaptureConflict {
-        outcome: SnapshotCaptureOutcome::MetadataConflict {
-            snapshot_id: requested_manifest.snapshot_id.clone(),
-            differences,
-        },
+    Err(crate::Error::SnapshotMetadataConflict {
+        snapshot_id: requested_manifest.snapshot_id.clone(),
+        differences,
     })
 }
 

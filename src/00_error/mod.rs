@@ -1,6 +1,6 @@
 //! Engine failures shared by operations and embedding hosts.
 
-pub(crate) mod capture_outcome;
+pub(crate) mod metadata_conflict;
 pub(crate) mod path_validation;
 pub(crate) mod promotion_diagnostics;
 
@@ -61,12 +61,19 @@ pub enum Error {
     #[error("Verification error: {0}")]
     Verify(String),
 
-    #[error("Stored snapshot data does not match its content-derived ID: {snapshot_id}")]
+    #[error(
+        "Stored snapshot data does not match its content-derived ID; the repository may be corrupt: {snapshot_id}"
+    )]
     SnapshotIntegrityMismatch { snapshot_id: String },
 
-    #[error("{outcome}")]
-    SnapshotCaptureConflict {
-        outcome: capture_outcome::SnapshotCaptureOutcome,
+    /// Capture produced an existing snapshot ID with different descriptive metadata.
+    #[error(
+        "snapshot_id: {snapshot_id}{}\nCapture did not change the existing snapshot. Use an explicit metadata update for this snapshot ID.",
+        metadata_conflict::MetadataDifferences(differences)
+    )]
+    SnapshotMetadataConflict {
+        snapshot_id: String,
+        differences: Vec<metadata_conflict::MetadataFieldDifference>,
     },
 
     #[error("Reconstruction error: {0}")]

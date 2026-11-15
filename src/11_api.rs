@@ -64,6 +64,7 @@ pub use crate::path_compare::compare_paths;
 pub use crate::snapshot::diff::{SnapshotChangeKind, SnapshotDiff, SnapshotEntryChange};
 
 // Capture
+pub use crate::capture::contracts::SnapshotCaptureOutcome;
 pub use crate::capture::contracts::SnapshotCapturePlan;
 pub use crate::capture::contracts::SnapshotCaptureRequest;
 pub use crate::capture::contracts::SnapshotCaptureResult;
@@ -83,8 +84,7 @@ pub use crate::capture::sources::configured::plan_snapshot_sources_capture;
 pub use crate::capture::sources::configured::plan_snapshot_sources_capture_with_context;
 pub use crate::capture::sources::plan_snapshot_captures;
 pub use crate::capture::sources::resolve_capture_sources;
-pub use crate::error::capture_outcome::MetadataFieldDifference;
-pub use crate::error::capture_outcome::SnapshotCaptureOutcome;
+pub use crate::error::metadata_conflict::MetadataFieldDifference;
 
 // Installation
 pub use crate::installation::InstallationCorruptionPlan;

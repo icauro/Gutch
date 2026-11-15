@@ -36,8 +36,8 @@ the app Creator workspace, fixtures, and self-publish staging.
    snapshot artifacts through the repo pipeline. Immutable artifacts and the
    chunk index are published before the snapshot manifest, which is the
    commit marker. If the computed snapshot ID already exists, capture
-   returns Unchanged for identical metadata or a typed metadata/integrity
-   conflict instead of mutating the stored snapshot; explicit retag targets
+   returns `Unchanged` for identical metadata, or fails with
+   `SnapshotMetadataConflict` or `SnapshotIntegrityMismatch` instead of mutating the stored snapshot; explicit retag targets
    one exact snapshot ID.
 
 ## Ingestion Modes

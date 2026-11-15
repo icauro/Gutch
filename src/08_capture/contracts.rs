@@ -5,7 +5,6 @@ use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
 use crate::capture::build::types::BuildTimings;
-use crate::error::capture_outcome::SnapshotCaptureOutcome;
 use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
@@ -37,6 +36,29 @@ pub struct SnapshotCaptureRequest {
     pub storage_mode: ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
     pub control: OperationControl,
+}
+
+/// Whether capture stored a new snapshot or found identical existing content.
+/// Conflicts with stored snapshots are errors.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SnapshotCaptureOutcome {
+    Created { snapshot_id: String },
+    Unchanged { snapshot_id: String },
+}
+
+impl SnapshotCaptureOutcome {
+    /// Caller-facing wording for the outcome.
+    pub fn message(&self) -> String {
+        match self {
+            SnapshotCaptureOutcome::Created { snapshot_id } => {
+                format!("Captured snapshot {snapshot_id}.")
+            }
+            SnapshotCaptureOutcome::Unchanged { .. } => {
+                String::from("Snapshot content already exists; no changes were made.")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
