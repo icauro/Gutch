@@ -11,8 +11,8 @@ pub use crate::error::Error;
 pub use crate::error::Result;
 pub use crate::error::path_validation::{PathValidationFailure, PathViolation};
 pub use crate::error::promotion_diagnostics::{
-    DiagnosticIoError, DirectoryPromotionDiagnostic, PromotionPathObservation,
-    PromotionRecoveryAttempt,
+    DiagnosticIoError, DirectoryPromotionDiagnostic, PromotionPathObservation, PromotionPathState,
+    PromotionPhase, PromotionRecoveryAttempt, PromotionRecoveryOperation,
 };
 pub use crate::filesystem::paths::ExistingDestinationPathKind;
 pub use crate::filesystem::paths::resolve_existing_destination_path;

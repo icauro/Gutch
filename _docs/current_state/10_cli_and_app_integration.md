@@ -189,9 +189,11 @@ The same report is included as `error_details` in failed `--json` results and
 the final `--json-lines` summary; the existing `error` string remains readable.
 Promotion failures use `code: directory_promotion_failed`. Details include
 platform, UTC observation time, phase, elapsed milliseconds, the native I/O
-error, and observations of staging, destination and backup paths. Rollback and
-staging-cleanup attempts retain their own success or error results. Failed
-metadata inspection is represented as unknown, with its inspection error.
+error, and observations of staging, destination and backup paths. Each
+observation has a `state` of `present` (with `read_only` and `is_directory`),
+`missing`, or `unknown` (with its `inspection_error`). `committed` is true only
+for the post-commit phases `remove_backup_marker` and `remove_backup`. Rollback
+and staging-cleanup attempts retain their own success or error results.
 Diagnostics are captured before rollback or subsequent staging cleanup;
 observations of multiple paths are best-effort, not an atomic filesystem view.
 Failure to save the error report is reported separately on stderr and never

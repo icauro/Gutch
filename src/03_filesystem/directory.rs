@@ -1,7 +1,10 @@
 //! Recoverable directory replacement shared by repository and installation publication.
 use super::{create_dir_all, read, write};
 use crate::Error;
-use crate::error::promotion_diagnostics::{DirectoryPromotionDiagnostic, PromotionRecoveryAttempt};
+use crate::error::promotion_diagnostics::{
+    DirectoryPromotionDiagnostic, PromotionPhase, PromotionRecoveryAttempt,
+    PromotionRecoveryOperation,
+};
 use crate::progress::OperationControl;
 use crate::progress::OperationWarning;
 use std::fs;
@@ -65,7 +68,7 @@ fn replace_directory_with_operations(
         attach_promotion_diagnostic(
             error,
             parent,
-            "prepare_destination_parent",
+            PromotionPhase::PrepareDestinationParent,
             started,
             staging_dir,
             destination_dir,
@@ -77,7 +80,7 @@ fn replace_directory_with_operations(
         attach_promotion_diagnostic(
             error,
             destination_dir,
-            "recover_existing_backup",
+            PromotionPhase::RecoverExistingBackup,
             started,
             staging_dir,
             destination_dir,
@@ -93,7 +96,7 @@ fn replace_directory_with_operations(
             attach_promotion_diagnostic(
                 error,
                 &owner_path,
-                "write_backup_owner",
+                PromotionPhase::WriteBackupOwner,
                 started,
                 staging_dir,
                 destination_dir,
@@ -102,7 +105,7 @@ fn replace_directory_with_operations(
         })?;
         rename(destination_dir, &backup_path).map_err(|error| {
             let diagnostic = DirectoryPromotionDiagnostic::capture(
-                "move_destination_to_backup",
+                PromotionPhase::MoveDestinationToBackup,
                 started,
                 &error,
                 staging_dir,
@@ -127,7 +130,7 @@ fn replace_directory_with_operations(
     if let Err(error) = rename(staging_dir, destination_dir) {
         // Observe the failing boundary before rollback or cleanup alters any path.
         let mut diagnostic = DirectoryPromotionDiagnostic::capture(
-            "promote_staging",
+            PromotionPhase::PromoteStaging,
             started,
             &error,
             staging_dir,
@@ -136,12 +139,12 @@ fn replace_directory_with_operations(
         );
         if let Some(backup) = &backup_dir {
             diagnostic.recovery.push(PromotionRecoveryAttempt::capture(
-                "restore_backup",
+                PromotionRecoveryOperation::RestoreBackup,
                 rename(backup, destination_dir),
             ));
         }
         diagnostic.recovery.push(PromotionRecoveryAttempt::capture(
-            "remove_staging",
+            PromotionRecoveryOperation::RemoveStaging,
             remove_staging(staging_dir),
         ));
         return Err(promotion_error(
@@ -158,28 +161,26 @@ fn replace_directory_with_operations(
         match remove_backup(backup) {
             Ok(()) => {
                 if let Err(error) = fs::remove_file(backup.with_extension("owner")) {
-                    let mut diagnostic = DirectoryPromotionDiagnostic::capture(
-                        "remove_backup_marker",
+                    let diagnostic = DirectoryPromotionDiagnostic::capture(
+                        PromotionPhase::RemoveBackupMarker,
                         started,
                         &error,
                         staging_dir,
                         destination_dir,
                         backup,
                     );
-                    diagnostic.committed = true;
                     return Ok(Some(diagnostic));
                 }
             }
             Err(error) => {
-                let mut diagnostic = DirectoryPromotionDiagnostic::capture(
-                    "remove_backup",
+                let diagnostic = DirectoryPromotionDiagnostic::capture(
+                    PromotionPhase::RemoveBackup,
                     started,
                     &error,
                     staging_dir,
                     destination_dir,
                     backup,
                 );
-                diagnostic.committed = true;
                 return Ok(Some(diagnostic));
             }
         }
@@ -204,14 +205,18 @@ fn promotion_error(
 fn attach_promotion_diagnostic(
     error: Error,
     context: &Path,
-    phase: &'static str,
+    phase: PromotionPhase,
     started: Instant,
     staging: &Path,
     destination: &Path,
     backup: &Path,
 ) -> Error {
     let (operation, path, source) = match error {
-        Error::Io(source) => (phase.replace('_', " "), context.to_path_buf(), source),
+        Error::Io(source) => (
+            phase.description().to_owned(),
+            context.to_path_buf(),
+            source,
+        ),
         Error::IoContext {
             operation,
             path,
@@ -404,6 +409,7 @@ mod tests {
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
+    use crate::error::promotion_diagnostics::PromotionPathState;
 
     #[test]
     fn backup_owner_write_failure_keeps_the_destination_and_reports_its_phase() {
@@ -420,9 +426,9 @@ mod diagnostic_tests {
         let report = error.diagnostic_report();
         assert_eq!(report["code"], "directory_promotion_failed");
         assert_eq!(report["details"]["phase"], "write_backup_owner");
-        assert_eq!(report["details"]["destination"]["exists"], true);
-        assert_eq!(report["details"]["staging"]["exists"], true);
-        assert_eq!(report["details"]["backup"]["exists"], false);
+        assert_eq!(report["details"]["destination"]["state"], "present");
+        assert_eq!(report["details"]["staging"]["state"], "present");
+        assert_eq!(report["details"]["backup"]["state"], "missing");
         assert_eq!(std::fs::read(destination.join("old")).unwrap(), b"original");
     }
 
@@ -445,9 +451,9 @@ mod diagnostic_tests {
         assert_eq!(report["code"], "directory_promotion_failed");
         let details = &report["details"];
         assert_eq!(details["phase"], "promote_staging");
-        assert_eq!(details["staging"]["exists"], false);
-        assert_eq!(details["destination"]["exists"], false);
-        assert_eq!(details["backup"]["exists"], true);
+        assert_eq!(details["staging"]["state"], "missing");
+        assert_eq!(details["destination"]["state"], "missing");
+        assert_eq!(details["backup"]["state"], "present");
         assert_eq!(details["recovery"][0]["operation"], "restore_backup");
         assert_eq!(details["recovery"][0]["succeeded"], true);
         assert_eq!(details["recovery"][1]["operation"], "remove_staging");
@@ -491,10 +497,21 @@ mod diagnostic_tests {
         };
         assert_eq!(source.raw_os_error(), Some(5));
         assert_eq!(details.primary_error.raw_os_error, Some(5));
-        assert_eq!(details.staging.exists, Some(true));
-        assert_eq!(details.staging.read_only, Some(false));
-        assert_eq!(details.destination.exists, Some(false));
-        assert_eq!(details.backup.exists, Some(true));
+        assert!(matches!(
+            details.staging.state,
+            PromotionPathState::Present {
+                read_only: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            details.destination.state,
+            PromotionPathState::Missing
+        ));
+        assert!(matches!(
+            details.backup.state,
+            PromotionPathState::Present { .. }
+        ));
         assert_eq!(
             details.recovery[0].error.as_ref().unwrap().raw_os_error,
             Some(13)
@@ -529,10 +546,16 @@ mod diagnostic_tests {
         .unwrap()
         .unwrap();
         assert!(warning.committed);
-        assert_eq!(warning.phase, "remove_backup");
+        assert_eq!(warning.phase, PromotionPhase::RemoveBackup);
         assert_eq!(warning.primary_error.raw_os_error, Some(5));
-        assert_eq!(warning.destination.exists, Some(true));
-        assert_eq!(warning.backup.exists, Some(true));
+        assert!(matches!(
+            warning.destination.state,
+            PromotionPathState::Present { .. }
+        ));
+        assert!(matches!(
+            warning.backup.state,
+            PromotionPathState::Present { .. }
+        ));
         assert!(warning.recovery.is_empty());
         assert_eq!(
             std::fs::read(destination.join("new")).unwrap(),

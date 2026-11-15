@@ -69,9 +69,9 @@ def run(case):
         details = failure["details"]
         assert details["phase"] == "move_destination_to_backup"
         assert details["committed"] is False
-        assert details["destination"]["exists"] is True
-        assert details["staging"]["exists"] is True
-        assert details["backup"]["exists"] is False
+        assert details["destination"]["state"] == "present"
+        assert details["staging"]["state"] == "present"
+        assert details["backup"]["state"] == "missing"
         assert isinstance(details["primary_error"]["raw_os_error"], int)
         assert details["observed_at"].endswith("Z")
         assert details["recovery"] == []

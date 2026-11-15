@@ -24,13 +24,66 @@ impl DiagnosticIoError {
     }
 }
 
+/// Step of a directory promotion. The last two run after the switch commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromotionPhase {
+    PrepareDestinationParent,
+    RecoverExistingBackup,
+    WriteBackupOwner,
+    MoveDestinationToBackup,
+    PromoteStaging,
+    RemoveBackupMarker,
+    RemoveBackup,
+}
+
+impl PromotionPhase {
+    /// True once the new directory is visible at the destination.
+    pub fn is_committed(self) -> bool {
+        matches!(self, Self::RemoveBackupMarker | Self::RemoveBackup)
+    }
+
+    pub(crate) fn description(self) -> &'static str {
+        match self {
+            Self::PrepareDestinationParent => "preparing destination parent",
+            Self::RecoverExistingBackup => "recovering existing backup",
+            Self::WriteBackupOwner => "writing backup owner",
+            Self::MoveDestinationToBackup => "moving destination to backup",
+            Self::PromoteStaging => "promoting staging",
+            Self::RemoveBackupMarker => "removing backup marker",
+            Self::RemoveBackup => "removing backup",
+        }
+    }
+}
+
+/// Rollback step attempted after a failed promotion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromotionRecoveryOperation {
+    RestoreBackup,
+    RemoveStaging,
+}
+
+/// What metadata inspection of a path found.
+#[derive(Debug, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum PromotionPathState {
+    Missing,
+    Present {
+        read_only: bool,
+        is_directory: bool,
+    },
+    /// Inspection failed, so the path's existence is unknown.
+    Unknown {
+        inspection_error: DiagnosticIoError,
+    },
+}
+
 #[derive(Debug, Serialize)]
 pub struct PromotionPathObservation {
     pub path: String,
-    pub exists: Option<bool>,
-    pub read_only: Option<bool>,
-    pub is_directory: Option<bool>,
-    pub inspection_error: Option<DiagnosticIoError>,
+    #[serde(flatten)]
+    pub state: PromotionPathState,
 }
 
 impl PromotionPathObservation {
@@ -39,38 +92,33 @@ impl PromotionPathObservation {
     }
 
     fn from_metadata(path: &Path, metadata: io::Result<Metadata>) -> Self {
-        let mut observation = Self {
+        let state = match metadata {
+            Ok(metadata) => PromotionPathState::Present {
+                read_only: metadata.permissions().readonly(),
+                is_directory: metadata.is_dir(),
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => PromotionPathState::Missing,
+            Err(error) => PromotionPathState::Unknown {
+                inspection_error: DiagnosticIoError::capture(&error),
+            },
+        };
+        Self {
             // Diagnostic paths remain serializable even when the native path is not UTF-8.
             path: path.to_string_lossy().into_owned(),
-            exists: None,
-            read_only: None,
-            is_directory: None,
-            inspection_error: None,
-        };
-        match metadata {
-            Ok(metadata) => {
-                observation.exists = Some(true);
-                observation.read_only = Some(metadata.permissions().readonly());
-                observation.is_directory = Some(metadata.is_dir());
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                observation.exists = Some(false);
-            }
-            Err(error) => observation.inspection_error = Some(DiagnosticIoError::capture(&error)),
+            state,
         }
-        observation
     }
 }
 
 #[derive(Debug, Serialize)]
 pub struct PromotionRecoveryAttempt {
-    pub operation: &'static str,
+    pub operation: PromotionRecoveryOperation,
     pub succeeded: bool,
     pub error: Option<DiagnosticIoError>,
 }
 
 impl PromotionRecoveryAttempt {
-    pub(crate) fn capture(operation: &'static str, result: io::Result<()>) -> Self {
+    pub(crate) fn capture(operation: PromotionRecoveryOperation, result: io::Result<()>) -> Self {
         Self {
             operation,
             succeeded: result.is_ok(),
@@ -83,8 +131,9 @@ impl PromotionRecoveryAttempt {
 pub struct DirectoryPromotionDiagnostic {
     pub platform: &'static str,
     pub observed_at: String,
-    pub phase: &'static str,
+    pub phase: PromotionPhase,
     pub elapsed_ms: u128,
+    /// Derived from `phase`; kept in the report for readers of the JSON.
     pub committed: bool,
     pub primary_error: DiagnosticIoError,
     pub staging: PromotionPathObservation,
@@ -95,7 +144,7 @@ pub struct DirectoryPromotionDiagnostic {
 
 impl DirectoryPromotionDiagnostic {
     pub(crate) fn capture(
-        phase: &'static str,
+        phase: PromotionPhase,
         started: Instant,
         error: &io::Error,
         staging: &Path,
@@ -107,7 +156,7 @@ impl DirectoryPromotionDiagnostic {
             observed_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             phase,
             elapsed_ms: started.elapsed().as_millis(),
-            committed: false,
+            committed: phase.is_committed(),
             primary_error: DiagnosticIoError::capture(error),
             staging: PromotionPathObservation::capture(staging),
             destination: PromotionPathObservation::capture(destination),
@@ -131,8 +180,13 @@ mod tests {
         permissions.set_readonly(true);
         std::fs::set_permissions(&path, permissions).unwrap();
         let observation = PromotionPathObservation::capture(&path);
-        assert_eq!(observation.exists, Some(true));
-        assert_eq!(observation.read_only, Some(true));
+        assert!(matches!(
+            observation.state,
+            PromotionPathState::Present {
+                read_only: true,
+                is_directory: false
+            }
+        ));
         assert!(std::fs::metadata(&path).unwrap().permissions().readonly());
         std::fs::set_permissions(&path, original).unwrap();
     }
@@ -146,11 +200,9 @@ mod tests {
                 "denied",
             )),
         );
-        assert_eq!(observation.exists, None);
-        assert_eq!(observation.read_only, None);
-        assert_eq!(
-            observation.inspection_error.unwrap().kind,
-            "PermissionDenied"
-        );
+        let PromotionPathState::Unknown { inspection_error } = observation.state else {
+            panic!("denied metadata must be unknown");
+        };
+        assert_eq!(inspection_error.kind, "PermissionDenied");
     }
 }
