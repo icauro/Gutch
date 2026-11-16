@@ -173,7 +173,7 @@ fn parses_reconstruction_with_fetch() {
     assert_eq!(arguments.transfer.concurrency, 4);
     assert_eq!(arguments.transfer.maximum, 12);
     assert_eq!(
-        arguments.artifacts,
+        arguments.sources.artifacts,
         ["chunk-1=https://objects.example/chunk"]
     );
 }
@@ -382,4 +382,26 @@ fn cli_resolves_absolute_and_relative_profile_output() {
         cli.profile_out.unwrap(),
         current_dir().unwrap().join("relative.trace.json")
     );
+}
+
+#[test]
+fn reconstruct_fetch_sources_require_fetch() {
+    for source in ["--chunk-index-url", "--session-id", "--artifact-url"] {
+        let error = Cli::try_parse_from([
+            "gutch",
+            "installation",
+            "reconstruct",
+            "--repo",
+            "repo",
+            "--snapshot",
+            "snapshot",
+            "-d",
+            "out",
+            source,
+            "value",
+        ])
+        .err()
+        .unwrap_or_else(|| panic!("{source} without --fetch should be rejected"));
+        assert!(error.to_string().contains("--fetch"), "{source}: {error}");
+    }
 }

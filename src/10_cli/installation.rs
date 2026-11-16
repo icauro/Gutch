@@ -2,6 +2,7 @@
 
 use crate::cli::InstallationCommands;
 use crate::cli::Profile;
+use crate::cli::arguments::FetchArgs;
 use crate::cli::arguments::PreviewArgs;
 use crate::cli::arguments::PreviewPublication;
 use crate::cli::arguments::ReconstructArgs;
@@ -9,9 +10,7 @@ use crate::cli::arguments::RuntimeArgs;
 use crate::cli::command_support::InstallationVerifyStats;
 use crate::cli::command_support::SnapshotReconstructStats;
 use crate::cli::command_support::prompt_yes_no;
-use crate::cli::command_support::{
-    InstallationCorruptStats, InstallationRepairStats, write_report,
-};
+use crate::cli::command_support::{InstallationCorruptStats, InstallationRepairStats};
 use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::output::dry_run;
@@ -22,8 +21,8 @@ use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
 use crate::cli::reporting::reconstruct_timings_summary;
 use crate::cli::reporting::verify_timings_summary;
+use crate::cli::reporting::write_stats_json_output;
 use crate::cli::snapshot_transfer::FetchAndReconstructCommand;
-use crate::cli::snapshot_transfer::FetchCommand;
 use crate::cli::snapshot_transfer::fetch_and_reconstruct;
 use crate::cli::verbose_output_enabled;
 use crate::installation::InstallationCorruptionPlan;
@@ -132,7 +131,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         resolved_bundle_file_count: execution.resolved_bundle_file_count,
         elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
     };
-    write_report(&stats, profile.as_deref())?;
+    write_stats_json_output(&stats, profile.as_deref())?;
 
     output::line(format_args!(
         "repaired installation of snapshot {} at {}",
@@ -190,7 +189,7 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &Profile) -> crate::Resu
         applied_operation_count: result.applied_operation_count,
         elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
     };
-    write_report(&stats, profile.as_deref())?;
+    write_stats_json_output(&stats, profile.as_deref())?;
 
     if verbose_output_enabled() {
         output::line(format_args!(
@@ -253,14 +252,8 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
         runtime,
         fetch,
         metadata_url,
-        product_metadata_url,
         blueprint_url,
-        repo_metadata_url,
-        chunk_index_url,
-        bundle_downloads_endpoint,
-        session_id,
-        artifacts,
-        artifact_url_manifest,
+        sources,
         transfer,
     } = arguments;
     if !fetch {
@@ -279,19 +272,13 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
     }
     fetch_and_reconstruct(
         FetchAndReconstructCommand {
-            fetch: FetchCommand {
+            fetch: FetchArgs {
                 repo,
                 snapshot_id,
                 metadata_url: metadata_url.expect("Clap requires snapshot metadata with --fetch"),
                 blueprint_url: blueprint_url.expect("Clap requires a blueprint with --fetch"),
-                product_metadata_url,
-                repo_metadata_url,
-                chunk_index_url,
-                bundle_downloads_endpoint,
-                session_id,
-                artifacts,
-                artifact_url_manifest,
-                transfer_policy: transfer.policy(),
+                sources,
+                transfer,
             },
             destination,
             staging_dir,
@@ -415,7 +402,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
             profile_mode(profile.as_deref()),
         ),
     };
-    write_report(&stats, profile.as_deref())?;
+    write_stats_json_output(&stats, profile.as_deref())?;
 
     output::line(format_args!(
         "reconstructed snapshot {} to {}",
@@ -467,7 +454,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
         errors: errors.clone(),
         timings: verify_timings_summary(&timings, profile_mode(command.profile.as_deref())),
     };
-    write_report(&stats, command.profile.as_deref())?;
+    write_stats_json_output(&stats, command.profile.as_deref())?;
 
     if errors.is_empty() {
         output::line(format_args!(

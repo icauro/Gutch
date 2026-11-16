@@ -17,7 +17,6 @@ use crate::cli::command_support::SnapshotCaptureManyStats;
 use crate::cli::command_support::SnapshotCaptureStats;
 use crate::cli::command_support::load_snapshot_manifest_from_repo;
 use crate::cli::command_support::prompt_yes_no;
-use crate::cli::command_support::write_report;
 use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::output::dry_run;
@@ -27,8 +26,8 @@ use crate::cli::reporting::mib;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
+use crate::cli::reporting::write_stats_json_output;
 use crate::cli::snapshot_transfer;
-use crate::cli::snapshot_transfer::FetchCommand;
 use crate::cli::tags::parse_cli_tags;
 use crate::filesystem;
 use crate::manifest::repo_manifest::RepoManifest;
@@ -118,36 +117,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
             yes,
             profile,
         ),
-        SnapshotCommands::Fetch {
-            repo,
-            snapshot_id,
-            metadata_url,
-            product_metadata_url,
-            blueprint_url,
-            repo_metadata_url,
-            chunk_index_url,
-            bundle_downloads_endpoint,
-            session_id,
-            artifacts,
-            artifact_url_manifest,
-            transfer,
-        } => snapshot_transfer::fetch(
-            FetchCommand {
-                repo,
-                snapshot_id,
-                metadata_url,
-                product_metadata_url,
-                blueprint_url,
-                repo_metadata_url,
-                chunk_index_url,
-                bundle_downloads_endpoint,
-                session_id,
-                artifacts,
-                artifact_url_manifest,
-                transfer_policy: transfer.policy(),
-            },
-            profile,
-        ),
+        SnapshotCommands::Fetch(arguments) => snapshot_transfer::fetch(arguments, profile),
         SnapshotCommands::Measure { source_dir, tags } => measure(&source_dir, &tags),
     }
 }
@@ -236,14 +206,14 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
     }
     if single_report && snapshot_stats.len() == 1 {
         let stats = snapshot_stats.into_iter().next().unwrap();
-        write_report(&stats, profile.as_deref())?;
+        write_stats_json_output(&stats, profile.as_deref())?;
     } else {
         let aggregate_stats = aggregate_capture_stats(
             &repo_paths.repo_root.display().to_string(),
             snapshot_stats,
             profile_mode(profile.as_deref()),
         );
-        write_report(&aggregate_stats, profile.as_deref())?;
+        write_stats_json_output(&aggregate_stats, profile.as_deref())?;
     }
     print_profile_summary(profile.as_deref());
     Ok(())

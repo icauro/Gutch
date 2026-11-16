@@ -98,7 +98,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
         let repo = root.path().join(name);
         let paths = RepoPaths::from_repo_root(&repo);
         crate::repo::paths::ensure_gutch_repo_layout(&paths, name).unwrap();
-        let captured = crate::capture::execute::capture_snapshot(
+        let captured = crate::capture::sources::capture_snapshot(
             crate::capture::contracts::SnapshotCaptureRequest {
                 repo_root: repo.clone(),
                 source_dir: source.clone(),

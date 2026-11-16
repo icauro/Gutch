@@ -286,7 +286,7 @@ fn capture(repo: &Path, source: &Path, content: &[u8]) -> String {
     if !paths.repo_metadata_path.exists() {
         crate::repo::paths::ensure_gutch_repo_layout(&paths, "fixture").unwrap();
     }
-    crate::capture::execute::capture_snapshot(crate::capture::contracts::SnapshotCaptureRequest {
+    crate::capture::sources::capture_snapshot(crate::capture::contracts::SnapshotCaptureRequest {
         repo_root: repo.to_path_buf(),
         source_dir: source.to_path_buf(),
         explicit_tags: Default::default(),

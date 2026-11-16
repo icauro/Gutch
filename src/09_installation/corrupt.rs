@@ -7,7 +7,6 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
-use std::path::PathBuf;
 
 use crate::Result;
 use crate::filesystem::paths::resolve_manifest_relative_path;
@@ -58,12 +57,8 @@ fn apply_operation(root: &Path, operation: &InstallationCorruptionOperation) -> 
     }
 }
 
-fn resolve(root: &Path, relative: &str) -> Result<PathBuf> {
-    resolve_manifest_relative_path(root, relative)
-}
-
 fn flip_byte(root: &Path, relative: &str, offset: u64, mask: u8) -> Result<()> {
-    let path = resolve(root, relative)?;
+    let path = resolve_manifest_relative_path(root, relative)?;
     let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
     file.seek(SeekFrom::Start(offset))?;
     let mut byte = [0u8; 1];
@@ -80,7 +75,7 @@ fn flip_byte(root: &Path, relative: &str, offset: u64, mask: u8) -> Result<()> {
 }
 
 fn delete_entry(root: &Path, relative: &str) -> Result<()> {
-    let path = resolve(root, relative)?;
+    let path = resolve_manifest_relative_path(root, relative)?;
     let metadata = fs::symlink_metadata(&path).map_err(|error| {
         crate::Error::invalid_input(format!(
             "cannot delete corruption target '{}': {error}",
@@ -96,7 +91,7 @@ fn delete_entry(root: &Path, relative: &str) -> Result<()> {
 }
 
 fn add_file(root: &Path, relative: &str, content: &[u8]) -> Result<()> {
-    let path = resolve(root, relative)?;
+    let path = resolve_manifest_relative_path(root, relative)?;
     if path.exists() {
         return Err(crate::Error::invalid_input(format!(
             "cannot add corruption file because it already exists: {}",
@@ -112,7 +107,7 @@ fn add_file(root: &Path, relative: &str, content: &[u8]) -> Result<()> {
 }
 
 fn set_read_only(root: &Path, relative: &str, read_only: bool) -> Result<()> {
-    let path = resolve(root, relative)?;
+    let path = resolve_manifest_relative_path(root, relative)?;
     let mut permissions = fs::symlink_metadata(&path)?.permissions();
     crate::filesystem::set_read_only(&mut permissions, read_only);
     fs::set_permissions(path, permissions)?;

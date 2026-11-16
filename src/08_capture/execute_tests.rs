@@ -10,6 +10,7 @@ use crate::artifact::profiles::CompressionKind;
 use crate::capture::plan::plan_snapshot_capture;
 use crate::capture::scan::format_system_time_utc;
 use crate::capture::scan::source_modified_at;
+use crate::capture::sources::capture_snapshot;
 use crate::capture::sources::discovery::source_snapshot_candidate;
 use crate::installation::InstallationRequest;
 use crate::installation::reconstruct_snapshot;

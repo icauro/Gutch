@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use clap::Args;
 use clap::Subcommand;
 
-use super::shared::{ArtifactBuildProfileArgs, RuntimeArgs, TransferArgs, parse_cli_path};
+use super::shared::{
+    ArtifactBuildProfileArgs, FetchSourceArgs, RuntimeArgs, TransferArgs, parse_cli_path,
+};
 
 #[derive(Subcommand)]
 pub(crate) enum SnapshotCommands {
@@ -46,32 +48,23 @@ pub(crate) enum SnapshotCommands {
         tags: Vec<String>,
     },
     /// Download snapshot data and artifacts into a repository without reconstructing files.
-    Fetch {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: String,
-        #[arg(long = "snapshot-metadata-url")]
-        metadata_url: String,
-        #[arg(long = "product-metadata-url")]
-        product_metadata_url: Option<String>,
-        #[arg(long = "blueprint-url")]
-        blueprint_url: String,
-        #[arg(long = "repo-metadata-url")]
-        repo_metadata_url: Option<String>,
-        #[arg(long = "chunk-index-url")]
-        chunk_index_url: Option<String>,
-        #[arg(long = "bundle-downloads-endpoint")]
-        bundle_downloads_endpoint: Option<String>,
-        #[arg(long = "session-id")]
-        session_id: Option<String>,
-        #[arg(long = "artifact-url")]
-        artifacts: Vec<String>,
-        #[arg(long = "artifact-url-manifest", value_parser = parse_cli_path)]
-        artifact_url_manifest: Option<PathBuf>,
-        #[command(flatten)]
-        transfer: TransferArgs,
-    },
+    Fetch(FetchArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct FetchArgs {
+    #[arg(long = "repo", value_parser = parse_cli_path)]
+    pub(crate) repo: PathBuf,
+    #[arg(long = "snapshot")]
+    pub(crate) snapshot_id: String,
+    #[arg(long = "snapshot-metadata-url")]
+    pub(crate) metadata_url: String,
+    #[arg(long = "blueprint-url")]
+    pub(crate) blueprint_url: String,
+    #[command(flatten)]
+    pub(crate) sources: FetchSourceArgs,
+    #[command(flatten)]
+    pub(crate) transfer: TransferArgs,
 }
 
 #[derive(Subcommand)]

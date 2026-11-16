@@ -492,60 +492,28 @@ pub(crate) fn cached_target_handle(
     Ok(file)
 }
 
-#[cfg(windows)]
 pub(crate) fn write_file_at(
     file: &File,
     offset: u64,
     bytes: &[u8],
     control: &OperationControl,
 ) -> Result<()> {
-    use std::os::windows::fs::FileExt;
-
-    let mut written = 0usize;
-    while written < bytes.len() {
-        let count = file.seek_write(&bytes[written..], offset + written as u64)?;
-        if count == 0 {
-            return Err(Error::reconstruct("output file write returned zero bytes"));
-        }
-        written += count;
-        control.written(count as u64);
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-pub(crate) fn write_file_at(
-    file: &File,
-    offset: u64,
-    bytes: &[u8],
-    control: &OperationControl,
-) -> Result<()> {
-    use std::os::unix::fs::FileExt;
-
+    #[cfg(not(any(unix, windows)))]
+    let mut file = {
+        let mut file = file.try_clone()?;
+        file.seek(SeekFrom::Start(offset))?;
+        file
+    };
     let mut written = 0;
     while written < bytes.len() {
-        let count = file.write_at(&bytes[written..], offset + written as u64)?;
-        if count == 0 {
-            return Err(Error::reconstruct("output write returned zero bytes"));
-        }
-        written += count;
-        control.written(count as u64);
-    }
-    Ok(())
-}
-
-#[cfg(not(any(unix, windows)))]
-pub(crate) fn write_file_at(
-    file: &File,
-    offset: u64,
-    bytes: &[u8],
-    control: &OperationControl,
-) -> Result<()> {
-    let mut file = file.try_clone()?;
-    file.seek(SeekFrom::Start(offset))?;
-    let mut written = 0;
-    while written < bytes.len() {
-        let count = file.write(&bytes[written..])?;
+        let remaining = &bytes[written..];
+        #[cfg(windows)]
+        let count =
+            std::os::windows::fs::FileExt::seek_write(file, remaining, offset + written as u64)?;
+        #[cfg(unix)]
+        let count = std::os::unix::fs::FileExt::write_at(file, remaining, offset + written as u64)?;
+        #[cfg(not(any(unix, windows)))]
+        let count = file.write(remaining)?;
         if count == 0 {
             return Err(Error::reconstruct("output write returned zero bytes"));
         }

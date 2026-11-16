@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::shared::{RuntimeArgs, TransferArgs, parse_cli_path};
+use super::shared::{FetchSourceArgs, RuntimeArgs, TransferArgs, parse_cli_path};
 
 #[derive(Args)]
 pub(crate) struct ReconstructArgs {
@@ -31,26 +31,15 @@ pub(crate) struct ReconstructArgs {
         requires = "fetch"
     )]
     pub(crate) metadata_url: Option<String>,
-    #[arg(long = "product-metadata-url", requires = "fetch")]
-    pub(crate) product_metadata_url: Option<String>,
     #[arg(
         long = "blueprint-url",
         required_if_eq("fetch", "true"),
         requires = "fetch"
     )]
     pub(crate) blueprint_url: Option<String>,
-    #[arg(long = "repo-metadata-url", requires = "fetch")]
-    pub(crate) repo_metadata_url: Option<String>,
-    #[arg(long = "chunk-index-url", requires = "fetch")]
-    pub(crate) chunk_index_url: Option<String>,
-    #[arg(long = "bundle-downloads-endpoint", requires = "fetch")]
-    pub(crate) bundle_downloads_endpoint: Option<String>,
-    #[arg(long = "session-id", requires = "fetch")]
-    pub(crate) session_id: Option<String>,
-    #[arg(long = "artifact-url", requires = "fetch")]
-    pub(crate) artifacts: Vec<String>,
-    #[arg(long = "artifact-url-manifest", requires = "fetch", value_parser = parse_cli_path)]
-    pub(crate) artifact_url_manifest: Option<PathBuf>,
+    /// Used only with `--fetch`.
+    #[command(flatten)]
+    pub(crate) sources: FetchSourceArgs,
     #[command(flatten)]
     pub(crate) transfer: TransferArgs,
 }
@@ -92,6 +81,7 @@ pub(crate) struct PreviewArgs {
 #[derive(Subcommand)]
 pub(crate) enum InstallationCommands {
     /// Reconstruct a verified tree, replacing the entire destination including extra files.
+    #[command(mut_group("FetchSourceArgs", |group| group.requires("fetch")))]
     Reconstruct(Box<ReconstructArgs>),
 
     /// Preview installation changes without modifying files.

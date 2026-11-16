@@ -9,10 +9,8 @@ use serde::Serialize;
 use crate::cli::reporting::BuildTimingsSummary;
 use crate::cli::reporting::ReconstructTimingsSummary;
 use crate::cli::reporting::VerifyTimingsSummary;
-use crate::cli::reporting::write_stats_json_output;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::repo_manifest::RepoManifest;
-use crate::profiling::Profiler;
 use crate::repo::paths::RepoPaths;
 use crate::repo::read::load_gutch_repo_manifest;
 use crate::repo::read::load_snapshot_manifest;
@@ -161,13 +159,6 @@ pub(crate) struct SnapshotFetchReconstructStats {
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) reconstruct_timings: ReconstructTimingsSummary,
     pub(crate) verify_timings: VerifyTimingsSummary,
-}
-
-pub(crate) fn write_report<T: Serialize>(
-    stats: &T,
-    profile: Option<&Profiler>,
-) -> crate::Result<()> {
-    write_stats_json_output(stats, profile)
 }
 
 pub(crate) fn load_snapshot_manifest_from_repo(

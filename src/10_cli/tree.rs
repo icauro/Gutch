@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use crate::cli::command_support::write_report;
 use crate::cli::output;
+use crate::cli::reporting::write_stats_json_output;
 use crate::path_compare::PathComparisonResult;
 use crate::path_compare::compare_paths;
 
@@ -15,7 +15,7 @@ pub(crate) fn compare(expected: PathBuf, actual: PathBuf) -> crate::Result<()> {
         #[serde(flatten)]
         result: &'a PathComparisonResult,
     }
-    write_report(
+    write_stats_json_output(
         &Report {
             command: "tree compare",
             result: &stats,

@@ -18,14 +18,10 @@ use crate::progress::ProgressEvent;
 use crate::progress::ProgressSink;
 use crate::repo::Result;
 
-use crate::artifact::profiles::BundleSizingProfile;
-use crate::artifact::profiles::ChunkSizingProfile;
-use crate::artifact::profiles::validate_packaging_sizes;
 use crate::capture::build::BuiltCapture;
 use crate::capture::build::build_with_stable_source;
 use crate::capture::build::types::BuildConfig;
 use crate::capture::build::types::BuildTimings;
-use crate::capture::plan::plan_snapshot_capture;
 use crate::capture::publish::publish_snapshot_artifacts;
 use crate::capture::scan::format_system_time_utc;
 use crate::capture::scan::validate_source_inventory;
@@ -47,22 +43,6 @@ use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
 use std::fs;
 use std::mem;
-pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
-    validate_packaging_sizes(
-        &ChunkSizingProfile::for_preset(request.chunk_profile),
-        &BundleSizingProfile::for_preset(request.bundle_profile),
-        request.storage_mode,
-    )?;
-    plan_snapshot_capture(
-        &request.repo_root,
-        &request.source_dir,
-        &request.explicit_tags,
-        &request.control,
-    )?;
-    let mut results = capture_planned_snapshots(vec![request])?;
-    Ok(results.remove(0))
-}
-
 /// Captures requests that were already validated and planned. Consecutive
 /// requests for the same repository and runtime hints share one write lock,
 /// worker pool and reuse state.

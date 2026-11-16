@@ -86,6 +86,27 @@ impl TransferArgs {
     }
 }
 
+/// Optional download sources shared by `snapshot fetch` and
+/// `installation reconstruct --fetch`. Its argument group stays populated only
+/// while it flattens no other argument struct.
+#[derive(Args)]
+pub(crate) struct FetchSourceArgs {
+    #[arg(long = "product-metadata-url")]
+    pub(crate) product_metadata_url: Option<String>,
+    #[arg(long = "repo-metadata-url")]
+    pub(crate) repo_metadata_url: Option<String>,
+    #[arg(long = "chunk-index-url")]
+    pub(crate) chunk_index_url: Option<String>,
+    #[arg(long = "bundle-downloads-endpoint")]
+    pub(crate) bundle_downloads_endpoint: Option<String>,
+    #[arg(long = "session-id")]
+    pub(crate) session_id: Option<String>,
+    #[arg(long = "artifact-url")]
+    pub(crate) artifacts: Vec<String>,
+    #[arg(long = "artifact-url-manifest", value_parser = parse_cli_path)]
+    pub(crate) artifact_url_manifest: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct ArtifactBuildProfileArgs {
     /// Content-defined chunker; JC uses the pinned Plakar-compatible variant.

@@ -1,9 +1,10 @@
 //! `snapshot fetch` commands and artifact URL inputs.
 
 use crate::cli::Profile;
+use crate::cli::arguments::FetchArgs;
+use crate::cli::arguments::FetchSourceArgs;
 use crate::cli::command_support::SnapshotFetchReconstructStats;
 use crate::cli::command_support::parse_artifact_downloads;
-use crate::cli::command_support::write_report;
 use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::progress::CliProgressSink;
@@ -13,6 +14,7 @@ use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
 use crate::cli::reporting::reconstruct_timings_summary;
 use crate::cli::reporting::verify_timings_summary;
+use crate::cli::reporting::write_stats_json_output;
 use crate::cli::verbose_output_enabled;
 use crate::installation::fetch::SnapshotFetchAndReconstructRequest;
 use crate::installation::fetch::SnapshotFetchAndReconstructResult;
@@ -26,7 +28,6 @@ use crate::transfer::http::read_bounded_response;
 use crate::transfer::http::request_error;
 use crate::transfer::types::ArtifactDownload;
 use crate::transfer::types::ArtifactUrlProvider;
-use crate::transfer::types::TransferConcurrencyPolicy;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
@@ -37,36 +38,24 @@ use std::time::Duration;
 
 const MAX_BUNDLE_URL_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
-pub(crate) struct FetchCommand {
-    pub(crate) repo: PathBuf,
-    pub(crate) snapshot_id: String,
-    pub(crate) metadata_url: String,
-    pub(crate) product_metadata_url: Option<String>,
-    pub(crate) blueprint_url: String,
-    pub(crate) repo_metadata_url: Option<String>,
-    pub(crate) chunk_index_url: Option<String>,
-    pub(crate) bundle_downloads_endpoint: Option<String>,
-    pub(crate) session_id: Option<String>,
-    pub(crate) artifacts: Vec<String>,
-    pub(crate) artifact_url_manifest: Option<PathBuf>,
-    pub(crate) transfer_policy: TransferConcurrencyPolicy,
-}
-
-impl FetchCommand {
+impl FetchArgs {
     fn into_request(self, control: OperationControl) -> crate::Result<SnapshotFetchRequest> {
-        let FetchCommand {
+        let FetchArgs {
             repo,
             snapshot_id,
             metadata_url,
-            product_metadata_url,
             blueprint_url,
-            repo_metadata_url,
-            chunk_index_url,
-            bundle_downloads_endpoint,
-            session_id,
-            artifacts,
-            artifact_url_manifest,
-            transfer_policy,
+            sources:
+                FetchSourceArgs {
+                    product_metadata_url,
+                    repo_metadata_url,
+                    chunk_index_url,
+                    bundle_downloads_endpoint,
+                    session_id,
+                    artifacts,
+                    artifact_url_manifest,
+                },
+            transfer,
         } = self;
         let artifact_url_provider = bundle_downloads_endpoint
             .map(|endpoint| {
@@ -109,12 +98,12 @@ impl FetchCommand {
             artifacts: direct_downloads,
             artifact_url_provider,
             control,
-            transfer_policy,
+            transfer_policy: transfer.policy(),
         })
     }
 }
 
-pub(crate) fn fetch(command: FetchCommand, profile: &Profile) -> crate::Result<()> {
+pub(crate) fn fetch(command: FetchArgs, profile: &Profile) -> crate::Result<()> {
     let progress = CliProgressSink::new();
     let result = fetch_snapshot(
         &command.into_request(control_with_profile(profile).with_progress(progress))?,
@@ -154,7 +143,7 @@ pub(crate) fn fetch(command: FetchCommand, profile: &Profile) -> crate::Result<(
 }
 
 pub(crate) struct FetchAndReconstructCommand {
-    pub(crate) fetch: FetchCommand,
+    pub(crate) fetch: FetchArgs,
     pub(crate) destination: PathBuf,
     pub(crate) staging_dir: Option<PathBuf>,
     pub(crate) source_snapshot_id: Option<String>,
@@ -236,7 +225,7 @@ pub(crate) fn fetch_and_reconstruct(
             profile_mode(profile.as_deref()),
         ),
     };
-    write_report(&stats, profile.as_deref())?;
+    write_stats_json_output(&stats, profile.as_deref())?;
 
     output::line(format_args!(
         "downloaded and reconstructed snapshot {} to {}",

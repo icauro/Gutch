@@ -31,6 +31,11 @@ pub fn plan_snapshot_captures(
         .collect()
 }
 
+pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
+    let mut results = capture_snapshots(vec![request])?;
+    Ok(results.remove(0))
+}
+
 /// Validate every source first. Successful captures remain committed if a later capture fails.
 pub fn capture_snapshots(
     requests: Vec<SnapshotCaptureRequest>,
