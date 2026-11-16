@@ -2694,6 +2694,7 @@ tests/harness_tests/test_gutch_correctness.py
 tests/harness_tests/test_gutch_memory_profile.py
 tests/harness_tests/test_gutch_mock_product_create.py
 tests/harness_tests/test_package_cli.py
+tests/harness_tests/test_release_freeze.py
 tests/harness_tests/test_repository_lifecycle.py
 tests/harness_tests/test_standalone_boundary.py
 tests/harness_tests/test_unified_profiling.py
