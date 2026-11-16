@@ -18,8 +18,6 @@ use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::diagnostic_seconds;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::profile_mode;
-use crate::cli::reporting::ratio_pct;
-use crate::cli::reporting::reconstruct_timings_summary;
 use crate::cli::reporting::verify_timings_summary;
 use crate::cli::reporting::write_stats_json_output;
 use crate::cli::snapshot_transfer::FetchAndReconstructCommand;
@@ -366,60 +364,13 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
         runtime_hints: command.runtime.hints(),
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
     })?;
-    let snapshot_manifest = execution.snapshot_manifest;
-    let result = execution.reconstruct_result;
-    let reused_source_chunk_percent = ratio_pct(
-        result.reused_source_chunk_count as u64,
-        result.required_chunk_count as u64,
-    );
-    let stats = SnapshotReconstructStats {
-        command: "installation reconstruct",
-        repo_root: execution.repo_root.display().to_string(),
-        snapshot_id: result.snapshot_id.clone(),
-        destination_dir: result.destination_dir.display().to_string(),
-        staging_dir: result.staging_dir.display().to_string(),
-        source_snapshot_id: command.source_snapshot_id.clone(),
-        source_destination_dir: execution
-            .source_destination_dir
-            .as_ref()
-            .map(|path| path.display().to_string()),
-        file_count: snapshot_manifest.file_count(),
-        required_chunk_count: result.required_chunk_count,
-        required_bundle_count: result.required_bundle_count,
-        required_artifact_count: result.required_artifact_count,
-        resolved_bundle_file_count: execution.resolved_bundle_file_count,
-        resolved_artifact_file_count: execution.resolved_artifact_file_count,
-        reused_source_chunk_count: result.reused_source_chunk_count,
-        reused_source_chunk_percent,
-        total_logical_size: snapshot_manifest.total_logical_size,
-        total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
-        reconstruct_timings: reconstruct_timings_summary(
-            &result.reconstruct_timings,
-            profile_mode(profile.as_deref()),
-        ),
-        verify_timings: verify_timings_summary(
-            &result.verify_timings,
-            profile_mode(profile.as_deref()),
-        ),
-    };
-    write_stats_json_output(&stats, profile.as_deref())?;
-
-    output::line(format_args!(
-        "reconstructed snapshot {} to {}",
-        stats.snapshot_id, stats.destination_dir
-    ));
-    if verbose_output_enabled() {
-        output::line(format_args!(
-            "reused {} of {} chunks from source ({:.2}%)",
-            stats.reused_source_chunk_count,
-            stats.required_chunk_count,
-            stats.reused_source_chunk_percent
-        ));
-    }
-    if profile.is_some() {
-        print_profile_summary(profile.as_deref());
-    }
-    Ok(())
+    SnapshotReconstructStats::new(
+        &execution,
+        command.source_snapshot_id,
+        None,
+        profile.as_deref(),
+    )
+    .report(profile.as_deref())
 }
 
 pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {

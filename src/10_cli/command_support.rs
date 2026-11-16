@@ -6,16 +6,29 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::cli::output;
 use crate::cli::reporting::BuildTimingsSummary;
 use crate::cli::reporting::ReconstructTimingsSummary;
 use crate::cli::reporting::VerifyTimingsSummary;
+use crate::cli::reporting::print_profile_summary;
+use crate::cli::reporting::print_transfer_timings;
+use crate::cli::reporting::profile_mode;
+use crate::cli::reporting::ratio_pct;
+use crate::cli::reporting::reconstruct_timings_summary;
+use crate::cli::reporting::verify_timings_summary;
+use crate::cli::reporting::write_stats_json_output;
+use crate::cli::verbose_output_enabled;
+use crate::installation::InstallationReconstructResult;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::repo_manifest::RepoManifest;
+use crate::profiling::Profiler;
 use crate::repo::paths::RepoPaths;
 use crate::repo::read::load_gutch_repo_manifest;
 use crate::repo::read::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::sync::fetch_types::SnapshotFetchResult;
 use crate::transfer::types::ArtifactDownload;
+use crate::transfer::types::TransferStats;
 use std::path::Path;
 
 #[derive(Debug, Serialize)]
@@ -103,6 +116,7 @@ pub(crate) struct InstallationCorruptStats {
     pub(crate) elapsed_seconds: Option<f64>,
 }
 
+/// Report of `installation reconstruct`, with or without `--fetch`.
 #[derive(Debug, Serialize)]
 pub(crate) struct SnapshotReconstructStats {
     pub(crate) command: &'static str,
@@ -124,19 +138,86 @@ pub(crate) struct SnapshotReconstructStats {
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) reconstruct_timings: ReconstructTimingsSummary,
     pub(crate) verify_timings: VerifyTimingsSummary,
+    /// Present only when the reconstruction fetched its data first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) fetch: Option<SnapshotFetchStats>,
 }
 
+impl SnapshotReconstructStats {
+    pub(crate) fn new(
+        execution: &InstallationReconstructResult,
+        source_snapshot_id: Option<String>,
+        fetch: Option<SnapshotFetchStats>,
+        profile: Option<&Profiler>,
+    ) -> Self {
+        let manifest = &execution.snapshot_manifest;
+        let result = &execution.reconstruct_result;
+        Self {
+            command: "installation reconstruct",
+            repo_root: execution.repo_root.display().to_string(),
+            snapshot_id: result.snapshot_id.clone(),
+            destination_dir: result.destination_dir.display().to_string(),
+            staging_dir: result.staging_dir.display().to_string(),
+            source_snapshot_id,
+            source_destination_dir: execution
+                .source_destination_dir
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            file_count: manifest.file_count(),
+            required_chunk_count: result.required_chunk_count,
+            required_bundle_count: result.required_bundle_count,
+            required_artifact_count: result.required_artifact_count,
+            resolved_bundle_file_count: execution.resolved_bundle_file_count,
+            resolved_artifact_file_count: execution.resolved_artifact_file_count,
+            reused_source_chunk_count: result.reused_source_chunk_count,
+            reused_source_chunk_percent: ratio_pct(
+                result.reused_source_chunk_count as u64,
+                result.required_chunk_count as u64,
+            ),
+            total_logical_size: manifest.total_logical_size,
+            total_compressed_size_estimate: manifest.total_compressed_size_estimate,
+            reconstruct_timings: reconstruct_timings_summary(
+                &result.reconstruct_timings,
+                profile_mode(profile),
+            ),
+            verify_timings: verify_timings_summary(&result.verify_timings, profile_mode(profile)),
+            fetch,
+        }
+    }
+
+    /// Writes the JSON report and the console summary.
+    pub(crate) fn report(&self, profile: Option<&Profiler>) -> crate::Result<()> {
+        write_stats_json_output(self, profile)?;
+        let action = if self.fetch.is_some() {
+            "downloaded and reconstructed"
+        } else {
+            "reconstructed"
+        };
+        output::line(format_args!(
+            "{action} snapshot {} to {}",
+            self.snapshot_id, self.destination_dir
+        ));
+        if verbose_output_enabled() {
+            output::line(format_args!(
+                "reused {} of {} chunks from source ({:.2}%)",
+                self.reused_source_chunk_count,
+                self.required_chunk_count,
+                self.reused_source_chunk_percent
+            ));
+            if let Some(fetch) = &self.fetch {
+                fetch.print_details();
+            }
+        }
+        if profile.is_some() {
+            print_profile_summary(profile);
+        }
+        Ok(())
+    }
+}
+
+/// Downloads made by `snapshot fetch` or `installation reconstruct --fetch`.
 #[derive(Debug, Serialize)]
-pub(crate) struct SnapshotFetchReconstructStats {
-    pub(crate) command: &'static str,
-    pub(crate) repo_root: String,
-    pub(crate) snapshot_id: String,
-    pub(crate) destination_dir: String,
-    pub(crate) staging_dir: String,
-    pub(crate) source_snapshot_id: Option<String>,
-    pub(crate) source_destination_dir: Option<String>,
-    pub(crate) file_count: usize,
-    pub(crate) required_chunk_count: usize,
+pub(crate) struct SnapshotFetchStats {
     pub(crate) required_bundle_count: usize,
     pub(crate) downloaded_bundle_count: usize,
     pub(crate) skipped_existing_bundle_count: usize,
@@ -144,21 +225,38 @@ pub(crate) struct SnapshotFetchReconstructStats {
     pub(crate) downloaded_artifact_count: usize,
     pub(crate) skipped_existing_artifact_count: usize,
     pub(crate) transfer_policy: &'static str,
-    pub(crate) initial_transfer_concurrency: usize,
-    pub(crate) maximum_transfer_concurrency: usize,
-    pub(crate) peak_transfer_concurrency: usize,
-    pub(crate) transfer_adjustment_count: usize,
-    pub(crate) transfer_retry_count: usize,
-    pub(crate) transfer_bytes: u64,
-    pub(crate) transfer_total_bytes: u64,
-    pub(crate) transfer_seconds: f64,
-    pub(crate) transfer_mib_per_second: f64,
-    pub(crate) reused_source_chunk_count: usize,
-    pub(crate) reused_source_chunk_percent: f64,
-    pub(crate) total_logical_size: u64,
-    pub(crate) total_compressed_size_estimate: u64,
-    pub(crate) reconstruct_timings: ReconstructTimingsSummary,
-    pub(crate) verify_timings: VerifyTimingsSummary,
+    pub(crate) transfer: TransferStats,
+}
+
+impl SnapshotFetchStats {
+    pub(crate) fn new(result: &SnapshotFetchResult) -> Self {
+        Self {
+            required_bundle_count: result.required_bundle_count,
+            downloaded_bundle_count: result.downloaded_bundle_count,
+            skipped_existing_bundle_count: result.skipped_existing_bundle_count,
+            required_artifact_count: result.required_artifact_count,
+            downloaded_artifact_count: result.downloaded_artifact_count,
+            skipped_existing_artifact_count: result.skipped_existing_artifact_count,
+            transfer_policy: result.transfer_policy.name(),
+            transfer: result.transfer_stats,
+        }
+    }
+
+    pub(crate) fn print_details(&self) {
+        output::line(format_args!(
+            "bundles: required={}, downloaded={}, existing={}",
+            self.required_bundle_count,
+            self.downloaded_bundle_count,
+            self.skipped_existing_bundle_count
+        ));
+        output::line(format_args!(
+            "artifacts: required={}, downloaded={}, existing={}",
+            self.required_artifact_count,
+            self.downloaded_artifact_count,
+            self.skipped_existing_artifact_count
+        ));
+        print_transfer_timings(&self.transfer);
+    }
 }
 
 pub(crate) fn load_snapshot_manifest_from_repo(

@@ -3,17 +3,12 @@
 use crate::cli::Profile;
 use crate::cli::arguments::FetchArgs;
 use crate::cli::arguments::FetchSourceArgs;
-use crate::cli::command_support::SnapshotFetchReconstructStats;
 use crate::cli::command_support::parse_artifact_downloads;
+use crate::cli::command_support::{SnapshotFetchStats, SnapshotReconstructStats};
 use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::print_profile_summary;
-use crate::cli::reporting::print_transfer_timings;
-use crate::cli::reporting::profile_mode;
-use crate::cli::reporting::ratio_pct;
-use crate::cli::reporting::reconstruct_timings_summary;
-use crate::cli::reporting::verify_timings_summary;
 use crate::cli::reporting::write_stats_json_output;
 use crate::cli::verbose_output_enabled;
 use crate::installation::fetch::SnapshotFetchAndReconstructRequest;
@@ -109,8 +104,15 @@ pub(crate) fn fetch(command: FetchArgs, profile: &Profile) -> crate::Result<()> 
         &command.into_request(control_with_profile(profile).with_progress(progress))?,
     )?;
 
-    output::record(
-        &serde_json::json!({"snapshot_id": result.snapshot_id, "required_artifact_count": result.required_artifact_count, "downloaded_artifact_count": result.downloaded_artifact_count, "skipped_existing_artifact_count": result.skipped_existing_artifact_count}),
+    let fetch = SnapshotFetchStats::new(&result);
+    write_stats_json_output(
+        &serde_json::json!({
+            "command": "snapshot fetch",
+            "repo_root": result.repo_path.display().to_string(),
+            "snapshot_id": result.snapshot_id,
+            "fetch": fetch,
+        }),
+        profile.as_deref(),
     )?;
     output::line(format_args!(
         "Fetched {} artifacts for {}",
@@ -122,19 +124,7 @@ pub(crate) fn fetch(command: FetchArgs, profile: &Profile) -> crate::Result<()> 
             result.snapshot_id,
             result.repo_path.display()
         ));
-        output::line(format_args!(
-            "bundles: required={}, downloaded={}, existing={}",
-            result.required_bundle_count,
-            result.downloaded_bundle_count,
-            result.skipped_existing_bundle_count
-        ));
-        output::line(format_args!(
-            "artifacts: required={}, downloaded={}, existing={}",
-            result.required_artifact_count,
-            result.downloaded_artifact_count,
-            result.skipped_existing_artifact_count
-        ));
-        print_transfer_timings(&result.transfer_stats);
+        fetch.print_details();
     }
     if profile.is_some() {
         print_profile_summary(profile.as_deref());
@@ -176,74 +166,15 @@ pub(crate) fn fetch_and_reconstruct(
     })?;
     let SnapshotFetchAndReconstructResult {
         fetch_result,
-        reconstruct_result: reconstruct_execution,
+        reconstruct_result,
     } = result;
-    let snapshot_manifest = reconstruct_execution.snapshot_manifest;
-    let reconstruct = reconstruct_execution.reconstruct_result;
-    let reused_source_chunk_percent = ratio_pct(
-        reconstruct.reused_source_chunk_count as u64,
-        reconstruct.required_chunk_count as u64,
-    );
-    let stats = SnapshotFetchReconstructStats {
-        command: "installation reconstruct",
-        repo_root: fetch_result.repo_path.display().to_string(),
-        snapshot_id: fetch_result.snapshot_id.clone(),
-        destination_dir: reconstruct.destination_dir.display().to_string(),
-        staging_dir: reconstruct.staging_dir.display().to_string(),
+    SnapshotReconstructStats::new(
+        &reconstruct_result,
         source_snapshot_id,
-        source_destination_dir: reconstruct_execution
-            .source_destination_dir
-            .map(|path| path.display().to_string()),
-        file_count: snapshot_manifest.file_count(),
-        required_chunk_count: reconstruct.required_chunk_count,
-        required_bundle_count: fetch_result.required_bundle_count,
-        downloaded_bundle_count: fetch_result.downloaded_bundle_count,
-        skipped_existing_bundle_count: fetch_result.skipped_existing_bundle_count,
-        required_artifact_count: fetch_result.required_artifact_count,
-        downloaded_artifact_count: fetch_result.downloaded_artifact_count,
-        skipped_existing_artifact_count: fetch_result.skipped_existing_artifact_count,
-        transfer_policy: fetch_result.transfer_policy.name(),
-        initial_transfer_concurrency: fetch_result.transfer_stats.initial_concurrency,
-        maximum_transfer_concurrency: fetch_result.transfer_stats.maximum_concurrency,
-        peak_transfer_concurrency: fetch_result.transfer_stats.peak_concurrency,
-        transfer_adjustment_count: fetch_result.transfer_stats.adjustment_count,
-        transfer_retry_count: fetch_result.transfer_stats.retry_count,
-        transfer_bytes: fetch_result.transfer_stats.transferred_bytes,
-        transfer_total_bytes: fetch_result.transfer_stats.total_bytes,
-        transfer_seconds: fetch_result.transfer_stats.elapsed_seconds,
-        transfer_mib_per_second: fetch_result.transfer_stats.mib_per_second,
-        reused_source_chunk_count: reconstruct.reused_source_chunk_count,
-        reused_source_chunk_percent,
-        total_logical_size: snapshot_manifest.total_logical_size,
-        total_compressed_size_estimate: snapshot_manifest.total_compressed_size_estimate,
-        reconstruct_timings: reconstruct_timings_summary(
-            &reconstruct.reconstruct_timings,
-            profile_mode(profile.as_deref()),
-        ),
-        verify_timings: verify_timings_summary(
-            &reconstruct.verify_timings,
-            profile_mode(profile.as_deref()),
-        ),
-    };
-    write_stats_json_output(&stats, profile.as_deref())?;
-
-    output::line(format_args!(
-        "downloaded and reconstructed snapshot {} to {}",
-        stats.snapshot_id, stats.destination_dir
-    ));
-    if verbose_output_enabled() {
-        output::line(format_args!(
-            "artifacts: required={}, downloaded={}, existing={}",
-            stats.required_artifact_count,
-            stats.downloaded_artifact_count,
-            stats.skipped_existing_artifact_count
-        ));
-        print_transfer_timings(&fetch_result.transfer_stats);
-    }
-    if profile.is_some() {
-        print_profile_summary(profile.as_deref());
-    }
-    Ok(())
+        Some(SnapshotFetchStats::new(&fetch_result)),
+        profile.as_deref(),
+    )
+    .report(profile.as_deref())
 }
 
 fn resolve_artifact_urls(

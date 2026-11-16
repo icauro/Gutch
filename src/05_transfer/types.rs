@@ -61,7 +61,7 @@ impl TransferConcurrencyPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct TransferStats {
     pub initial_concurrency: usize,
     pub maximum_concurrency: usize,
