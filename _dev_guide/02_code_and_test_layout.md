@@ -6,7 +6,7 @@
 | --- | --- |
 | Engine implementation and unit tests | `src/` |
 | Public Rust API contracts | `tests/*.rs` |
-| Developer entrypoint: setup, test, dataset, benchmark, replay, clean, build-image | `gutch.py` |
+| Developer entrypoint: setup, test, fuzz, dataset, benchmark, replay, minimize, clean, build-image | `gutch.py` |
 | Correctness runner and suite selection | `tests/run.py` |
 | CLI behavior and repository regressions | `tests/scenarios/<behavior>/` |
 | Shared repository guarantees across all dataset types | `tests/repository_suite.py` |

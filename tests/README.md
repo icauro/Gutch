@@ -61,11 +61,20 @@ Newly generated snapshots always use independent SHA-256 expected inventories.
 Failed selected-repository runs preserve a separate original input copy for
 replay. Generated runs record the seed, operation sequence and settings. Replay
 uses current source and reports source changes. It does not reset source history.
+`python gutch.py minimize <case-directory>` reruns a failed lifecycle with fewer
+additional operations and writes the shortest failing sequence it finds.
+
+## Native fuzzing
+
+`python gutch.py fuzz` runs the cargo-bolero targets in `src/tests/engine_fuzz.rs`
+for `--seconds` each; `--target` selects one. It needs `cargo-bolero` and runs on
+Linux. See [correctness testing](../_docs/06_development/02_correctness_testing.md)
+for targets, input limits and seeds.
 
 ## Datasets and benchmarks
 
 `python gutch.py dataset --help` exposes the deterministic generator, seed,
-version and recipe options. Generated products default to `.artifacts/datasets/products/`
+version and recipe options. Generated products default to `.artifacts/tests/datasets/products/`
 inside this directory. Correctness scenarios create their own small inputs per run.
 They never consume mutable benchmark products. The default frozen scenario covers
 the ten generated corpus cases. Blender is explicit:

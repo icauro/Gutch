@@ -181,25 +181,32 @@ and delete unnecessary additional operations. It keeps the original run, has a
 120-second/32-attempt budget and writes a replayable result. It does not reduce
 the mandatory lifecycle or claim a globally minimal dataset.
 
-Native targets live in `src/tests/engine_fuzz.rs`. Ordinary Rust tests run sampled
-inputs; `cargo bolero test engine_fuzz::fuzz_binary_decoders -T 30s -l 65536` and
-`cargo bolero test engine_fuzz::fuzz_bundle_roundtrip -T 30s -l 65536` run instrumented fuzzing
-with cargo-bolero and a compatible Rust toolchain. Inputs are capped at 64 KiB;
-malformed decompression output is capped at 65,537 bytes. Corpus/crash artifacts
-are under `.artifacts/tests/fuzz/`. Bolero shrinks failing native inputs.
+Native targets live in `src/tests/engine_fuzz.rs`: `binary_decoders`,
+`bundle_roundtrip` and `blueprint_roundtrip`. Ordinary Rust tests run sampled
+inputs and replay any saved corpus and crash files. Decoder inputs are capped at
+128 KiB, which admits the corpus's smaller bundles as seeds; malformed
+decompression output is capped at 65,537 bytes. Bolero shrinks failing native
+inputs.
 
 The frozen corpus contains ten generated cases; Blender uses a pinned download recipe. All generated cases
 are below 16 MiB including source, metadata and repository. Normal tests never
 regenerate committed repositories. Windows validates every supported attribute;
 Linux also validates executable bits.
 
-
 Use `python gutch.py fuzz --seconds 30 --rustc-bootstrap` on Linux after installing
 `cargo-bolero` (`cargo install cargo-bolero --locked --no-default-features`).
-This runs both native targets and seeds the decoder target with committed
-blueprints and indexes, keeping logs, corpus and crashes under `.artifacts/tests/fuzz`.
+`--target` selects one target; the default runs all three. The decoder target is
+seeded with committed blueprints, chunk maps and bundles. Logs, corpus and
+crashes stay under `.artifacts/tests/fuzz/<target>/`.
 `--rustc-bootstrap` enables the instrumentation features needed on the installed
 stable compiler; omit it when using a supported nightly toolchain.
+
+Decoder inputs also reach raw column parsers with recomputed framing, so
+integrity checks do not hide deeper parser branches. Blueprint properties cover
+Unicode paths, flags, empty/single/multiple chunks, contained links, canonical
+encoding and unchanged semantic identity. The independent Python wire fixtures
+construct valid integrity framing around unsafe paths. Mixed bundled/loose map
+tests check deterministic encoding and shared artifact records.
 
 Filename policy coverage includes Unicode encoding-unit limits, directory-prefix
 collisions, normalization, optional-policy safety and unknown-target rejection.
@@ -208,12 +215,3 @@ capture, policy changes, verification, reconstruction and HTTP fetch, checks
 unchanged repository/destination data, clears the policy and verifies adoption of
 constraints by a new compatible cache. Native incoming-snapshot tests exercise
 the shared publication boundary. Frozen corpus files remain unchanged.
-
-Native fuzzing through `python gutch.py fuzz` covers binary decoders, bundle
-round trips and blueprint round trips. Decoder inputs also reach raw column
-parsers with recomputed framing, so integrity checks do not hide deeper parser
-branches. Blueprint properties cover Unicode paths, flags, empty/single/multiple
-chunks, contained links, canonical encoding and unchanged semantic identity.
-The independent Python wire fixtures construct valid integrity framing around
-unsafe paths. Mixed bundled/loose map tests check deterministic encoding and
-shared artifact records.
