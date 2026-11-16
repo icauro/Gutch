@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LocalRepoConfig",
+  "description": "Machine-local repository settings, kept out of the shared metadata.",
+  "type": "object",
+  "properties": {
+    "document_type": {
+      "type": "string",
+      "const": "gutch_local_repo_config"
+    },
+    "document_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "remote_repo_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "document_type",
+    "document_version",
+    "remote_repo_id"
+  ]
+}

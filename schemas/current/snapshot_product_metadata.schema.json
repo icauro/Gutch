@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SnapshotProductMetadata",
+  "type": "object",
+  "properties": {
+    "document_type": {
+      "type": "string",
+      "const": "gutch_snapshot_product"
+    },
+    "document_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "runtime": {
+      "$ref": "#/$defs/SnapshotRuntimeMetadata"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "document_type",
+    "document_version",
+    "runtime"
+  ],
+  "$defs": {
+    "ExternalProductDependencyRequirement": {
+      "type": "object",
+      "properties": {
+        "dependency_id": {
+          "type": "string"
+        },
+        "maximum_version_exclusive": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "minimum_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "dependency_id"
+      ]
+    },
+    "SnapshotDirectRuntimeMetadata": {
+      "type": "object",
+      "properties": {
+        "external_dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalProductDependencyRequirement"
+          }
+        },
+        "launch_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SnapshotLaunchAction"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "launch_actions",
+        "external_dependencies"
+      ]
+    },
+    "SnapshotHostVariant": {
+      "type": "object",
+      "properties": {
+        "external_dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalProductDependencyRequirement"
+          }
+        },
+        "host_tag_requirements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "launch_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SnapshotLaunchAction"
+          }
+        },
+        "variant_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "variant_id",
+        "host_tag_requirements",
+        "launch_actions",
+        "external_dependencies"
+      ]
+    },
+    "SnapshotHostVariantRuntimeMetadata": {
+      "type": "object",
+      "properties": {
+        "host_variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SnapshotHostVariant"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "host_variants"
+      ]
+    },
+    "SnapshotLaunchAction": {
+      "type": "object",
+      "properties": {
+        "action_name": {
+          "type": "string"
+        },
+        "command_arguments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "executable_path": {
+          "type": "string"
+        },
+        "working_directory_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "action_name",
+        "executable_path"
+      ]
+    },
+    "SnapshotRuntimeMetadata": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SnapshotDirectRuntimeMetadata"
+        },
+        {
+          "$ref": "#/$defs/SnapshotHostVariantRuntimeMetadata"
+        }
+      ]
+    }
+  }
+}

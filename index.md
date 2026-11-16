@@ -72,6 +72,13 @@ index.md
 LICENSE
 pyproject.toml
 README.md
+schemas/
+schemas/current/
+schemas/current/local_repo_config.schema.json
+schemas/current/repo_metadata.schema.json
+schemas/current/snapshot_metadata.schema.json
+schemas/current/snapshot_product_metadata.schema.json
+schemas/README.md
 src/
 src/00_error/
 src/00_error/engine_error.rs
@@ -152,6 +159,7 @@ src/05_manifest/content.rs
 src/05_manifest/content_tests.rs
 src/05_manifest/external_dependency.rs
 src/05_manifest/format.rs
+src/05_manifest/format_tests.rs
 src/05_manifest/launch.rs
 src/05_manifest/mod.rs
 src/05_manifest/repo_manifest.rs
@@ -327,6 +335,7 @@ src/lib.rs
 src/test_util/
 src/test_util/mod.rs
 src/tests/
+src/tests/document_schemas.rs
 src/tests/engine_fuzz.rs
 src/tests/mod.rs
 src/tests/module_boundaries.rs

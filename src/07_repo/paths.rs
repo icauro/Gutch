@@ -173,8 +173,9 @@ pub(crate) fn write_gutch_repo_manifest(
 
 /// Machine-local repository settings, kept out of the shared metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-struct LocalRepoConfig {
+pub(crate) struct LocalRepoConfig {
     document_type: DocumentType<LocalRepoConfig>,
     document_version: DocumentVersion<LocalRepoConfig>,
     remote_repo_id: String,

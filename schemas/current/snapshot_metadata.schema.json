@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SnapshotMetadata",
+  "type": "object",
+  "properties": {
+    "captured_at": {
+      "type": "string"
+    },
+    "chunker": {
+      "$ref": "#/$defs/Chunker",
+      "default": "fastcdc-v2020"
+    },
+    "document_type": {
+      "type": "string",
+      "const": "gutch_snapshot"
+    },
+    "document_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "tags": {
+      "$ref": "#/$defs/SnapshotTagSet",
+      "default": {
+        "key_value": {}
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "document_type",
+    "document_version",
+    "captured_at"
+  ],
+  "$defs": {
+    "Chunker": {
+      "description": "CLI names are short; serialized names pin the exact boundary algorithm.",
+      "type": "string",
+      "enum": [
+        "fastcdc-v2020",
+        "jc-v1.1.0",
+        "ram-v1"
+      ]
+    },
+    "SnapshotTagSet": {
+      "description": "A snapshot has one value per key. The named collection is always serialized,\nincluding for tagless snapshots, so the wire shape stays explicit.",
+      "type": "object",
+      "properties": {
+        "key_value": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

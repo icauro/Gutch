@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RepoManifest",
+  "description": "The shared repository metadata document, `repo_metadata.json`.",
+  "type": "object",
+  "properties": {
+    "constraints": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RepositoryConstraints"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "content_packaging_profile": {
+      "$ref": "#/$defs/ArtifactProfile"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "document_type": {
+      "type": "string",
+      "const": "gutch_repo"
+    },
+    "document_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "repository_format": {
+      "$ref": "#/$defs/RepositoryFormat"
+    },
+    "repository_name": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "document_type",
+    "document_version",
+    "repository_format",
+    "repository_name",
+    "created_at",
+    "content_packaging_profile"
+  ],
+  "$defs": {
+    "ArtifactProfile": {
+      "type": "object",
+      "properties": {
+        "bundle_size_profile": {
+          "$ref": "#/$defs/BundleSizingPreset"
+        },
+        "chunk_size_profile": {
+          "$ref": "#/$defs/ChunkSizingPreset"
+        },
+        "chunker": {
+          "$ref": "#/$defs/Chunker",
+          "default": "fastcdc-v2020"
+        },
+        "compression_level": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "compression_profile": {
+          "$ref": "#/$defs/CompressionKind"
+        },
+        "storage_mode": {
+          "$ref": "#/$defs/ArtifactStorageMode"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "chunk_size_profile",
+        "bundle_size_profile",
+        "compression_profile",
+        "storage_mode"
+      ]
+    },
+    "ArtifactStorageMode": {
+      "type": "string",
+      "enum": [
+        "bundled",
+        "loose_chunks"
+      ]
+    },
+    "BundleSizingPreset": {
+      "type": "string",
+      "enum": [
+        "bundle_4MiB",
+        "bundle_8MiB",
+        "bundle_16MiB",
+        "bundle_32MiB",
+        "bundle_64MiB",
+        "bundle_128MiB"
+      ]
+    },
+    "ChunkSizingPreset": {
+      "type": "string",
+      "enum": [
+        "chunk_512B",
+        "chunk_1KiB",
+        "chunk_2KiB",
+        "chunk_4KiB",
+        "chunk_8KiB",
+        "chunk_16KiB",
+        "chunk_32KiB",
+        "chunk_64KiB",
+        "chunk_128KiB",
+        "chunk_256KiB",
+        "chunk_512KiB",
+        "chunk_1MiB",
+        "chunk_2MiB",
+        "chunk_4MiB"
+      ]
+    },
+    "Chunker": {
+      "description": "CLI names are short; serialized names pin the exact boundary algorithm.",
+      "type": "string",
+      "enum": [
+        "fastcdc-v2020",
+        "jc-v1.1.0",
+        "ram-v1"
+      ]
+    },
+    "CompressionKind": {
+      "type": "string",
+      "enum": [
+        "none",
+        "zstd",
+        "lz4"
+      ]
+    },
+    "FilesystemTarget": {
+      "description": "Destination filesystem whose naming rules a repository may opt into.\n\n`as_str` is the one spelling: serde and the CLI both use it.",
+      "type": "string",
+      "enum": [
+        "windows-ntfs",
+        "windows-exfat",
+        "linux-ext4",
+        "linux-ext4-casefold",
+        "linux-btrfs",
+        "macos-apfs",
+        "macos-apfs-case-sensitive",
+        "ios-apfs",
+        "android-ext4",
+        "android-f2fs"
+      ]
+    },
+    "RepositoryConstraints": {
+      "description": "Optional repository invariants; an empty value imposes no constraints.",
+      "type": "object",
+      "properties": {
+        "require_matching_tag_keys_across_snapshots": {
+          "type": "boolean",
+          "default": false
+        },
+        "snapshot_tags": {
+          "$ref": "#/$defs/SnapshotTagConstraints",
+          "default": {
+            "key_value": {}
+          }
+        },
+        "targets": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FilesystemTarget"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "RepositoryFormat": {
+      "description": "What a repository needs from the Gutch release that opens it.\n\nA reader must understand every feature in `features_required_to_read`. A\nwriter must also understand `features_required_to_write`. Any release may\nignore `optional_features`. Features describe repository capabilities, such\nas new files or binary groups; a changed document field changes that\ndocument's version instead.",
+      "type": "object",
+      "properties": {
+        "features_required_to_read": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "features_required_to_write": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optional_features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "features_required_to_read",
+        "features_required_to_write",
+        "optional_features"
+      ]
+    },
+    "SnapshotTagConstraints": {
+      "type": "object",
+      "properties": {
+        "key_value": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/SnapshotTagRule"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "SnapshotTagRule": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SnapshotTagValueFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "SnapshotTagValueFormat": {
+      "type": "string",
+      "enum": [
+        "u32.u32.u32.u32",
+        "yyyy_mm_dd"
+      ]
+    }
+  }
+}

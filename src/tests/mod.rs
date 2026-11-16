@@ -1,3 +1,4 @@
+mod document_schemas;
 mod module_boundaries;
 
 use crate::artifact::hash::ChunkHash;
