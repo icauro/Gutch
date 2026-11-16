@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::shared::{FetchSourceArgs, RuntimeArgs, TransferArgs, parse_cli_path};
+use super::shared::{ConfirmArgs, FetchSourceArgs, RuntimeArgs, TransferArgs, parse_cli_path};
 
 #[derive(Args)]
 pub(crate) struct ReconstructArgs {
@@ -22,6 +22,9 @@ pub(crate) struct ReconstructArgs {
     pub(crate) source_dir: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
+    /// Show what would change without applying it.
+    #[arg(long, conflicts_with = "fetch")]
+    pub(crate) dry_run: bool,
     /// Fetch authorized snapshot data and artifacts while reconstructing.
     #[arg(long)]
     pub(crate) fetch: bool,
@@ -116,7 +119,7 @@ pub(crate) enum InstallationCommands {
         remove_extra_files: bool,
         #[command(flatten)]
         runtime: RuntimeArgs,
-        #[arg(long = "yes")]
-        yes: bool,
+        #[command(flatten)]
+        confirm: ConfirmArgs,
     },
 }

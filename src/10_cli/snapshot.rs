@@ -12,6 +12,7 @@ use crate::cli::Profile;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::SnapshotCommands;
 use crate::cli::arguments::CaptureArgs;
+use crate::cli::arguments::ConfirmArgs;
 use crate::cli::arguments::SnapshotTagsCommands;
 use crate::cli::command_support::SnapshotCaptureManyStats;
 use crate::cli::command_support::SnapshotCaptureStats;
@@ -19,7 +20,6 @@ use crate::cli::command_support::load_snapshot_manifest_from_repo;
 use crate::cli::command_support::prompt_yes_no;
 use crate::cli::control_with_profile;
 use crate::cli::output;
-use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::build_timings_summary;
 use crate::cli::reporting::mib;
@@ -98,8 +98,8 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
         SnapshotCommands::Delete {
             repo,
             snapshot_id,
-            yes,
-        } => delete(&repo, &snapshot_id, yes, profile),
+            confirm,
+        } => delete(&repo, &snapshot_id, confirm, profile),
         SnapshotCommands::Tags {
             command:
                 SnapshotTagsCommands::Replace {
@@ -107,14 +107,14 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
                     snapshot_id,
                     tags,
                     tags_file,
-                    yes,
+                    confirm,
                 },
         } => replace_tags(
             &repo,
             snapshot_id,
             &tags,
             tags_file.as_deref(),
-            yes,
+            confirm,
             profile,
         ),
         SnapshotCommands::Fetch(arguments) => snapshot_transfer::fetch(arguments, profile),
@@ -149,7 +149,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         tags,
         build_profile,
         runtime,
-        yes,
+        confirm,
     } = args;
     let single_report = source_root.is_none();
     let sources = resolve_capture_sources(
@@ -174,7 +174,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
             control: control_with_profile(profile).with_progress(CliProgressSink::new()),
         })
         .collect::<Vec<_>>();
-    if dry_run() {
+    if confirm.dry_run {
         let plans = plan_snapshot_captures(&requests)?;
         output::record(&plans)?;
         for plan in plans {
@@ -182,7 +182,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         }
         return Ok(());
     }
-    if !yes {
+    if !confirm.yes {
         output::line(format_args!("snapshot capture plan:"));
         for plan in plan_snapshot_captures(&requests)? {
             output::line(format_args!("  {}", describe_snapshot_capture_plan(&plan)));
@@ -275,16 +275,21 @@ fn list(repo: &Path) -> crate::Result<()> {
     Ok(())
 }
 
-fn delete(repo: &Path, snapshot_id: &str, yes: bool, profile: &Profile) -> crate::Result<()> {
+fn delete(
+    repo: &Path,
+    snapshot_id: &str,
+    confirm: ConfirmArgs,
+    profile: &Profile,
+) -> crate::Result<()> {
     load_snapshot_manifest_from_repo(repo, snapshot_id)?;
-    if dry_run() {
+    if confirm.dry_run {
         output::record(&serde_json::json!({"operation": "delete", "snapshot": snapshot_id}))?;
         output::line(format_args!(
             "Would delete snapshot {snapshot_id} and clean up unreferenced artifacts"
         ));
         return Ok(());
     }
-    if !yes
+    if !confirm.yes
         && !prompt_yes_no(
             "Delete this snapshot and clean up unreferenced artifacts?",
             false,
@@ -306,7 +311,7 @@ fn replace_tags(
     snapshot_id: Option<String>,
     tags: &[String],
     tags_file: Option<&Path>,
-    yes: bool,
+    confirm: ConfirmArgs,
     profile: &Profile,
 ) -> crate::Result<()> {
     let single_snapshot = snapshot_id.is_some();
@@ -331,11 +336,11 @@ fn replace_tags(
             change.new_tags.to_canonical_strings().join(" ")
         ));
     }
-    if dry_run() {
+    if confirm.dry_run {
         output::record(&preview)?;
         return Ok(());
     }
-    if !yes && !prompt_yes_no("Apply these tag changes?", false)? {
+    if !confirm.yes && !prompt_yes_no("Apply these tag changes?", false)? {
         return Err(crate::Error::Cancelled);
     }
     let results = retag_snapshots(repo, replacements, &control_with_profile(profile))?;

@@ -225,7 +225,6 @@ def run_lifecycle(
             "rebuild",
             "--repo",
             repo,
-            "--apply",
             "--json",
             "--output",
             report,

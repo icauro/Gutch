@@ -107,6 +107,26 @@ pub(crate) struct FetchSourceArgs {
     pub(crate) artifact_url_manifest: Option<PathBuf>,
 }
 
+/// `--dry-run` for commands that change state without asking first.
+#[derive(Debug, Clone, Copy, Args)]
+pub(crate) struct DryRunArgs {
+    /// Show what would change without applying it.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+}
+
+/// `--dry-run` and `--yes` for commands that show a plan and ask before
+/// applying it.
+#[derive(Debug, Clone, Copy, Args)]
+pub(crate) struct ConfirmArgs {
+    /// Show the plan without applying it.
+    #[arg(long, conflicts_with = "yes")]
+    pub(crate) dry_run: bool,
+    /// Apply the plan without asking for confirmation.
+    #[arg(long)]
+    pub(crate) yes: bool,
+}
+
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct ArtifactBuildProfileArgs {
     /// Content-defined chunker; JC uses the pinned Plakar-compatible variant.

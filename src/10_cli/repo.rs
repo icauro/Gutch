@@ -6,10 +6,10 @@ use crate::cli::RemoteCommands;
 use crate::cli::RepoCommands;
 use crate::cli::RepoTagsCommands;
 use crate::cli::SECTION_SEPARATOR;
+use crate::cli::arguments::DryRunArgs;
 use crate::cli::arguments::RepoIndexCommands;
 use crate::cli::command_support::prompt_yes_no;
 use crate::cli::output;
-use crate::cli::output::dry_run;
 use crate::cli::repo_remote;
 use crate::cli::repo_remote::tag_references;
 use crate::filesystem;
@@ -40,31 +40,39 @@ pub(crate) fn run(
     match command {
         RepoCommands::Constraints { command } => constraints(command),
         RepoCommands::Index {
-            command: RepoIndexCommands::Rebuild { repo, apply },
-        } => rebuild_chunk_index(&repo, apply),
+            command:
+                RepoIndexCommands::Rebuild {
+                    repo,
+                    dry_run: DryRunArgs { dry_run },
+                },
+        } => rebuild_chunk_index(&repo, dry_run),
         RepoCommands::Init {
             path,
             force,
             targets,
             constraints,
+            dry_run: DryRunArgs { dry_run },
         } => init_repo(
             &path,
             force,
             read_constraint_input(constraints.as_deref(), targets)?,
+            dry_run,
         ),
-        RepoCommands::Push { repo, yes } => repo_remote::push(repo, yes, remote_provider, profile),
+        RepoCommands::Push { repo, confirm } => {
+            repo_remote::push(repo, confirm, remote_provider, profile)
+        }
         RepoCommands::Pull {
             repo,
             remote,
             on_conflict,
             prune,
-            yes,
+            confirm,
         } => repo_remote::pull(
             repo,
             remote,
             on_conflict,
             prune,
-            yes,
+            confirm,
             remote_provider,
             profile,
         ),
@@ -82,8 +90,12 @@ pub(crate) fn run(
                 delete_remote,
             } => repo_remote::unbind(repo, delete_remote, remote_provider),
         },
-        RepoCommands::Rename { repo, name } => {
-            if dry_run() {
+        RepoCommands::Rename {
+            repo,
+            name,
+            dry_run: DryRunArgs { dry_run },
+        } => {
+            if dry_run {
                 let name = plan_repo_rename(&repo, &name)?;
                 output::record(&serde_json::json!({"operation": "rename", "name": name}))?;
                 output::line(format_args!("Would rename {} to {}", repo.display(), name));
@@ -106,22 +118,27 @@ pub(crate) fn run(
 
 /// Shows the repository constraints, or replaces them for `set` and `clear`.
 fn constraints(command: ConstraintCommands) -> crate::Result<()> {
-    let (repo, replacement) = match command {
-        ConstraintCommands::Show { repo } => (repo, None),
+    let (repo, replacement, dry_run) = match command {
+        ConstraintCommands::Show { repo } => (repo, None, false),
         ConstraintCommands::Set {
             repo,
             targets,
             constraints,
+            dry_run: DryRunArgs { dry_run },
         } => (
             repo,
             Some(read_constraint_input(constraints.as_deref(), targets)?),
+            dry_run,
         ),
-        ConstraintCommands::Clear { repo } => (repo, Some(RepositoryConstraints::default())),
+        ConstraintCommands::Clear {
+            repo,
+            dry_run: DryRunArgs { dry_run },
+        } => (repo, Some(RepositoryConstraints::default()), dry_run),
     };
     let constraints = match replacement {
         Some(replacement) => {
             let constraints = plan_repository_constraints(&repo, replacement)?;
-            if !dry_run() {
+            if !dry_run {
                 update_repository_constraints(&repo, constraints.clone())?;
             }
             constraints
@@ -136,8 +153,8 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
     Ok(())
 }
 
-fn rebuild_chunk_index(repo: &Path, apply: bool) -> crate::Result<()> {
-    let result = rebuild_index(repo, apply && !dry_run(), &OperationControl::default())?;
+fn rebuild_chunk_index(repo: &Path, dry_run: bool) -> crate::Result<()> {
+    let result = rebuild_index(repo, !dry_run, &OperationControl::default())?;
     output::record(&result)?;
     output::line(format_args!("{}", serde_json::to_string_pretty(&result)?));
     if !result.complete {
@@ -231,9 +248,10 @@ pub(crate) fn init_repo(
     path: &Path,
     force: bool,
     constraints: RepositoryConstraints,
+    dry_run: bool,
 ) -> crate::Result<()> {
     let assessment = assess_repo_init_path(path)?;
-    if dry_run() {
+    if dry_run {
         output::record(&assessment)?;
         output::line(format_args!(
             "Would initialize repository at {}",

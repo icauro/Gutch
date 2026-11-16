@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use super::shared::parse_cli_path;
+use super::shared::{ConfirmArgs, DryRunArgs, parse_cli_path};
 use crate::manifest::constraints::FilesystemTarget;
 use crate::sync::remote::PullConflictPolicy;
 
@@ -30,13 +30,15 @@ pub(crate) enum RepoCommands {
         path: PathBuf,
         #[arg(long = "force")]
         force: bool,
+        #[command(flatten)]
+        dry_run: DryRunArgs,
     },
     /// Synchronize local repository state to its bound remote.
     Push {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "yes")]
-        yes: bool,
+        #[command(flatten)]
+        confirm: ConfirmArgs,
     },
     /// Synchronize remote repository data locally; does not update installations.
     Pull {
@@ -48,8 +50,8 @@ pub(crate) enum RepoCommands {
         on_conflict: PullConflictPolicy,
         #[arg(long = "prune")]
         prune: bool,
-        #[arg(long = "yes")]
-        yes: bool,
+        #[command(flatten)]
+        confirm: ConfirmArgs,
     },
     Remote {
         #[command(subcommand)]
@@ -61,6 +63,8 @@ pub(crate) enum RepoCommands {
         repo: PathBuf,
         #[arg(long)]
         name: String,
+        #[command(flatten)]
+        dry_run: DryRunArgs,
     },
     Tags {
         #[command(subcommand)]
@@ -86,13 +90,13 @@ pub(crate) enum RepoCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum RepoIndexCommands {
-    /// Verify artifacts and rebuild the chunk index; report only unless --apply is given.
+    /// Verify artifacts and rebuild the chunk index, replacing it only after a
+    /// complete, successful rebuild.
     Rebuild {
         #[arg(long = "repo", value_parser = parse_cli_path)]
         repo: PathBuf,
-        /// Replace the local chunk index after a complete, successful rebuild.
-        #[arg(long)]
-        apply: bool,
+        #[command(flatten)]
+        dry_run: DryRunArgs,
     },
 }
 
@@ -115,11 +119,14 @@ pub(crate) enum ConstraintCommands {
         /// JSON file containing the complete replacement constraints object.
         #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,
+        #[command(flatten)]
+        dry_run: DryRunArgs,
     },
-
     Clear {
         #[arg(long, value_parser = parse_cli_path)]
         repo: PathBuf,
+        #[command(flatten)]
+        dry_run: DryRunArgs,
     },
 }
 

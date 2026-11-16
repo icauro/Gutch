@@ -84,7 +84,6 @@ def run(case):
         "--tags-file",
         tags_file,
         "--dry-run",
-        "--yes",
     )
     assert repository_inventory(repo) == before
     case.command(

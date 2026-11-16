@@ -2,6 +2,7 @@ use super::super::InstallationCommands;
 use super::super::RemoteCommands;
 use super::super::RepoCommands;
 use super::super::RepoTagsCommands;
+use super::super::shared::ConfirmArgs;
 use super::super::shared::TransferPolicyArg;
 use super::Cli;
 use super::Commands;
@@ -36,7 +37,10 @@ fn parses_provider_neutral_remote_commands() {
         Commands::Repo {
             command: RepoCommands::Pull {
                 prune: true,
-                yes: true,
+                confirm: ConfirmArgs {
+                    dry_run: false,
+                    yes: true
+                },
                 ..
             }
         }
@@ -187,6 +191,88 @@ fn rejects_retired_command_group() {
 }
 
 #[test]
+fn dry_run_is_accepted_only_by_commands_that_change_state() {
+    for args in [
+        &["repo", "init", "--repo", "repo", "--dry-run"][..],
+        &["repo", "index", "rebuild", "--repo", "repo", "--dry-run"],
+        &[
+            "snapshot",
+            "delete",
+            "--repo",
+            "repo",
+            "--snapshot",
+            "s",
+            "--dry-run",
+        ],
+        &[
+            "installation",
+            "reconstruct",
+            "--repo",
+            "repo",
+            "--snapshot",
+            "s",
+            "--destination",
+            "out",
+            "--dry-run",
+        ],
+    ] {
+        Cli::try_parse_from(iter::once("gutch").chain(args.iter().copied()))
+            .unwrap_or_else(|error| panic!("{args:?} should parse: {error}"));
+    }
+    for args in [
+        &["snapshot", "list", "--repo", "repo", "--dry-run"][..],
+        &["repo", "status", "--repo", "repo", "--dry-run"],
+        &["--dry-run", "repo", "init", "--repo", "repo"],
+    ] {
+        let error = Cli::try_parse_from(iter::once("gutch").chain(args.iter().copied()))
+            .err()
+            .unwrap_or_else(|| panic!("{args:?} must reject --dry-run"));
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::UnknownArgument,
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
+fn dry_run_conflicts_with_yes_and_fetch() {
+    for args in [
+        &[
+            "snapshot",
+            "delete",
+            "--repo",
+            "repo",
+            "--snapshot",
+            "s",
+            "--dry-run",
+            "--yes",
+        ][..],
+        &[
+            "installation",
+            "reconstruct",
+            "--repo",
+            "repo",
+            "--snapshot",
+            "s",
+            "--destination",
+            "out",
+            "--fetch",
+            "--dry-run",
+        ],
+    ] {
+        let error = Cli::try_parse_from(iter::once("gutch").chain(args.iter().copied()))
+            .err()
+            .unwrap_or_else(|| panic!("{args:?} must be rejected"));
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::ArgumentConflict,
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
 fn reconstruction_requires_explicit_fetch_and_complete_metadata_sources() {
     let base = [
         "gutch",
@@ -295,7 +381,7 @@ fn parses_installation_destination_commands() {
         Commands::Installation {
             command: InstallationCommands::Repair {
                 remove_extra_files: true,
-                yes: true,
+                confirm: ConfirmArgs { yes: true, .. },
                 ..
             }
         }

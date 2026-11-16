@@ -22,7 +22,6 @@ pub(crate) fn versioned(mut value: serde_json::Value) -> serde_json::Value {
 struct OutputState {
     json: bool,
     json_lines: bool,
-    dry_run: bool,
     writer: Option<Box<dyn Write>>,
     result: Option<serde_json::Value>,
     messages: Vec<String>,
@@ -45,7 +44,6 @@ pub(crate) fn begin(cli: &super::Cli) -> crate::Result<()> {
         *state.borrow_mut() = OutputState {
             json: cli.json,
             json_lines: cli.json_lines,
-            dry_run: cli.dry_run,
             writer: Some(writer),
             ..Default::default()
         }
@@ -60,10 +58,6 @@ pub(crate) fn structured() -> bool {
         let state = state.borrow();
         state.json || state.json_lines
     })
-}
-
-pub(crate) fn dry_run() -> bool {
-    OUTPUT.with(|state| state.borrow().dry_run)
 }
 
 pub(crate) fn line(arguments: Arguments<'_>) {

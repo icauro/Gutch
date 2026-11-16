@@ -4,10 +4,7 @@ use crate::cli::BundleCommands;
 use crate::cli::Cli;
 use crate::cli::Commands;
 use crate::cli::DebugCommands;
-use crate::cli::InstallationCommands;
 use crate::cli::Profile;
-use crate::cli::RepoCommands;
-use crate::cli::SnapshotCommands;
 use crate::cli::TreeCommands;
 use crate::cli::bundle;
 use crate::cli::installation;
@@ -23,34 +20,6 @@ pub(crate) fn run(
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
     profile: &Profile,
 ) -> crate::Result<()> {
-    if cli.dry_run {
-        let supported = matches!(
-            &cli.command,
-            Commands::Repo {
-                command: RepoCommands::Init { .. }
-                    | RepoCommands::Rename { .. }
-                    | RepoCommands::Constraints { .. }
-                    | RepoCommands::Index { .. }
-                    | RepoCommands::Push { .. }
-                    | RepoCommands::Pull { .. }
-            } | Commands::Snapshot {
-                command: SnapshotCommands::Capture(_)
-                    | SnapshotCommands::Delete { .. }
-                    | SnapshotCommands::Tags { .. }
-            } | Commands::Installation {
-                command: InstallationCommands::Preview(_) | InstallationCommands::Repair { .. }
-            }
-        ) || matches!(
-            &cli.command,
-            Commands::Installation { command: InstallationCommands::Reconstruct(arguments) }
-                if !arguments.fetch
-        );
-        if !supported {
-            return Err(crate::Error::invalid_input(
-                "--dry-run is not supported for this command",
-            ));
-        }
-    }
     match cli.command {
         Commands::Repo { command } => repo::run(command, remote_provider, profile),
         Commands::Snapshot { command } => snapshot::run(command, profile),

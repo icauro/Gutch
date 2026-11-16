@@ -2,6 +2,7 @@
 
 use crate::cli::InstallationCommands;
 use crate::cli::Profile;
+use crate::cli::arguments::ConfirmArgs;
 use crate::cli::arguments::FetchArgs;
 use crate::cli::arguments::PreviewArgs;
 use crate::cli::arguments::PreviewPublication;
@@ -13,7 +14,6 @@ use crate::cli::command_support::prompt_yes_no;
 use crate::cli::command_support::{InstallationCorruptStats, InstallationRepairStats};
 use crate::cli::control_with_profile;
 use crate::cli::output;
-use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::diagnostic_seconds;
 use crate::cli::reporting::print_profile_summary;
@@ -50,6 +50,7 @@ pub(crate) struct ReconstructCommand {
     pub(crate) source_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime: RuntimeArgs,
+    pub(crate) dry_run: bool,
 }
 
 pub(crate) fn verify(
@@ -81,11 +82,11 @@ pub(crate) struct RepairCommand {
     pub(crate) staging_dir: Option<PathBuf>,
     pub(crate) remove_extra_files: bool,
     pub(crate) runtime: RuntimeArgs,
-    pub(crate) yes: bool,
+    pub(crate) confirm: ConfirmArgs,
 }
 
 pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result<()> {
-    if dry_run() {
+    if command.confirm.dry_run {
         return preview(
             PreviewArgs {
                 repo: command.repo,
@@ -102,7 +103,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
             profile,
         );
     }
-    if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
+    if !command.confirm.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
         return Err(crate::Error::Cancelled);
     }
     let started_at = ProfileInstant::start(profile.as_deref());
@@ -222,7 +223,7 @@ pub(crate) fn run_installation(
             staging_dir,
             remove_extra_files,
             runtime,
-            yes,
+            confirm,
         } => repair(
             RepairCommand {
                 repo,
@@ -231,7 +232,7 @@ pub(crate) fn run_installation(
                 staging_dir,
                 remove_extra_files,
                 runtime,
-                yes,
+                confirm,
             },
             profile,
         ),
@@ -248,6 +249,7 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
         source_snapshot_id,
         source_dir,
         runtime,
+        dry_run,
         fetch,
         metadata_url,
         blueprint_url,
@@ -264,6 +266,7 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
                 source_snapshot_id,
                 source_dir,
                 runtime,
+                dry_run,
             },
             profile,
         );
@@ -337,7 +340,7 @@ pub(crate) struct VerifyCommand {
 }
 
 pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> crate::Result<()> {
-    if dry_run() {
+    if command.dry_run {
         return preview(
             PreviewArgs {
                 repo: command.repo,

@@ -18,7 +18,7 @@ def run(case):
         index.unlink()
         report = case.root / (storage + "-recovery.json")
         case.command(
-            "repo", "index", "rebuild", "--repo", repo, "--json", "--output", report
+            "repo", "index", "rebuild", "--repo", repo, "--dry-run", "--json", "--output", report
         )
         assert json.loads(report.read_text(encoding="utf-8"))["complete"]
         assert not index.exists()
@@ -31,7 +31,6 @@ def run(case):
                 "rebuild",
                 "--repo",
                 repo,
-                "--apply",
                 "--json",
                 "--output",
                 report,
@@ -53,7 +52,6 @@ def run(case):
             "rebuild",
             "--repo",
             repo,
-            "--apply",
             "--json",
             "--output",
             report,
@@ -69,7 +67,6 @@ def run(case):
             "rebuild",
             "--repo",
             repo,
-            "--apply",
             "--json",
             "--output",
             report,

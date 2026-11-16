@@ -24,8 +24,8 @@ See the [provider integration contract](_docs/05_integration/01_cli_and_app_inte
 does not rename the filesystem directory or a linked remote repo.
 
 Automation and CI: pass `--yes` to skip supported confirmations; `--json` and
-`--json-lines` require it for commands that would prompt. Use `--dry-run` for
-previews, including `snapshot capture --discover-from PATH`. Declined
+`--json-lines` require it for commands that would prompt. Commands that change
+state accept `--dry-run` to show their plan without applying it, including `snapshot capture --discover-from PATH`. Declined
 confirmations exit with status 1 and usage errors with status 2.
 
 ## Chunker selection
@@ -90,12 +90,12 @@ Use `snapshot fetch` to populate a repository without reconstructing an installa
 
 ```sh
 gutch-cli snapshot tags replace --repo /path/to/repo --snapshot SNAPSHOT_ID --tag os=windows --tag arch=x86_64 --yes
+gutch-cli repo index rebuild --repo /path/to/repo --dry-run
 gutch-cli repo index rebuild --repo /path/to/repo
-gutch-cli repo index rebuild --repo /path/to/repo --apply
 ```
 
-Tag replacement removes omitted keys. Index rebuild reports by default; `--apply`
-replaces the local index only after successful verification. Initialize or replace
+Tag replacement removes omitted keys. Index rebuild replaces the local index only
+after successful verification; `--dry-run` reports without replacing it. Initialize or replace
 repository constraints from JSON with `--constraints-file FILE`.
 
 `tree compare --expected SOURCE --actual INSTALLATION` compares physical trees;

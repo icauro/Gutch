@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use crate::Error;
 use crate::cli::Profile;
+use crate::cli::arguments::ConfirmArgs;
 use crate::cli::control_with_profile;
 use crate::cli::output;
-use crate::cli::output::dry_run;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::prompt_yes_no;
 use crate::repo::read::load_gutch_repo_manifest;
@@ -28,7 +28,7 @@ use crate::sync::remote::unbind_remote_repo;
 
 pub(crate) fn push(
     repo: PathBuf,
-    yes: bool,
+    confirm: ConfirmArgs,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
     profile: &Profile,
 ) -> crate::Result<()> {
@@ -37,10 +37,10 @@ pub(crate) fn push(
     let plan = plan_push_with_provider(&repo, repository_provider)?;
     print_push_plan(&plan);
     output::record(&plan)?;
-    if dry_run() {
+    if confirm.dry_run {
         return Ok(());
     }
-    if !yes && !prompt_yes_no("Proceed?", true)? {
+    if !confirm.yes && !prompt_yes_no("Proceed?", true)? {
         return Err(crate::Error::Cancelled);
     }
 
@@ -81,7 +81,7 @@ pub(crate) fn pull(
     remote: Option<String>,
     policy: PullConflictPolicy,
     prune: bool,
-    yes: bool,
+    confirm: ConfirmArgs,
     remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
     profile: &Profile,
 ) -> crate::Result<()> {
@@ -90,10 +90,10 @@ pub(crate) fn pull(
     let plan = plan_pull_with_provider(&repo, repository_provider, remote.as_deref(), policy)?;
     print_pull_plan(&plan);
     output::record(&plan)?;
-    if dry_run() {
+    if confirm.dry_run {
         return Ok(());
     }
-    if !yes && !prompt_yes_no("Proceed?", true)? {
+    if !confirm.yes && !prompt_yes_no("Proceed?", true)? {
         return Err(crate::Error::Cancelled);
     }
 

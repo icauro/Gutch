@@ -108,7 +108,7 @@ entry as a missing artifact instead of aborting; verification of unselected
 snapshots still rejects incomplete chunk references. If repository work fails
 and restoring the last committed metadata also fails, both errors are reported
 and the pending-publication marker remains so the next repository change or
-`gutch repo rebuild-index --apply` recovers.
+`gutch repo index rebuild` recovers.
 
 ## Pull Conflict Policies
 

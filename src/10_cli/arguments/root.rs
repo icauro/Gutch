@@ -38,9 +38,6 @@ pub(crate) struct Cli {
     /// Write the selected output format to a file.
     #[arg(long, global = true, value_parser = parse_cli_path)]
     pub(crate) output: Option<PathBuf>,
-    /// Preview the selected operation without applying changes.
-    #[arg(long, global = true)]
-    pub(crate) dry_run: bool,
     #[command(subcommand)]
     pub(crate) command: Commands,
 }
@@ -84,6 +81,7 @@ pub(crate) enum DebugCommands {
         destination: PathBuf,
         #[arg(long = "plan", value_parser = parse_cli_path)]
         plan: PathBuf,
+        /// Apply the plan without asking for confirmation.
         #[arg(long = "yes")]
         yes: bool,
     },

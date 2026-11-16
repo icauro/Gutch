@@ -6,7 +6,8 @@ use clap::Args;
 use clap::Subcommand;
 
 use super::shared::{
-    ArtifactBuildProfileArgs, FetchSourceArgs, RuntimeArgs, TransferArgs, parse_cli_path,
+    ArtifactBuildProfileArgs, ConfirmArgs, FetchSourceArgs, RuntimeArgs, TransferArgs,
+    parse_cli_path,
 };
 
 #[derive(Subcommand)]
@@ -28,8 +29,8 @@ pub(crate) enum SnapshotCommands {
         repo: PathBuf,
         #[arg(long = "snapshot")]
         snapshot_id: String,
-        #[arg(long = "yes")]
-        yes: bool,
+        #[command(flatten)]
+        confirm: ConfirmArgs,
     },
     /// Replace snapshot tags without recapturing content.
     Tags {
@@ -84,8 +85,8 @@ pub(crate) enum SnapshotTagsCommands {
         /// JSON object mapping snapshot IDs to complete {"key_value": {...}} tag sets.
         #[arg(long, value_parser = parse_cli_path)]
         tags_file: Option<PathBuf>,
-        #[arg(long = "yes")]
-        yes: bool,
+        #[command(flatten)]
+        confirm: ConfirmArgs,
     },
 }
 
@@ -103,6 +104,6 @@ pub(crate) struct CaptureArgs {
     pub(crate) build_profile: ArtifactBuildProfileArgs,
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
-    #[arg(long = "yes")]
-    pub(crate) yes: bool,
+    #[command(flatten)]
+    pub(crate) confirm: ConfirmArgs,
 }

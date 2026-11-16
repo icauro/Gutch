@@ -239,18 +239,20 @@ versioning: added fields raise the minor version, and removed or changed fields
 raise the major version. Nested objects are covered by the top-level version.
 Profile reports (`--profile-dir`) are diagnostic and not versioned.
 
-`--dry-run` supports repository init, rename, constraints, index rebuild, push
-and pull; snapshot capture, delete and tag replacement; installation preview,
-local reconstruction and repair. Reconstruction with `--fetch` rejects
-`--dry-run` before downloading anything. Unsupported operations reject it before execution. Previews share
+`--dry-run` is a per-command flag of repository init, rename, constraints set
+and clear, index rebuild, push and pull; snapshot capture, delete and tag
+replacement; and installation local reconstruction and repair. Commands that
+only read, including `installation preview`, do not accept it, and Clap rejects
+it there as an unknown argument. It conflicts with `--yes` and with
+reconstruction `--fetch`. Previews share
 engine planning and execution policies, including staging and reuse paths.
 They do not publish repository or installation changes. Explicit report/profile
 outputs may still be written. Execution reinspects inputs; a preview is not an
-executable transaction. `--yes` skips confirmation only.
+executable transaction. `--yes` skips confirmation only and is offered only by commands that ask.
 
 Remote repository commands are `repo remote list/create/bind/unbind`. Creating
 uses `--scope-id`; binding uses `--remote-repo-id`. Unbinding retains the remote
 unless `--delete-remote` is explicitly selected. `repo rename --name` changes
-only the local display name. `repo index rebuild` reports by default and needs
-`--apply` to replace the index. Diagnostic corruption lives under
+only the local display name. `repo index rebuild` replaces the index after a complete
+rebuild; `--dry-run` only reports. Diagnostic corruption lives under
 `debug corrupt-installation`. Retired command and flag names have no aliases.

@@ -198,7 +198,8 @@ File sizes and aggregate content totals remain `u64`; narrowing is checked.
 Atomic metadata publication, repository locks, pending-generation recovery,
 cleanup ordering and cancellation remain shared repository mechanisms.
 `repo index rebuild` verifies physical artifacts and snapshot completeness;
-`--apply` replaces the map only after successful validation. Regeneration cannot
+it replaces the map only after successful validation, and `--dry-run` only
+reports. Regeneration cannot
 recover missing blueprints, paths or payload bytes.
 
 Sources: [envelope](../../src/04_artifact/metadata.rs),

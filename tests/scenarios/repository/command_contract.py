@@ -101,7 +101,6 @@ def run(case):
         "--snapshot",
         snapshot,
         "--dry-run",
-        "--yes",
     )
     case.stats(
         "snapshot",
@@ -114,9 +113,8 @@ def run(case):
         "--tag",
         "version=2.0.0",
         "--dry-run",
-        "--yes",
     )
-    case.stats("repo", "index", "rebuild", "--repo", repo, "--apply", "--dry-run")
+    case.stats("repo", "index", "rebuild", "--repo", repo, "--dry-run")
     assert repository_inventory(repo) == captured
     destination = case.payload / "installed"
     preview = case.stats(
