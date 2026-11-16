@@ -340,12 +340,10 @@ pub(crate) fn current_host_tags() -> SnapshotTagSet {
 pub(crate) struct SnapshotMetadata {
     pub document_type: DocumentType<SnapshotMetadata>,
     pub document_version: DocumentVersion<SnapshotMetadata>,
-    #[serde(default)]
     pub chunker: Chunker,
     #[serde(skip)]
     pub snapshot_id: String,
     pub captured_at: String,
-    #[serde(default)]
     pub tags: SnapshotTagSet,
 }
 

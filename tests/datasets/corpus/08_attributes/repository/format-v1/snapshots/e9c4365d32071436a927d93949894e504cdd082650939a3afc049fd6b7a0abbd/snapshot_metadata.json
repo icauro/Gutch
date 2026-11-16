@@ -1,6 +1,7 @@
 {
   "document_type": "gutch_snapshot",
   "document_version": "1.0.0",
+  "chunker": "fastcdc-v2020",
   "captured_at": "2026-09-12T15:42:08Z",
   "tags": {
     "key_value": {

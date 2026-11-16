@@ -10,7 +10,7 @@ use std::fmt::Formatter;
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotTagSet {
-    #[serde(default, deserialize_with = "deserialize_key_value_tags")]
+    #[serde(deserialize_with = "deserialize_key_value_tags")]
     pub key_value: BTreeMap<String, String>,
 }
 

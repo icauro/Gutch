@@ -10,6 +10,7 @@
   "repository_name": "repo",
   "created_at": "2026-09-12T15:42:06Z",
   "content_packaging_profile": {
+    "chunker": "fastcdc-v2020",
     "chunk_size_profile": "chunk_128KiB",
     "bundle_size_profile": "bundle_8MiB",
     "compression_profile": "zstd",

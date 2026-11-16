@@ -55,8 +55,7 @@
           "$ref": "#/$defs/ChunkSizingPreset"
         },
         "chunker": {
-          "$ref": "#/$defs/Chunker",
-          "default": "fastcdc-v2020"
+          "$ref": "#/$defs/Chunker"
         },
         "compression_level": {
           "type": [
@@ -74,6 +73,7 @@
       },
       "additionalProperties": false,
       "required": [
+        "chunker",
         "chunk_size_profile",
         "bundle_size_profile",
         "compression_profile",

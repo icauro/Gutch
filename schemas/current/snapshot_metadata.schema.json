@@ -7,8 +7,7 @@
       "type": "string"
     },
     "chunker": {
-      "$ref": "#/$defs/Chunker",
-      "default": "fastcdc-v2020"
+      "$ref": "#/$defs/Chunker"
     },
     "document_type": {
       "type": "string",
@@ -19,17 +18,16 @@
       "const": "1.0.0"
     },
     "tags": {
-      "$ref": "#/$defs/SnapshotTagSet",
-      "default": {
-        "key_value": {}
-      }
+      "$ref": "#/$defs/SnapshotTagSet"
     }
   },
   "additionalProperties": false,
   "required": [
     "document_type",
     "document_version",
-    "captured_at"
+    "chunker",
+    "captured_at",
+    "tags"
   ],
   "$defs": {
     "Chunker": {
@@ -49,11 +47,13 @@
           "type": "object",
           "additionalProperties": {
             "type": "string"
-          },
-          "default": {}
+          }
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": [
+        "key_value"
+      ]
     }
   }
 }

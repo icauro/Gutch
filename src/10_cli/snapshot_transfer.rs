@@ -292,8 +292,7 @@ fn resolve_artifact_urls(
     #[serde(rename_all = "camelCase")]
     struct BundleUrlResponse {
         bundle_id: String,
-        #[serde(alias = "downloadUrl")]
-        url: String,
+        download_url: String,
     }
     #[derive(Deserialize)]
     struct BundleUrlsResponse {
@@ -305,7 +304,7 @@ fn resolve_artifact_urls(
         .into_iter()
         .map(|bundle| ArtifactDownload {
             artifact_id: bundle.bundle_id,
-            url: bundle.url,
+            url: bundle.download_url,
         })
         .collect())
 }

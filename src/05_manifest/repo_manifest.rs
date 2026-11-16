@@ -19,7 +19,6 @@ use crate::artifact::profiles::validate_packaging_sizes;
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactProfile {
-    #[serde(default)]
     pub chunker: Chunker,
     #[serde(rename = "chunk_size_profile")]
     pub chunk: ChunkSizingPreset,

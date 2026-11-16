@@ -106,7 +106,6 @@ only the first equals sign is a separator. Generic values preserve Unicode,
 case, internal whitespace, commas and additional separators. Keys use ASCII
 lower snake case; surrounding Unicode whitespace is trimmed. Empty values and
 hyphens are rejected. Identical repeated assignments collapse; conflicts fail.
-The former scoped collection and `::` syntax are rejected.
 
 Repository `constraints` optionally contains `snapshot_tags.key_value` rules
 and the separate `require_matching_tag_keys_across_snapshots` boolean. Each key
