@@ -55,6 +55,18 @@ pub(crate) fn normalize_snapshot_tag_key(raw: &str) -> crate::Result<String> {
 }
 
 impl SnapshotTagSet {
+    /// Builds a tag set from `(key, value)` pairs, with the same checks as
+    /// [`insert`](Self::insert): `SnapshotTagSet::from_pairs([("version", "1.0")])?`.
+    pub fn from_pairs<'a>(
+        pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> crate::Result<Self> {
+        let mut tags = Self::default();
+        for (key, value) in pairs {
+            tags.insert(key, value)?;
+        }
+        Ok(tags)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.key_value.is_empty()
     }

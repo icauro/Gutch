@@ -43,12 +43,10 @@ fn run(source_dir: &Path, work_dir: &Path) -> Result<()> {
         ..Default::default()
     })?;
 
-    let mut tags = SnapshotTagSet::default();
-    tags.insert("version", "1.0.0")?;
     let captured = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source_dir.to_path_buf(),
-        tags,
+        tags: SnapshotTagSet::from_pairs([("version", "1.0.0")])?,
         ..Default::default()
     })?;
     println!("captured snapshot {}", captured.snapshot_id);

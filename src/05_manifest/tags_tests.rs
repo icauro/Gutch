@@ -100,3 +100,12 @@ fn normalized_keeps_explicit_tags() {
 fn normalized_allows_tagless_snapshots() {
     assert!(SnapshotTagSet::default().normalized().unwrap().is_empty());
 }
+
+#[test]
+fn from_pairs_checks_each_pair_like_insert() {
+    let tags = SnapshotTagSet::from_pairs([("Version", "1.0"), ("channel", "beta")]).unwrap();
+    assert_eq!(tags.get("version"), Some("1.0"));
+    assert_eq!(tags.get("channel"), Some("beta"));
+    assert!(SnapshotTagSet::from_pairs([("version", "1.0"), ("version", "2.0")]).is_err());
+    assert!(SnapshotTagSet::from_pairs([("version", "")]).is_err());
+}
