@@ -8,7 +8,7 @@ fn atomic_write_preserves_existing_file_when_writer_fails() {
     write(&path, b"original").unwrap();
 
     let result = write_atomic_with(&path, |_file| {
-        Err(crate::Error::repository("simulated write failure"))
+        Err(crate::Error::repo("simulated write failure"))
     });
 
     assert!(result.is_err());

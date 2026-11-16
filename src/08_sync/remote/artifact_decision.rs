@@ -24,7 +24,7 @@ pub(super) fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &
     let expected_hash = expected_hash.trim();
     // Without a recorded hash the download cannot be verified.
     if expected_hash.is_empty() {
-        return Err(Error::repository(format!(
+        return Err(Error::repo(format!(
             "remote did not record a hash for the {label}"
         )));
     }

@@ -9,6 +9,7 @@ use crate::Result;
 use crate::artifact::bundle;
 use crate::artifact::reference::ArtifactRef;
 use crate::manifest::SnapshotManifest;
+use crate::progress::OperationControl;
 
 use super::inventory::list_repo_snapshot_ids;
 use crate::artifact::loose::read_loose_chunk;
@@ -73,8 +74,9 @@ pub fn verify_repo(
     repo_root: &Path,
     snapshot_id: Option<&str>,
     mode: RepoArtifactVerification,
+    control: &OperationControl,
 ) -> Result<RepoArtifactVerifyResult> {
-    coordination::read(repo_root, || {
+    coordination::read_with_control(repo_root, control, || {
         let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let constraints = repo_manifest.constraints.clone().unwrap_or_default();
@@ -82,6 +84,7 @@ pub fn verify_repo(
         let mut snapshots = Vec::new();
         let mut verified = HashMap::new();
         for stored_snapshot_id in list_repo_snapshot_ids(&repo_paths)? {
+            control.checkpoint()?;
             let manifest = load_snapshot_manifest(&repo_paths, &stored_snapshot_id)?;
             if snapshot_id.is_some_and(|id| id != stored_snapshot_id) {
                 // Snapshot selection narrows payload checks, not repository metadata validation.
@@ -100,9 +103,7 @@ pub fn verify_repo(
         if let Some(id) = snapshot_id
             && snapshots.is_empty()
         {
-            return Err(Error::repository(format!(
-                "snapshot not found in repo: {id}"
-            )));
+            return Err(Error::repo(format!("snapshot not found in repo: {id}")));
         }
         let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
         let ok = snapshots_ok == snapshots.len();
@@ -162,7 +163,7 @@ pub(crate) fn verify_snapshot_artifacts(
                 ArtifactRef::Bundle { id } => verify_bundle_file(&path, id, mode),
                 ArtifactRef::LooseChunk { hash } => {
                     let entry = chunk_index.entries.get(hash).ok_or_else(|| {
-                        Error::repository(format!(
+                        Error::repo(format!(
                             "missing chunk index entry for required chunk '{hash}'"
                         ))
                     });

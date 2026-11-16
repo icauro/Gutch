@@ -107,7 +107,7 @@ fn test_capture(
     tags: &manifest::SnapshotTagSet,
     control: OperationControl,
 ) -> SnapshotCaptureResult {
-    capture_snapshot(SnapshotCaptureRequest {
+    capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.to_path_buf(),
         source_dir: source_dir.to_path_buf(),
         explicit_tags: tags.clone(),
@@ -139,7 +139,7 @@ fn test_repo_with_source(
 
 fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     let destination = repo_root.join(format!("reconstructed-{snapshot_id}"));
-    reconstruct_snapshot(InstallationRequest {
+    reconstruct_snapshot(&InstallationRequest {
         repo_root: repo_root.to_path_buf(),
         snapshot_id: snapshot_id.to_string(),
         destination_dir: destination.clone(),
@@ -155,6 +155,7 @@ fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
         repo_root,
         Some(snapshot_id),
         RepoArtifactVerification::Strict,
+        &crate::progress::OperationControl::default(),
     )
     .unwrap();
     assert!(verification.ok, "strict verification failed");
@@ -177,7 +178,7 @@ fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
     // Change another file so content identity creates a new snapshot while
     // game.exe exercises reuse of an unchanged file across chunker settings.
     fs::write(source.join("new.txt"), b"new snapshot").unwrap();
-    let second = capture_snapshot(SnapshotCaptureRequest {
+    let second = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source,
         explicit_tags: test_tags(),
@@ -269,7 +270,7 @@ fn cancelled_capture_retains_first_snapshot() {
     );
     let cancelled = OperationControl::default()
         .with_cancellation(Arc::new(crate::test_util::TestCancellation::cancelled()));
-    let failed = capture_snapshot(SnapshotCaptureRequest {
+    let failed = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source_b,
         explicit_tags: test_tags(),
@@ -339,7 +340,7 @@ fn same_id_different_tags_returns_metadata_conflict() {
         "os=windows".to_string(),
     ])
     .unwrap();
-    let conflict = capture_snapshot(SnapshotCaptureRequest {
+    let conflict = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source,
         explicit_tags: other_tags,
@@ -398,7 +399,7 @@ fn recapture_after_product_metadata_edit_is_unchanged() {
             },
         ),
     };
-    crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots(
+    crate::repo::snapshot_manifests::set_snapshot_product_metadata(
         &repo_root,
         std::slice::from_ref(&first.snapshot_id),
         Some(metadata),
@@ -538,7 +539,7 @@ fn tampered_blueprint_returns_integrity_conflict() {
         if snapshot_id == first.snapshot_id)
     );
 
-    let conflict = capture_snapshot(SnapshotCaptureRequest {
+    let conflict = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source,
         explicit_tags: test_tags(),
@@ -621,7 +622,7 @@ fn failed_artifact_write_publishes_no_snapshot() {
     let read_only = Permissions::from_mode(0o555);
     fs::set_permissions(&repo_paths.bundles_root, read_only.clone()).unwrap();
     fs::set_permissions(&repo_paths.chunks_root, read_only).unwrap();
-    let failed = capture_snapshot(SnapshotCaptureRequest {
+    let failed = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source_b,
         explicit_tags: test_tags(),
@@ -657,7 +658,7 @@ fn capture_bundle_counts_include_each_referenced_bundle_once() {
         let temp = tempfile::tempdir().unwrap();
         let (repo_root, source_dir) = test_repo_with_source(&temp, "source", b"first file");
         let capture = |mode| {
-            capture_snapshot(SnapshotCaptureRequest {
+            capture_snapshot(&SnapshotCaptureRequest {
                 repo_root: repo_root.clone(),
                 source_dir: source_dir.clone(),
                 explicit_tags: test_tags(),
@@ -740,7 +741,7 @@ fn batch_capture_reuses_chunks_from_earlier_sources_in_the_batch() {
         control: OperationControl::default(),
     };
 
-    let results = crate::capture::sources::capture_snapshots(vec![
+    let results = crate::capture::sources::capture_snapshots(&[
         request(&first_source, "1.0.0"),
         request(&second_source, "1.1.0"),
     ])

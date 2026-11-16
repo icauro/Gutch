@@ -39,15 +39,28 @@ pub struct IndexRebuildResult {
     pub affected_snapshots: Vec<String>,
 }
 
+/// Rebuild the chunk index from verified artifacts without replacing the current one.
+pub fn plan_index_rebuild(
+    repo_root: &Path,
+    control: &OperationControl,
+) -> Result<IndexRebuildResult> {
+    recover_index(repo_root, false, control)
+}
+
+/// Rebuild the chunk index from verified artifacts and replace the current one
+/// only when every retained snapshot resolves.
+pub fn rebuild_index(repo_root: &Path, control: &OperationControl) -> Result<IndexRebuildResult> {
+    recover_index(repo_root, true, control)
+}
+
 /// Discover and verify owned artifacts independently of the current chunk map.
-/// Publication is explicit and only allowed when every retained snapshot resolves.
-pub fn rebuild_index(
-    root: &Path,
+fn recover_index(
+    repo_root: &Path,
     publish: bool,
     control: &OperationControl,
 ) -> Result<IndexRebuildResult> {
     let work = || {
-        let (paths, _) = load_repo_manifest(root)?;
+        let (paths, _) = load_repo_manifest(repo_root)?;
         let mut entries: BTreeMap<ChunkHash, ChunkIndexEntry> = BTreeMap::new();
         let mut result = IndexRebuildResult {
             complete: false,
@@ -119,9 +132,9 @@ pub fn rebuild_index(
         Ok(result)
     };
     if publish {
-        super::coordination::write_with_control(root, control, work)
+        super::coordination::write_with_control(repo_root, control, work)
     } else {
-        super::coordination::read_with_control(root, control, work)
+        super::coordination::read_with_control(repo_root, control, work)
     }
 }
 
@@ -142,9 +155,7 @@ pub(crate) fn rebuild_chunk_index_from_artifacts(
     let mut entries = BTreeMap::new();
     for (hash, entry) in recovered.into_iter().flatten() {
         if let ChunkLocation::ConflictingSize = add_recovered_chunk(&mut entries, hash, entry) {
-            return Err(Error::repository(format!(
-                "conflicting sizes for chunk {hash}"
-            )));
+            return Err(Error::repo(format!("conflicting sizes for chunk {hash}")));
         }
     }
     Ok(ChunkIndex {
@@ -185,9 +196,7 @@ fn recover_artifact_chunks(
         ArtifactRef::LooseChunk { hash } => {
             let (declared, raw, _) = read_loose_header(&mut File::open(path)?)?;
             if declared != *hash {
-                return Err(Error::repository(
-                    "loose artifact filename disagrees with header",
-                ));
+                return Err(Error::repo("loose artifact filename disagrees with header"));
             }
             read_loose_chunk(path, *hash, u64::from(raw), None)?;
             Ok(vec![(

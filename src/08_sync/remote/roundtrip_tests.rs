@@ -240,7 +240,7 @@ fn capture(repo: &Path, source: &Path, content: &[u8]) -> String {
     if !paths.repo_metadata_path.exists() {
         crate::repo::paths::ensure_repo_layout(&paths, "fixture").unwrap();
     }
-    crate::capture::sources::capture_snapshot(crate::capture::contracts::SnapshotCaptureRequest {
+    crate::capture::sources::capture_snapshot(&crate::capture::contracts::SnapshotCaptureRequest {
         repo_root: repo.to_path_buf(),
         source_dir: source.to_path_buf(),
         explicit_tags: Default::default(),
@@ -331,6 +331,7 @@ fn prune_removes_local_only_snapshots_and_their_bundles_without_requesting_them(
         &clone,
         None,
         crate::repo::verify::RepoArtifactVerification::Strict,
+        &crate::progress::OperationControl::default(),
     )
     .unwrap();
     assert!(verified.ok);

@@ -31,15 +31,15 @@ pub fn plan_snapshot_captures(
         .collect()
 }
 
-pub fn capture_snapshot(request: SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
-    let mut results = capture_snapshots(vec![request])?;
+pub fn capture_snapshot(request: &SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {
+    let mut results = capture_snapshots(std::slice::from_ref(request))?;
     Ok(results.remove(0))
 }
 
 /// Validate every source first. Successful captures remain committed if a later capture fails.
 pub fn capture_snapshots(
-    requests: Vec<SnapshotCaptureRequest>,
+    requests: &[SnapshotCaptureRequest],
 ) -> Result<Vec<SnapshotCaptureResult>> {
-    plan_snapshot_captures(&requests)?;
+    plan_snapshot_captures(requests)?;
     capture_planned_snapshots(requests)
 }

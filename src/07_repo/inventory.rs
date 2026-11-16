@@ -30,7 +30,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
         let id = entry
             .file_name()
             .to_str()
-            .ok_or_else(|| crate::Error::repository("invalid snapshot directory name"))?
+            .ok_or_else(|| crate::Error::repo("invalid snapshot directory name"))?
             .to_string();
         validate_snapshot_id(&id)?;
         if !entry
@@ -38,7 +38,7 @@ pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
             .join(super::snapshot_manifests::SNAPSHOT_METADATA_FILE)
             .is_file()
         {
-            return Err(crate::Error::repository(format!(
+            return Err(crate::Error::repo(format!(
                 "snapshot {id} is missing metadata"
             )));
         }

@@ -52,7 +52,7 @@ pub fn delete_snapshot(
         // The directory, not its metadata file, marks a partly deleted snapshot.
         let metadata_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
         if !metadata_path.parent().is_some_and(Path::exists) {
-            return Err(crate::Error::repository(format!(
+            return Err(crate::Error::repo(format!(
                 "snapshot not found in repo: {snapshot_id}"
             )));
         }

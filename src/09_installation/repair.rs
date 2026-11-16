@@ -17,17 +17,19 @@ use crate::installation::prepare::LoadedRepoSnapshot;
 use crate::installation::prepare::load_repo_snapshot_manifest;
 use crate::repo::coordination::read_with_control;
 use crate::repo::index::load_chunk_index;
-pub fn repair_installation(request: InstallationRepairRequest) -> Result<InstallationRepairResult> {
+pub fn repair_installation(
+    request: &InstallationRepairRequest,
+) -> Result<InstallationRepairResult> {
     let result = install_snapshot_from_repo(
-        InstallationRequest {
-            repo_root: request.repo_root,
-            snapshot_id: request.snapshot_id,
-            destination_dir: request.destination_dir,
-            staging_dir: request.staging_dir,
+        &InstallationRequest {
+            repo_root: request.repo_root.clone(),
+            snapshot_id: request.snapshot_id.clone(),
+            destination_dir: request.destination_dir.clone(),
+            staging_dir: request.staging_dir.clone(),
             source_snapshot_id: None,
             source_dir: None,
             runtime_hints: request.runtime_hints,
-            control: request.control,
+            control: request.control.clone(),
         },
         InstallationPublication::Selective {
             extra_files: if request.remove_extra_files {
@@ -48,7 +50,7 @@ pub fn repair_installation(request: InstallationRepairRequest) -> Result<Install
 }
 
 pub fn plan_installation_repair(
-    request: InstallationRepairPlanRequest,
+    request: &InstallationRepairPlanRequest,
 ) -> Result<InstallationRepairPlanResult> {
     request.control.checkpoint()?;
     read_with_control(&request.repo_root, &request.control.clone(), || {

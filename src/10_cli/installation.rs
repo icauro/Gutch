@@ -107,7 +107,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         return Err(crate::Error::Cancelled);
     }
     let started_at = ProfileInstant::start(profile.as_deref());
-    let execution = repair_installation(InstallationRepairRequest {
+    let execution = repair_installation(&InstallationRepairRequest {
         repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),
@@ -176,7 +176,7 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &Profile) -> crate::Resu
         return Err(crate::Error::Cancelled);
     }
     let started_at = ProfileInstant::start(profile.as_deref());
-    let result = corrupt_installation(InstallationCorruptionRequest {
+    let result = corrupt_installation(&InstallationCorruptionRequest {
         destination_dir: command.destination.clone(),
         plan,
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
@@ -357,7 +357,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
             profile,
         );
     }
-    let execution = reconstruct_snapshot(InstallationRequest {
+    let execution = reconstruct_snapshot(&InstallationRequest {
         repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),
@@ -378,7 +378,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
 
 pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
     let progress = CliProgressSink::new();
-    let execution = verify_installation(InstallationVerifyRequest {
+    let execution = verify_installation(&InstallationVerifyRequest {
         repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),

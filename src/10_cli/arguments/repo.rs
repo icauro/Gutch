@@ -91,7 +91,7 @@ pub(crate) enum RepoCommands {
         repo: PathBuf,
         /// Remote repository ID; defaults to the bound remote.
         #[arg(long, value_name = "ID")]
-        remote: Option<String>,
+        remote_repo_id: Option<String>,
         /// How to resolve snapshots changed on both sides.
         #[arg(long, value_enum, default_value = "keep-newer")]
         on_conflict: PullConflictPolicy,

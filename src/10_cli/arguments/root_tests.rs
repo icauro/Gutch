@@ -22,7 +22,7 @@ fn parses_provider_neutral_remote_commands() {
         } else {
             "/repos/reconstruct"
         },
-        "--remote",
+        "--remote-repo-id",
         "scope/repo",
         "--on-conflict",
         "keep-local",

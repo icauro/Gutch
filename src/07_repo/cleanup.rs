@@ -95,7 +95,7 @@ pub(crate) fn plan_orphan_artifact_cleanup(
         for artifact in &required_artifacts {
             let path = artifact.local_path(&repo_paths)?;
             if !path.is_file() {
-                return Err(crate::Error::repository(format!(
+                return Err(crate::Error::repo(format!(
                     "cannot clean repository: snapshot '{snapshot_id}' requires missing artifact '{}'",
                     path.display()
                 )));

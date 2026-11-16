@@ -6,7 +6,9 @@ use crate::installation::inspect::{InspectionSpans, VerifyRequest, classify_dire
 use crate::installation::prepare::{LoadedRepoSnapshot, load_repo_snapshot_manifest};
 use crate::repo::coordination::read_with_control;
 
-pub fn verify_installation(request: InstallationVerifyRequest) -> Result<InstallationVerifyResult> {
+pub fn verify_installation(
+    request: &InstallationVerifyRequest,
+) -> Result<InstallationVerifyResult> {
     request.control.checkpoint()?;
     let root = request.repo_root.clone();
     read_with_control(&root, &request.control.clone(), || {
@@ -20,7 +22,7 @@ pub fn verify_installation(request: InstallationVerifyRequest) -> Result<Install
             dir: &request.destination_dir,
             mode: request.verify_mode,
             runtime_hints: &request.runtime_hints,
-            control: request.control,
+            control: request.control.clone(),
             spans: &InspectionSpans::VERIFY,
             pool: None,
         })?;

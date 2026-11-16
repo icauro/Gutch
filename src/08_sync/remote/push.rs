@@ -55,10 +55,7 @@ struct LocalSyncSnapshot {
     snapshot_blueprint_hash_b3: String,
 }
 
-pub fn plan_repo_push<P: RemoteRepoReader + ?Sized>(
-    repo_root: &Path,
-    provider: &P,
-) -> Result<RepoPushPlan> {
+pub fn plan_repo_push(repo_root: &Path, provider: &dyn RemoteRepoReader) -> Result<RepoPushPlan> {
     let bound_remote_repo_id = linked_remote_repo_id(repo_root)?;
     let repository = provider.resolve_repo(None, Some(&bound_remote_repo_id))?;
     let snapshots = provider.list_snapshots(&repository)?;
@@ -70,7 +67,7 @@ fn collect_local_sync_snapshots(
 ) -> Result<(RepoStatus, RepoPaths, Vec<LocalSyncSnapshot>)> {
     let status = read_repo_status(repo_root)?;
     if !status.is_repo {
-        return Err(Error::repository(format!(
+        return Err(Error::repo(format!(
             "no gutch repo found at {}",
             repo_root.display()
         )));
@@ -396,19 +393,19 @@ fn required_local_bundle_ids(repo_paths: &RepoPaths, status: &RepoStatus) -> Res
     Ok(ids.into_iter().collect())
 }
 
-pub fn push_repo<P: RemoteRepoProvider + ?Sized>(
-    repo: &Path,
-    provider: &P,
+pub fn push_repo(
+    repo_root: &Path,
+    provider: &dyn RemoteRepoProvider,
     control: &OperationControl,
 ) -> Result<RepoPushStats> {
-    coordination::write_with_control(repo, control, || {
+    coordination::write_with_control(repo_root, control, || {
         control.checkpoint()?;
         let mut progress = RemoteProgress::new(control, OperationKind::Push);
-        let bound_remote_repo_id = linked_remote_repo_id(repo)?;
+        let bound_remote_repo_id = linked_remote_repo_id(repo_root)?;
         let repository = provider.resolve_repo(None, Some(&bound_remote_repo_id))?;
         progress.report(ProgressPhase::Planning, "Planning sync changes", None);
         let remote_snapshots = provider.list_snapshots(&repository)?;
-        let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo)?;
+        let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo_root)?;
         let plan = plan_push_from_local(
             &status,
             &repo_paths,
@@ -481,7 +478,7 @@ pub fn push_repo<P: RemoteRepoProvider + ?Sized>(
         control.checkpoint()?;
         progress.next_step(
             ProgressPhase::UploadRepoMetadata,
-            "Uploading repo metadata",
+            "Uploading repo_root metadata",
             None,
         );
         if plan.repo_manifest_changed {

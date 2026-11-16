@@ -38,13 +38,15 @@ pub struct InstallationResult {
 }
 
 /// Full reconstruction: build in staging, then replace the destination.
-pub fn reconstruct_snapshot(request: InstallationRequest) -> Result<InstallationReconstructResult> {
+pub fn reconstruct_snapshot(
+    request: &InstallationRequest,
+) -> Result<InstallationReconstructResult> {
     install_snapshot_from_repo(request, InstallationPublication::ReplaceDirectory)
         .map(|result| result.reconstruction)
 }
 
 pub fn install_snapshot_from_repo(
-    request: InstallationRequest,
+    request: &InstallationRequest,
     publication: InstallationPublication,
 ) -> Result<InstallationResult> {
     request.control.checkpoint()?;

@@ -206,7 +206,7 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
     let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_installation(InstallationRepairRequest {
+    let result = repair_installation(&InstallationRepairRequest {
         repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -235,7 +235,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
     let manifest = test_snapshot_manifest(vec![("game.dat", b"")]);
     write_repair_test_repo(&root, &manifest);
 
-    let result = repair_installation(InstallationRepairRequest {
+    let result = repair_installation(&InstallationRepairRequest {
         repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -326,7 +326,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     fs::write(destination_dir.join("game.exe"), b"bad!").unwrap();
     fs::write(destination_dir.join("data.bin"), b"data").unwrap();
 
-    let plan = plan_installation_repair(InstallationRepairPlanRequest {
+    let plan = plan_installation_repair(&InstallationRepairPlanRequest {
         repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -353,7 +353,7 @@ fn repair_restores_manifest_file_attributes() {
     }
     manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
-    repair_installation(InstallationRepairRequest {
+    repair_installation(&InstallationRepairRequest {
         repo_root: root.path().to_path_buf(),
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
@@ -426,7 +426,7 @@ fn repair_restores_files_inside_read_only_directories() {
     manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
 
-    repair_installation(InstallationRepairRequest {
+    repair_installation(&InstallationRepairRequest {
         repo_root: root.path().to_path_buf(),
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
@@ -446,7 +446,7 @@ fn repair_restores_files_inside_read_only_directories() {
 }
 
 fn repair(root: &Path, manifest: &SnapshotManifest, remove_extra_files: bool) -> crate::Result<()> {
-    repair_installation(InstallationRepairRequest {
+    repair_installation(&InstallationRepairRequest {
         repo_root: root.to_path_buf(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: root.join("destination"),

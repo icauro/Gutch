@@ -11,7 +11,7 @@ use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::write_repo_manifest;
 use crate::repo::recovery::rebuild_chunk_index_from_artifacts;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
-use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots;
+use crate::repo::snapshot_manifests::set_snapshot_product_metadata;
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
@@ -84,7 +84,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
         snapshot_ids.push(snapshot.snapshot_id);
     }
 
-    save_snapshot_product_metadata_for_snapshots(
+    set_snapshot_product_metadata(
         temp.path(),
         &snapshot_ids,
         Some(manifest::SnapshotProductMetadata {
@@ -407,6 +407,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         temp.path(),
         Some(&snapshot.snapshot_id),
         RepoArtifactVerification::Strict,
+        &crate::progress::OperationControl::default(),
     )
     .unwrap();
     assert!(verification.ok);

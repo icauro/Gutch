@@ -297,9 +297,9 @@ fn write_remote_snapshot_artifacts(
     Ok(())
 }
 
-pub fn plan_repo_pull<P: RemoteRepoReader + ?Sized>(
+pub fn plan_repo_pull(
     repo_root: &Path,
-    provider: &P,
+    provider: &dyn RemoteRepoReader,
     remote_spec: Option<&str>,
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
@@ -361,7 +361,7 @@ pub(super) fn record_bundle_sources(
 ) -> Result<()> {
     for source in sources {
         if !expected_bundle_ids.contains(source.bundle_id.as_str()) {
-            return Err(Error::repository(format!(
+            return Err(Error::repo(format!(
                 "remote provider returned an unexpected bundle '{}'",
                 source.bundle_id
             )));
@@ -370,7 +370,7 @@ pub(super) fn record_bundle_sources(
             .insert(source.bundle_id.clone(), source.source)
             .is_some()
         {
-            return Err(Error::repository(format!(
+            return Err(Error::repo(format!(
                 "remote provider returned duplicate bundle '{}'",
                 source.bundle_id
             )));
@@ -442,7 +442,7 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
             .unwrap_or_default();
         let incoming_constraints = manifest.constraints.clone().unwrap_or_default();
         if repository_existed && local_constraints != incoming_constraints {
-            return Err(Error::repository(
+            return Err(Error::repo(
                 "remote repository constraints differ; explicitly update local constraints before pulling",
             ));
         }
@@ -518,7 +518,7 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
         } in bundle_source_requests(bundles_by_snapshot, missing_bundles)
         {
             let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
-                Error::repository(format!(
+                Error::repo(format!(
                     "remote snapshot '{snapshot_id}' disappeared during bundle resolution"
                 ))
             })?;
@@ -562,21 +562,21 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
     }
 }
 
-pub fn pull_repo<P: RemoteRepoReader + ?Sized>(
-    repo: &Path,
-    provider: &P,
+pub fn pull_repo(
+    repo_root: &Path,
+    provider: &dyn RemoteRepoReader,
     remote_spec: Option<&str>,
     policy: PullConflictPolicy,
     prune: bool,
     control: &OperationControl,
 ) -> Result<RepoPullStats> {
-    fs::create_dir_all(repo)?;
-    coordination::write_with_control(repo, control, || {
+    fs::create_dir_all(repo_root)?;
+    coordination::write_with_control(repo_root, control, || {
         control.checkpoint()?;
         let mut progress = RemoteProgress::new(control, OperationKind::Pull);
-        let bound_remote_repo_id = bound_remote_repo_id(repo)?;
+        let bound_remote_repo_id = bound_remote_repo_id(repo_root)?;
         let repository = provider.resolve_repo(remote_spec, bound_remote_repo_id.as_deref())?;
-        let repo_paths = RepoPaths::from_repo_root(repo);
+        let repo_paths = RepoPaths::from_repo_root(repo_root);
         let repository_existed = repo_paths.repo_metadata_path.exists();
         ensure_repo_layout(&repo_paths, &repository.name)?;
         progress.report(ProgressPhase::Planning, "Planning pull changes", None);
@@ -588,10 +588,10 @@ pub fn pull_repo<P: RemoteRepoReader + ?Sized>(
                 .entry(snapshot.snapshot_id.as_str())
                 .or_insert(snapshot);
         }
-        let plan = compute_pull_plan(repo, &repo_paths, &repository, &snapshots, policy)?;
+        let plan = compute_pull_plan(repo_root, &repo_paths, &repository, &snapshots, policy)?;
         control.checkpoint()?;
         let context = PullContext {
-            repo,
+            repo: repo_root,
             repo_paths: &repo_paths,
             repository: &repository,
             provider,
@@ -627,7 +627,7 @@ pub fn pull_repo<P: RemoteRepoReader + ?Sized>(
             control.checkpoint()?;
             progress.next_step(
                 ProgressPhase::RepoMetadata,
-                "Downloading repo metadata",
+                "Downloading repo_root metadata",
                 None,
             );
             context.download_repo_manifest(repository_existed)?;
@@ -653,7 +653,7 @@ pub fn pull_repo<P: RemoteRepoReader + ?Sized>(
                 Some(snapshot_id.clone()),
             );
             let snapshot = snapshots_by_id.get(snapshot_id.as_str()).ok_or_else(|| {
-                Error::repository(format!(
+                Error::repo(format!(
                     "remote snapshot '{snapshot_id}' disappeared during pull"
                 ))
             })?;
@@ -706,7 +706,7 @@ pub fn pull_repo<P: RemoteRepoReader + ?Sized>(
         for (index, bundle_id) in missing_bundles.iter().enumerate() {
             control.checkpoint()?;
             let source = bundle_sources.get(bundle_id).ok_or_else(|| {
-                Error::repository(format!(
+                Error::repo(format!(
                     "remote provider did not return a source for required bundle '{bundle_id}'"
                 ))
             })?;

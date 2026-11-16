@@ -16,7 +16,7 @@ pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
 }
 
 fn not_linked(repo_root: &Path) -> Error {
-    Error::repository(format!(
+    Error::repo(format!(
         "repo '{}' is not linked. Use 'gutch repo remote create' first.",
         repo_root.display()
     ))
@@ -26,7 +26,7 @@ pub fn bind_remote_repo(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
     coordination::write(repo_root, || {
         let remote_repo_id = remote_repo_id.trim();
         if remote_repo_id.is_empty() {
-            return Err(Error::repository("remote repo ID is required"));
+            return Err(Error::repo("remote repo ID is required"));
         }
 
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
@@ -43,7 +43,7 @@ pub fn create_remote_repo(
     coordination::write(repo_root, || {
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
         if let Some(remote_repo_id) = &manifest.remote_repo_id {
-            return Err(Error::repository(format!(
+            return Err(Error::repo(format!(
                 "repo '{}' is already linked (remote_repo_id={remote_repo_id}). Unlink first.",
                 paths.repo_root().display(),
             )));
@@ -51,13 +51,11 @@ pub fn create_remote_repo(
 
         let scope_id = scope_id.trim();
         if scope_id.is_empty() {
-            return Err(Error::repository("remote repo scope is required"));
+            return Err(Error::repo("remote repo scope is required"));
         }
         let remote_repo_id = provider.create_repo(scope_id, &manifest.repository_name)?;
         if remote_repo_id.trim().is_empty() {
-            return Err(Error::repository(
-                "remote provider returned an empty repo ID",
-            ));
+            return Err(Error::repo("remote provider returned an empty repo ID"));
         }
         manifest.remote_repo_id = Some(remote_repo_id);
         write_repo_manifest(&paths, &manifest)?;
@@ -78,9 +76,7 @@ pub fn unbind_remote_repo(
 
         if delete_remote {
             let provider = provider.ok_or_else(|| {
-                Error::repository(
-                    "remote provider context is required when deleting the remote repo",
-                )
+                Error::repo("remote provider context is required when deleting the remote repo")
             })?;
             let repository = provider
                 .repo_provider()

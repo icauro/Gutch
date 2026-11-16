@@ -13,7 +13,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
     std::os::unix::fs::symlink("healthy", source.join("link")).unwrap();
     let repo = root.path().join("repo");
     initialize_repo(&repo, RepoInitOptions::default()).unwrap();
-    let capture = capture_snapshot(SnapshotCaptureRequest {
+    let capture = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source,
         explicit_tags: SnapshotTagSet::default(),
@@ -43,7 +43,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         },
         control: Default::default(),
     };
-    reconstruct_snapshot(request.clone()).unwrap();
+    reconstruct_snapshot(&request).unwrap();
     (root, request)
 }
 
@@ -85,7 +85,7 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
     // Changes after a preview are reclassified during execution.
     fs::write(request.destination_dir.join("damaged"), b"different again").unwrap();
     install_snapshot_from_repo(
-        request.clone(),
+        &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Preserve,
         },
@@ -111,7 +111,7 @@ fn reconstruction_salvages_healthy_files_from_a_partially_damaged_source() {
     let (_root, mut request) = fixture();
     fs::write(request.destination_dir.join("damaged"), b"broken").unwrap();
     request.source_snapshot_id = Some(request.snapshot_id.clone());
-    let result = reconstruct_snapshot(request.clone()).unwrap();
+    let result = reconstruct_snapshot(&request).unwrap();
     assert!(result.reconstruct_result.reused_source_chunk_count > 0);
     assert_eq!(
         fs::read(request.destination_dir.join("damaged")).unwrap(),
@@ -176,7 +176,7 @@ fn permission_repair_keeps_verified_content_in_place() {
     assert!(saw_metadata);
     assert_eq!(summary.staging_file_bytes, 0);
     install_snapshot_from_repo(
-        request,
+        &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Preserve,
         },
@@ -216,7 +216,7 @@ fn removing_extra_content_preserves_expected_empty_directories() {
     fs::create_dir(&extra_directory).unwrap();
     fs::write(extra_directory.join("user-file"), b"extra content").unwrap();
     install_snapshot_from_repo(
-        request,
+        &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Remove,
         },

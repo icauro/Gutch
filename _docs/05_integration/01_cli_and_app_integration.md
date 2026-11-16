@@ -174,7 +174,7 @@ when reading values beyond their language's ordinary number range. Readable
 paths are quoted and control characters escaped.
 
 Differences and identical trees both exit successfully. Missing or invalid
-snapshot metadata fails the command. The engine API is `diff_repo_snapshots`,
+snapshot metadata fails the command. The engine API is `diff_snapshots`,
 returning `SnapshotDiff`; both CLI formats render this same result.
 
 ## Filename compatibility policy
@@ -219,7 +219,7 @@ The public API exposes `RepoConstraints`, `FilesystemTarget`,
 
 Other `Error` kinds name the failing domain: `InvalidInput` for caller
 arguments and configuration, `Artifact` for malformed stored or received
-artifact bytes, `Manifest` for snapshot manifest data, `Repository` for
+artifact bytes, `Manifest` for snapshot manifest data, `Repo` for
 repository state and synchronization, `Capture` for source capture, and
 `Download`, `Verify` and `Reconstruct` for their operations. Structured kinds
 include `Cancelled`, `IoContext`, `HashMismatch`, `InvalidPath`,
@@ -254,7 +254,7 @@ outputs may still be written. Execution reinspects inputs; a preview is not an
 executable transaction. `--yes` skips confirmation only and is offered only by commands that ask.
 
 Remote repository commands are `repo remote list/create/bind/unbind`. Creating
-uses `--scope-id`; binding uses `--remote-repo-id`. Unbinding retains the remote
+uses `--scope-id`; binding and `repo pull` name the remote with `--remote-repo-id`. Unbinding retains the remote
 unless `--delete-remote` is explicitly selected. `repo rename --name` changes
 only the local display name. `repo index rebuild` replaces the index after a complete
 rebuild; `--dry-run` only reports. Diagnostic corruption lives under

@@ -139,9 +139,11 @@ Local-to-remote synchronization uses `push_repo`, `plan_repo_push`,
 `RepoPushPlan`, `RepoPushSnapshotChange`, and `RepoPushStats`, matching `repo push`.
 The corresponding download direction remains `pull_repo` and `RepoPullPlan`.
 Public identifiers spell the repository `repo` (`RepoConstraints`,
-`RemoteRepoProvider`, `RemoteRepoService`), and requests and results name its
-directory `repo_root`. Operations borrow their paths, strings and
-`OperationControl`. The public metadata readers take the repo root and return
+`RemoteRepoProvider`, `RemoteRepoService`, `Error::Repo`), and requests and
+results name its directory `repo_root`. Operations borrow their requests,
+paths, strings and `OperationControl`, and sync operations take `&dyn` provider
+contracts. Previews are separate `plan_*` functions, such as
+`plan_index_rebuild` beside `rebuild_index`, rather than boolean flags. The public metadata readers take the repo root and return
 plain manifests; `RepoPaths` stays internal. `RepoStatus` reports the
 directory as `repoRoot`; stored documents keep their field names.
 

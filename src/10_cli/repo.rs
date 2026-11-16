@@ -21,7 +21,7 @@ use crate::repo::init_policy::RepoInitOptions;
 use crate::repo::init_policy::RepoInitPathKind;
 use crate::repo::init_policy::assess_repo_init_path;
 use crate::repo::init_policy::initialize_repo;
-use crate::repo::recovery::rebuild_index;
+use crate::repo::recovery::{plan_index_rebuild, rebuild_index};
 use crate::repo::status::read_repo_status;
 use crate::repo::updates::plan_repo_constraints;
 use crate::repo::updates::plan_repo_rename;
@@ -60,11 +60,11 @@ pub(crate) fn run(
         RepoCommands::Push { repo, confirm } => repo_remote::push(repo, confirm, host, profile),
         RepoCommands::Pull {
             repo,
-            remote,
+            remote_repo_id,
             on_conflict,
             prune,
             confirm,
-        } => repo_remote::pull(repo, remote, on_conflict, prune, confirm, host, profile),
+        } => repo_remote::pull(repo, remote_repo_id, on_conflict, prune, confirm, host, profile),
         RepoCommands::Remote { command } => match command {
             RemoteCommands::List => repo_remote::list(host),
             RemoteCommands::TagReferences { repo } => tag_references(repo, host),
@@ -139,11 +139,16 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
 }
 
 fn rebuild_chunk_index(repo: &Path, dry_run: bool) -> crate::Result<()> {
-    let result = rebuild_index(repo, !dry_run, &OperationControl::default())?;
+    let control = OperationControl::default();
+    let result = if dry_run {
+        plan_index_rebuild(repo, &control)?
+    } else {
+        rebuild_index(repo, &control)?
+    };
     output::record(&result)?;
     output::line(format_args!("{}", serde_json::to_string_pretty(&result)?));
     if !result.complete {
-        return Err(crate::Error::repository(
+        return Err(crate::Error::repo(
             "chunk index rebuild is incomplete; the index was not replaced",
         ));
     }
@@ -198,7 +203,7 @@ fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result
     } else {
         RepoArtifactVerification::Fast
     };
-    let result = verify_repo(repo, snapshot_id, mode)?;
+    let result = verify_repo(repo, snapshot_id, mode, &OperationControl::default())?;
     output::record(&result)?;
 
     output::line(format_args!("{SECTION_SEPARATOR}"));

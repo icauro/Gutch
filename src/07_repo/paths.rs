@@ -79,7 +79,7 @@ pub(crate) fn validate_path_component(value: &str, label: &str) -> Result<()> {
         || value.contains(':')
         || Path::new(value).components().count() != 1
     {
-        return Err(Error::repository(format!(
+        return Err(Error::repo(format!(
             "invalid {label} path component '{value}'"
         )));
     }
@@ -105,7 +105,7 @@ pub(crate) fn ensure_repo_layout(paths: &RepoPaths, name: &str) -> Result<RepoMa
 pub fn load_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoManifest)> {
     let paths = RepoPaths::from_repo_root(repo_root);
     if !paths.repo_metadata_path.exists() {
-        return Err(Error::repository(format!(
+        return Err(Error::repo(format!(
             "gutch repo manifest not found at {}",
             paths.repo_metadata_path.display()
         )));
@@ -185,7 +185,7 @@ fn apply_local_repo_config(paths: &RepoPaths, manifest: &mut RepoManifest) -> Re
     )?;
     let remote_repo_id = config.remote_repo_id.trim();
     if remote_repo_id.is_empty() {
-        return Err(Error::repository(format!(
+        return Err(Error::repo(format!(
             "{} has an empty remote_repo_id",
             paths.local_repo_config_path.display()
         )));

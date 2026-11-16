@@ -42,12 +42,18 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         RepoArtifactVerification::Fast,
         RepoArtifactVerification::Strict,
     ] {
-        let result = verify_repo(root.path(), Some(&selected.snapshot_id), mode).unwrap();
+        let result = verify_repo(
+            root.path(),
+            Some(&selected.snapshot_id),
+            mode,
+            &OperationControl::default(),
+        )
+        .unwrap();
         assert!(result.ok);
         assert_eq!(result.snapshot_count, 1);
         assert_eq!(result.snapshots[0].snapshot_id, selected.snapshot_id);
         assert_eq!(result.snapshots[0].required_artifact_count, 0);
-        let all = verify_repo(root.path(), None, mode).unwrap();
+        let all = verify_repo(root.path(), None, mode, &OperationControl::default()).unwrap();
         assert!(!all.ok);
         assert_eq!(all.snapshot_count, 2);
         assert_eq!(all.snapshots_ok, 1);
@@ -70,6 +76,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         root.path(),
         Some(&selected.snapshot_id),
         RepoArtifactVerification::Fast,
+        &crate::progress::OperationControl::default(),
     )
     .unwrap_err();
     assert!(error.to_string().contains("chunk index size disagrees"));
@@ -80,6 +87,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         root.path(),
         Some(&selected.snapshot_id),
         RepoArtifactVerification::Fast,
+        &crate::progress::OperationControl::default(),
     )
     .unwrap_err();
     assert!(error.to_string().contains("missing chunk index entry"));
@@ -100,6 +108,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         root.path(),
         Some(&selected.snapshot_id),
         RepoArtifactVerification::Fast,
+        &crate::progress::OperationControl::default(),
     )
     .unwrap_err();
     assert!(matches!(error, Error::SnapshotIntegrityMismatch { .. }));
@@ -110,12 +119,23 @@ fn empty_repository_succeeds_but_unknown_snapshot_is_an_error() {
     let root = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(root.path());
     crate::repo::paths::ensure_repo_layout(&paths, "empty").unwrap();
-    let result = verify_repo(root.path(), None, RepoArtifactVerification::Fast).unwrap();
+    let result = verify_repo(
+        root.path(),
+        None,
+        RepoArtifactVerification::Fast,
+        &OperationControl::default(),
+    )
+    .unwrap();
     assert!(result.ok);
     assert_eq!(result.snapshot_count, 0);
     let unknown = "a".repeat(64);
-    let error =
-        verify_repo(root.path(), Some(&unknown), RepoArtifactVerification::Fast).unwrap_err();
+    let error = verify_repo(
+        root.path(),
+        Some(&unknown),
+        RepoArtifactVerification::Fast,
+        &OperationControl::default(),
+    )
+    .unwrap_err();
     assert!(error.to_string().contains("snapshot not found in repo"));
 }
 

@@ -47,10 +47,10 @@ use std::mem;
 /// requests for the same repository and runtime hints share one write lock,
 /// worker pool and reuse state.
 pub(crate) fn capture_planned_snapshots(
-    requests: Vec<SnapshotCaptureRequest>,
+    requests: &[SnapshotCaptureRequest],
 ) -> Result<Vec<SnapshotCaptureResult>> {
     let mut results = Vec::with_capacity(requests.len());
-    let mut requests = requests.into_iter().peekable();
+    let mut requests = requests.iter().peekable();
     while let Some(first) = requests.next() {
         let mut group = vec![first];
         while let Some(next) = requests.next_if(|next| {
@@ -64,7 +64,7 @@ pub(crate) fn capture_planned_snapshots(
 }
 
 fn capture_repository_group(
-    group: Vec<SnapshotCaptureRequest>,
+    group: Vec<&SnapshotCaptureRequest>,
 ) -> Result<Vec<SnapshotCaptureResult>> {
     let control = group[0].control.clone();
     let repo_root = group[0].repo_root.clone();
@@ -106,7 +106,7 @@ fn capture_repository_group(
 
 /// Captures one planned source; the caller holds the repository write lock.
 pub(crate) fn execute_repo_snapshot_capture(
-    request: SnapshotCaptureRequest,
+    request: &SnapshotCaptureRequest,
     reuse_state: &mut CaptureReuseState,
     build_pool: &rayon::ThreadPool,
 ) -> Result<SnapshotCaptureResult> {
@@ -141,7 +141,7 @@ pub(crate) fn execute_repo_snapshot_capture(
             .validate_snapshot_tags(&snapshot_tags, &request.source_dir.display().to_string())?;
         snapshot_tags
     };
-    let build_config = configure_build(&request, reuse_state, &repo_paths, &snapshot_tags);
+    let build_config = configure_build(request, reuse_state, &repo_paths, &snapshot_tags);
     drop(prepare_span);
 
     let prepare_wall = operation_started_at.elapsed();

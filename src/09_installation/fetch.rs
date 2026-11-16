@@ -38,7 +38,7 @@ pub struct SnapshotFetchAndReconstructResult {
 }
 
 pub fn fetch_and_reconstruct_snapshot(
-    request: SnapshotFetchAndReconstructRequest,
+    request: &SnapshotFetchAndReconstructRequest,
 ) -> Result<SnapshotFetchAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
     fs::create_dir_all(&request.fetch_request.repo_root)?;

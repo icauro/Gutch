@@ -34,7 +34,7 @@ use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::ProfileMode;
 use crate::repo::paths::RepoPaths;
 use crate::repo::read::load_repo_manifest;
-use crate::repo::snapshot_manifests::diff_repo_snapshots;
+use crate::repo::snapshot_manifests::diff_snapshots;
 use crate::repo::snapshots::delete_snapshot;
 use crate::repo::snapshots::plan_snapshot_tag_updates;
 use crate::repo::snapshots::retag_snapshots;
@@ -124,7 +124,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
 }
 
 fn diff(repo: &Path, from: &str, to: &str, profile: &Profile) -> crate::Result<()> {
-    let result = diff_repo_snapshots(repo, from, to, &control_with_profile(profile))?;
+    let result = diff_snapshots(repo, from, to, &control_with_profile(profile))?;
     output::record(&result)?;
     for entry in &result.changes {
         output::line(format_args!(
@@ -193,7 +193,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
             return Err(crate::Error::Cancelled);
         }
     }
-    let results = capture_snapshots(requests)?;
+    let results = capture_snapshots(&requests)?;
     if let Some(source_root) = source_root {
         initialize_source_config(&source_root)?;
     }

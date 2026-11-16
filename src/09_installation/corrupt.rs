@@ -21,7 +21,7 @@ use crate::installation::contracts::InstallationCorruptionResult;
 /// benchmark scenarios can exercise verification and repair against identical deterministic
 /// damage patterns.
 pub fn corrupt_installation(
-    request: InstallationCorruptionRequest,
+    request: &InstallationCorruptionRequest,
 ) -> Result<InstallationCorruptionResult> {
     request.control.checkpoint()?;
     let _operation_span = request.control.profile_span("installation.corrupt");
@@ -39,7 +39,7 @@ pub fn corrupt_installation(
     }
 
     Ok(InstallationCorruptionResult {
-        destination_dir: request.destination_dir,
+        destination_dir: request.destination_dir.clone(),
         applied_operation_count: request.plan.operations.len(),
     })
 }
@@ -126,7 +126,7 @@ mod tests {
         let file_path = root.path().join("game.bin");
         fs::write(&file_path, [0x10, 0x20, 0x30]).unwrap();
 
-        corrupt_installation(InstallationCorruptionRequest {
+        corrupt_installation(&InstallationCorruptionRequest {
             destination_dir: root.path().to_path_buf(),
             plan: InstallationCorruptionPlan {
                 operations: vec![
@@ -159,7 +159,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let outside = root.path().parent().unwrap().join("outside.txt");
         fs::write(&outside, b"safe").unwrap();
-        let result = corrupt_installation(InstallationCorruptionRequest {
+        let result = corrupt_installation(&InstallationCorruptionRequest {
             destination_dir: root.path().to_path_buf(),
             plan: InstallationCorruptionPlan {
                 operations: vec![InstallationCorruptionOperation::Delete {

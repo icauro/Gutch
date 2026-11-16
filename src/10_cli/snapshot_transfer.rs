@@ -156,7 +156,7 @@ pub(crate) fn fetch_and_reconstruct(
     let progress = CliProgressSink::new();
     let fetch_request =
         fetch.into_request(control_with_profile(profile).with_progress(progress))?;
-    let result = fetch_and_reconstruct_snapshot(SnapshotFetchAndReconstructRequest {
+    let result = fetch_and_reconstruct_snapshot(&SnapshotFetchAndReconstructRequest {
         fetch_request,
         destination_dir: destination,
         staging_dir,

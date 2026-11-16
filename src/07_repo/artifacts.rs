@@ -42,7 +42,7 @@ pub(crate) fn required_artifacts(
 ) -> Result<HashSet<ArtifactRef>> {
     let required = classify_required_artifacts(snapshot_manifest, chunk_index)?;
     if let Some(chunk_hash) = required.unindexed_chunks.first() {
-        return Err(Error::repository(format!(
+        return Err(Error::repo(format!(
             "missing chunk index entry for required chunk '{chunk_hash}'"
         )));
     }
@@ -74,7 +74,7 @@ pub(crate) fn classify_required_artifacts(
             continue;
         };
         if entry.raw_size != chunk_ref.raw_size {
-            return Err(Error::repository(format!(
+            return Err(Error::repo(format!(
                 "chunk index size disagrees with snapshot for '{}'",
                 chunk_ref.chunk_hash
             )));

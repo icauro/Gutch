@@ -65,8 +65,8 @@ pub enum Error {
     },
 
     /// Repository layout, metadata, coordination or synchronization failed.
-    #[error("Repository error: {0}")]
-    Repository(String),
+    #[error("Repo error: {0}")]
+    Repo(String),
 
     /// Source content could not be captured as a snapshot.
     #[error("Capture error: {0}")]
@@ -191,8 +191,8 @@ impl Error {
         Error::Manifest(message.into())
     }
 
-    pub fn repository(message: impl Into<String>) -> Self {
-        Error::Repository(message.into())
+    pub fn repo(message: impl Into<String>) -> Self {
+        Error::Repo(message.into())
     }
 
     pub fn capture(message: impl Into<String>) -> Self {

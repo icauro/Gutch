@@ -337,7 +337,7 @@ fn check_incoming_constraints(
             .constraints
             .unwrap_or_default();
         if local_constraints != incoming_constraints {
-            return Err(Error::repository(
+            return Err(Error::repo(
                 "incoming repository constraints differ; explicitly update local constraints before fetching",
             ));
         }
@@ -419,7 +419,7 @@ fn build_pending_artifact_downloads(
         .enumerate()
         .map(|(ordinal, artifact)| {
             let url = artifact_urls.get(artifact.id().as_ref()).ok_or_else(|| {
-                Error::repository(format!(
+                Error::repo(format!(
                     "missing download URL for required artifact '{}'",
                     artifact.id()
                 ))
@@ -548,16 +548,14 @@ pub(crate) fn fetch_artifact_urls(
     }
 
     let provider = request.artifact_url_provider.as_ref().ok_or_else(|| {
-        Error::repository(
-            "artifact URL provider is required when direct artifact URLs are not provided",
-        )
+        Error::repo("artifact URL provider is required when direct artifact URLs are not provided")
     })?;
     let resolved_artifacts =
         provider.resolve_artifact_urls(&unresolved_artifact_ids, &request.control)?;
     for artifact in resolved_artifacts {
         let (artifact_id, url) = normalize_artifact_download(&artifact)?;
         if !unresolved_artifact_ids.iter().any(|id| id == artifact_id) {
-            return Err(Error::repository(format!(
+            return Err(Error::repo(format!(
                 "artifact URL provider returned unexpected artifact '{}'",
                 artifact_id
             )));
@@ -566,7 +564,7 @@ pub(crate) fn fetch_artifact_urls(
             .insert(artifact_id.to_string(), url.to_string())
             .is_some()
         {
-            return Err(Error::repository(format!(
+            return Err(Error::repo(format!(
                 "artifact URL provider returned duplicate artifact '{}'",
                 artifact_id
             )));
@@ -578,7 +576,7 @@ pub(crate) fn fetch_artifact_urls(
         .filter(|artifact_id| !artifact_urls.contains_key(artifact_id))
         .collect::<Vec<_>>();
     if !missing.is_empty() {
-        return Err(Error::repository(format!(
+        return Err(Error::repo(format!(
             "missing artifact download URLs for: {}",
             missing.join(", ")
         )));

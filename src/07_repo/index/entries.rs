@@ -27,7 +27,7 @@ impl ChunkIndexEntries {
     /// Keep the decoder's row allocation without sorting or dropping invalid duplicates.
     pub(super) fn from_sorted_rows(rows: Vec<(ChunkHash, ChunkIndexEntry)>) -> crate::Result<Self> {
         if rows.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-            return Err(crate::Error::repository(
+            return Err(crate::Error::repo(
                 "chunk index keys must be unique and sorted",
             ));
         }

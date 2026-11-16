@@ -74,7 +74,7 @@ fn with_repository_transaction<T>(
     let root = fs::canonicalize(root)?;
     if let Some(exclusive) = HELD_REPOSITORY_LOCKS.with(|held| held.borrow().get(&root).copied()) {
         if write && !exclusive {
-            return Err(Error::repository("repository lock upgrade is not allowed"));
+            return Err(Error::repo("repository lock upgrade is not allowed"));
         }
         return work();
     }
@@ -82,7 +82,7 @@ fn with_repository_transaction<T>(
         if fs::symlink_metadata(root.join(owned))
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
         {
-            return Err(Error::repository(
+            return Err(Error::repo(
                 "repository coordination paths must not be symbolic links",
             ));
         }
@@ -122,7 +122,7 @@ fn with_repository_transaction<T>(
     let pending = journal.join("pending");
     if pending.exists() {
         if !write {
-            return Err(Error::repository(
+            return Err(Error::repo(
                 "repository publication interrupted; run `gutch repo rebuild-index --apply` or retry any repository change to recover",
             ));
         }
@@ -155,7 +155,7 @@ fn with_repository_transaction<T>(
             // Keep the original failure visible. If rollback fails too, the
             // pending marker stays so the next access retries the restore.
             if let Err(restore_error) = restore_committed(&root, &journal) {
-                return Err(Error::repository(format!(
+                return Err(Error::repo(format!(
                     "{error}; restoring the last committed repository metadata also failed: {restore_error}"
                 )));
             }
@@ -172,7 +172,7 @@ fn with_repository_transaction<T>(
 pub(crate) fn commit_completed_changes(root: &Path) -> Result<()> {
     let root = fs::canonicalize(root)?;
     if HELD_REPOSITORY_LOCKS.with(|held| held.borrow().get(&root).copied()) != Some(true) {
-        return Err(Error::repository(
+        return Err(Error::repo(
             "committing completed changes needs the repository write lock",
         ));
     }
@@ -206,7 +206,7 @@ fn delete_deferred_artifacts(root: &Path) {
 fn copy_entry(source: &Path, target: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(source)?;
     if metadata.file_type().is_symlink() {
-        return Err(Error::repository(
+        return Err(Error::repo(
             "repository metadata must not contain symbolic links",
         ));
     }
@@ -222,7 +222,7 @@ fn copy_entry(source: &Path, target: &Path) -> Result<()> {
             Ok(())
         })?;
     } else {
-        return Err(Error::repository("unsupported repository metadata entry"));
+        return Err(Error::repo("unsupported repository metadata entry"));
     }
     Ok(())
 }
@@ -231,13 +231,11 @@ fn committed_directory(journal: &Path) -> Result<PathBuf> {
     let name = fs::read_to_string(journal.join("committed"))?;
     validate_path_component(&name, "metadata generation")?;
     if !name.starts_with("generation-") {
-        return Err(Error::repository("invalid metadata generation"));
+        return Err(Error::repo("invalid metadata generation"));
     }
     let directory = journal.join(name);
     if !directory.is_dir() {
-        return Err(Error::repository(
-            "committed metadata generation is missing",
-        ));
+        return Err(Error::repo("committed metadata generation is missing"));
     }
     Ok(directory)
 }
@@ -259,7 +257,7 @@ fn publish_generation(root: &Path, journal: &Path) -> Result<()> {
         .path()
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| Error::repository("invalid generated directory name"))?;
+        .ok_or_else(|| Error::repo("invalid generated directory name"))?;
     filesystem::write(&journal.join("committed"), name.as_bytes())?;
     let committed_generation = generation.keep();
     // The pointer is committed. Retry obsolete generations left by interrupted
@@ -287,7 +285,7 @@ fn restore_committed(root: &Path, journal: &Path) -> Result<()> {
         if target.exists() {
             let metadata = fs::symlink_metadata(&target)?;
             if metadata.file_type().is_symlink() {
-                return Err(Error::repository("unsafe metadata recovery target"));
+                return Err(Error::repo("unsafe metadata recovery target"));
             }
             if metadata.is_dir() {
                 fs::remove_dir_all(&target)?;

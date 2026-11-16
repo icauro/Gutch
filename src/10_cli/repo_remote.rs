@@ -153,7 +153,7 @@ pub(crate) fn create(
     let manifest = load_repo_manifest(&repo)?;
     let remote_repo_id = manifest
         .remote_repo_id
-        .ok_or_else(|| Error::repository("created remote repo was not linked"))?;
+        .ok_or_else(|| Error::repo("created remote repo was not linked"))?;
     provider.configure_binding(&repo, &remote_repo_id)?;
     output::line(format_args!(
         "bound repo '{}' to remote repo {remote_repo_id} (scope {scope_id})",

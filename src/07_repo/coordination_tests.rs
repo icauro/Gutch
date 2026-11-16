@@ -88,7 +88,7 @@ fn failed_mutation_restores_all_metadata_and_retains_artifacts() {
         std::fs::write(root.path().join("repo_metadata.json"), b"after")?;
         std::fs::write(root.path().join("chunk_map.gtcbin"), b"partial")?;
         assert!(defer_artifact_deletion(&artifact)?);
-        Err(Error::repository("injected publication failure"))
+        Err(Error::repo("injected publication failure"))
     });
     assert!(result.is_err());
     assert_eq!(
@@ -108,7 +108,7 @@ fn a_later_failure_restores_the_last_completed_changes() {
         std::fs::write(&chunk_map, b"completed")?;
         commit_completed_changes(root.path())?;
         std::fs::write(&chunk_map, b"partial")?;
-        Err(Error::repository("injected later failure"))
+        Err(Error::repo("injected later failure"))
     });
     assert!(result.is_err());
     assert_eq!(std::fs::read(&chunk_map).unwrap(), b"completed");
