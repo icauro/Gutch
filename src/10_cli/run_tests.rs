@@ -1,63 +1,7 @@
-use super::requires_remote_provider;
-use super::run_from_args;
+use super::{CommandLineHost, run_command_line};
 
-#[test]
-fn identifies_only_commands_that_need_a_remote_provider() {
-    let repo = if cfg!(windows) {
-        r"D:\Repos\creator"
-    } else {
-        "/repos/creator"
-    };
-    assert!(requires_remote_provider([
-        "gutch", "repo", "push", "--repo", repo
-    ]));
-    assert!(requires_remote_provider([
-        "gutch",
-        "repo",
-        "remote",
-        "tag-references",
-        "--repo",
-        repo
-    ]));
-    assert!(requires_remote_provider([
-        "gutch",
-        "repo",
-        "remote",
-        "unbind",
-        "--repo",
-        repo,
-        "--delete-remote"
-    ]));
-    assert!(!requires_remote_provider(["gutch", "repo", "init"]));
-    assert!(!requires_remote_provider([
-        "gutch",
-        "repo",
-        "remote",
-        "bind",
-        "--repo",
-        repo,
-        "--remote-repo-id",
-        "id"
-    ]));
-    assert!(!requires_remote_provider([
-        "gutch", "repo", "remote", "unbind", "--repo", repo
-    ]));
-    assert!(!requires_remote_provider(["gutch", "snapshot", "list"]));
-    assert!(!requires_remote_provider([
-        "gutch",
-        "snapshot",
-        "fetch",
-        "--repo",
-        repo,
-        "--snapshot",
-        "snapshot",
-        "--snapshot-metadata-url",
-        "https://example.test/metadata",
-        "--blueprint-url",
-        "https://example.test/blueprint",
-        "--session-id",
-        "artifact-session"
-    ]));
+fn run_from_args<const N: usize>(args: [&str; N]) -> crate::Result<()> {
+    run_command_line(args, &CommandLineHost::default())
 }
 
 #[test]
@@ -120,4 +64,31 @@ fn every_structured_output_carries_the_output_version() {
     assert_eq!(failed["output_version"], "1.0.0");
     assert_eq!(failed["ok"], false);
     assert_eq!(version(&read("error.json")), "1.0.0");
+}
+
+#[test]
+fn the_remote_provider_is_created_only_for_remote_commands() {
+    use std::cell::Cell;
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    let repo = repo.to_str().unwrap();
+    let created = Cell::new(0);
+    let factory =
+        || -> crate::Result<Box<dyn crate::sync::remote::RemoteRepositoryCommandProvider>> {
+            created.set(created.get() + 1);
+            Err(crate::Error::invalid_input("no session"))
+        };
+    let host = CommandLineHost {
+        bin_name: "host",
+        remote_provider: Some(&factory),
+    };
+    run_command_line(["host", "repo", "init", "--repo", repo], &host).unwrap();
+    run_command_line(["host", "snapshot", "list", "--repo", repo], &host).unwrap();
+    assert_eq!(created.get(), 0);
+    let error = run_command_line(["host", "repo", "push", "--repo", repo], &host).unwrap_err();
+    assert!(error.to_string().contains("no session"), "{error}");
+    assert_eq!(created.get(), 1);
+
+    let error = run_from_args(["gutch", "repo", "remote", "list"]).unwrap_err();
+    assert!(error.to_string().contains("remote provider"), "{error}");
 }

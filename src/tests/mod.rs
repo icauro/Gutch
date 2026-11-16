@@ -21,7 +21,7 @@ use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_path;
 use crate::repo::paths::bundle_path_in_root;
-use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::paths::ensure_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::runtime::RuntimeResourceHints;
 use crate::test_util;
@@ -103,7 +103,7 @@ fn apply_snapshot_ops_reuses_verified_source_destination() {
     fs::write(destination_dir.join("player.log"), b"local runtime log").unwrap();
 
     let repo_paths = RepoPaths::from_repo_root(&repo_dir);
-    ensure_gutch_repo_layout(&repo_paths, "test").unwrap();
+    ensure_repo_layout(&repo_paths, "test").unwrap();
     write_snapshot_manifest_artifacts(
         &repo_paths,
         &v1.snapshot_manifest,
@@ -156,12 +156,12 @@ fn apply_snapshot_ops_reuses_verified_source_destination() {
 }
 
 #[test]
-fn ensure_gutch_repo_layout_writes_repo_manifest() {
+fn ensure_repo_layout_writes_repo_manifest() {
     let repo_root_temp = tempfile::tempdir().unwrap();
-    let repo_root = repo_root_temp.path().join("test_gutch_repo_layout");
+    let repo_root = repo_root_temp.path().join("test_repo_layout");
     let paths = RepoPaths::from_repo_root(&repo_root);
 
-    let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
+    let repo_manifest = ensure_repo_layout(&paths, "base").unwrap();
 
     assert_eq!(repo_manifest.repository_name, "base");
     assert!(paths.repo_metadata_path.exists());
@@ -341,7 +341,7 @@ fn large_game_build_200mb() {
     let repo_root_temp = tempfile::tempdir().unwrap();
     let repo_root = repo_root_temp.path().join("test_200mb_repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "200mb-test").unwrap();
+    ensure_repo_layout(&repo_paths, "200mb-test").unwrap();
     write_snapshot_manifest_artifacts(
         &repo_paths,
         &result.snapshot_manifest,

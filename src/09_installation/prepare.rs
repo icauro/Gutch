@@ -13,7 +13,7 @@ use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::runtime::RuntimeResourceHints;
 use std::collections::HashSet;
@@ -59,7 +59,7 @@ pub(super) fn load_repo_snapshot_manifest(
     repo_root: &Path,
     snapshot_id: &str,
 ) -> Result<LoadedRepoSnapshot> {
-    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
     let snapshot_manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
     repo_manifest
         .constraints

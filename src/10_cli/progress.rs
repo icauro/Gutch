@@ -76,7 +76,6 @@ impl ProgressSink for CliProgressSink {
             OperationKind::SnapshotDelete => "delete",
             OperationKind::Push => "push",
             OperationKind::Pull => "pull",
-            OperationKind::SnapshotSourcesCapture => "capture-current",
             OperationKind::Fetch => "fetch",
             OperationKind::Verify => "verify",
         };

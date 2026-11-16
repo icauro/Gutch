@@ -2,8 +2,6 @@
 
 mod batch;
 pub(crate) mod config;
-pub(crate) mod configured;
-pub(crate) mod discovery;
 mod resolve;
 
 pub use batch::{capture_snapshot, capture_snapshots, plan_snapshot_captures};

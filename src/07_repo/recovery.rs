@@ -13,7 +13,7 @@ use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::index::write_chunk_index;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use serde::Deserialize;
 use serde::Serialize;
@@ -47,7 +47,7 @@ pub fn rebuild_index(
     control: &OperationControl,
 ) -> Result<IndexRebuildResult> {
     let work = || {
-        let (paths, _) = load_gutch_repo_manifest(root)?;
+        let (paths, _) = load_repo_manifest(root)?;
         let mut entries: BTreeMap<ChunkHash, ChunkIndexEntry> = BTreeMap::new();
         let mut result = IndexRebuildResult {
             complete: false,

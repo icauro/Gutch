@@ -14,7 +14,7 @@ use crate::progress::OperationControl;
 use crate::repo::coordination;
 use crate::repo::coordination::read_with_control;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::validate_path_component;
 use crate::snapshot::diff::SnapshotDiff;
 use crate::snapshot::diff::compare_snapshot_entries;
@@ -35,7 +35,7 @@ pub fn diff_repo_snapshots(
     control: &OperationControl,
 ) -> Result<SnapshotDiff> {
     read_with_control(repo_root, control, || {
-        let (paths, _) = load_gutch_repo_manifest(repo_root)?;
+        let (paths, _) = load_repo_manifest(repo_root)?;
         let before = load_snapshot_manifest(&paths, from)?;
         control.checkpoint()?;
         let after = load_snapshot_manifest(&paths, to)?;
@@ -248,7 +248,7 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     snapshot_manifest.snapshot_tags.normalized()?;
     validate_snapshot_entries(&snapshot_manifest.entries)?;
     if paths.repo_metadata_path.exists() {
-        let (_, repository) = load_gutch_repo_manifest(&paths.repo_root)?;
+        let (_, repository) = load_repo_manifest(&paths.repo_root)?;
         let constraints = repository.constraints.unwrap_or_default();
         constraints.validate_snapshot(snapshot_manifest, "publish snapshot")?;
     }

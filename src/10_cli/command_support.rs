@@ -23,7 +23,7 @@ use crate::manifest::SnapshotManifest;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::Profiler;
 use crate::repo::paths::RepoPaths;
-use crate::repo::read::load_gutch_repo_manifest;
+use crate::repo::read::load_repo_manifest;
 use crate::repo::read::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::sync::fetch_types::SnapshotFetchResult;
@@ -263,7 +263,7 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     repo_root: &Path,
     snapshot_id: &str,
 ) -> crate::Result<(RepoPaths, RepoManifest, PathBuf, SnapshotManifest)> {
-    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+    let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
     let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
     if !manifest_path.exists() {
         return Err(crate::Error::invalid_input(format!(

@@ -93,6 +93,7 @@ impl OperationControl {
     }
 
     /// Replaces only the progress adapter while retaining every other control.
+    #[cfg(test)]
     pub(crate) fn with_replaced_progress(&self, progress: Arc<dyn ProgressSink>) -> Self {
         Self {
             progress: Some(progress),

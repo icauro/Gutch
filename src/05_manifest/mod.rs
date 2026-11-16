@@ -13,7 +13,6 @@ mod tags;
 
 pub use content::ChunkRef;
 pub use content::DirectoryManifest;
-pub use content::Estimate;
 pub use content::FileManifest;
 pub use content::SnapshotEntry;
 pub use content::SymlinkManifest;

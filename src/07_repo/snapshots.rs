@@ -14,12 +14,21 @@ use crate::progress::ProgressPhase;
 use crate::repo::Result;
 use crate::repo::cleanup::remove_snapshot_from_repo;
 use crate::repo::coordination;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::validate_snapshot_id;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use std::collections::BTreeMap;
+
+/// Result of deleting one snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotDeleteResult {
+    pub snapshot_id: String,
+    /// Artifacts no remaining snapshot used, removed with the snapshot.
+    pub removed_artifact_count: usize,
+}
 
 /// Result of explicitly retagging one exact snapshot ID.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,15 +39,15 @@ pub struct RetagSnapshotResult {
     pub new_tags: SnapshotTagSet,
 }
 
-pub fn delete_repo_snapshot_and_cleanup(
+pub fn delete_snapshot(
     repo_root: &Path,
     snapshot_id: &str,
     control: &OperationControl,
-) -> Result<usize> {
+) -> Result<SnapshotDeleteResult> {
     coordination::write(repo_root, || {
         control.checkpoint()?;
         validate_snapshot_id(snapshot_id)?;
-        let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
+        let (repo_paths, _) = load_repo_manifest(repo_root)?;
         // Checked inside the write transaction so a concurrent delete cannot race it.
         // The directory, not its metadata file, marks a partly deleted snapshot.
         let metadata_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
@@ -47,7 +56,7 @@ pub fn delete_repo_snapshot_and_cleanup(
                 "snapshot not found in repo: {snapshot_id}"
             )));
         }
-        // Total matches cleanup_orphan_artifacts_in_repo.
+        // Total matches plan_orphan_artifact_cleanup.
         const TOTAL: usize = 1000;
 
         progress::emit_progress(
@@ -81,20 +90,11 @@ pub fn delete_repo_snapshot_and_cleanup(
                 TOTAL,
             ),
         );
-        Ok(orphan_count)
+        Ok(SnapshotDeleteResult {
+            snapshot_id: snapshot_id.to_owned(),
+            removed_artifact_count: orphan_count,
+        })
     })
-}
-
-/// Retags one exact snapshot ID. The caller selects the target; tags are
-/// never inferred from other snapshots. Reports the previous and new tags.
-pub fn retag_snapshot_by_id(
-    repo_root: &Path,
-    snapshot_id: &str,
-    new_tags: SnapshotTagSet,
-    control: &OperationControl,
-) -> Result<RetagSnapshotResult> {
-    let replacements = BTreeMap::from([(snapshot_id.to_owned(), new_tags.normalized()?)]);
-    Ok(retag_snapshots(repo_root, replacements, control)?.remove(0))
 }
 
 /// Preview complete replacement tag sets for selected snapshots. Untouched
@@ -104,7 +104,7 @@ pub fn plan_snapshot_tag_updates(
     replacements: &BTreeMap<String, SnapshotTagSet>,
 ) -> Result<Vec<RetagSnapshotResult>> {
     coordination::read(repo_root, || {
-        let (paths, repository) = load_gutch_repo_manifest(repo_root)?;
+        let (paths, repository) = load_repo_manifest(repo_root)?;
         let mut results = Vec::new();
         let mut normalized = BTreeMap::new();
         for (id, tags) in replacements {
@@ -135,7 +135,7 @@ pub fn retag_snapshots(
 ) -> Result<Vec<RetagSnapshotResult>> {
     coordination::write(repo_root, || {
         let changes = plan_snapshot_tag_updates(repo_root, &replacements)?;
-        let (paths, _) = load_gutch_repo_manifest(repo_root)?;
+        let (paths, _) = load_repo_manifest(repo_root)?;
         for change in &changes {
             let mut manifest = load_snapshot_manifest(&paths, &change.snapshot_id)?;
             manifest.snapshot_tags = change.new_tags.clone();

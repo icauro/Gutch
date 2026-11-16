@@ -1,9 +1,9 @@
 //! `snapshot` command handlers.
 
+use crate::capture::contracts::SnapshotCapturePlan;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
-use crate::capture::estimate::estimate_snapshot;
-use crate::capture::plan::describe_snapshot_capture_plan;
+use crate::capture::measure::measure_snapshot;
 use crate::capture::sources::capture_snapshots;
 use crate::capture::sources::config::initialize_source_config;
 use crate::capture::sources::plan_snapshot_captures;
@@ -32,9 +32,9 @@ use crate::filesystem;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::ProfileMode;
-use crate::repo::read::load_gutch_repo_manifest;
+use crate::repo::read::load_repo_manifest;
 use crate::repo::snapshot_manifests::diff_repo_snapshots;
-use crate::repo::snapshots::delete_repo_snapshot_and_cleanup;
+use crate::repo::snapshots::delete_snapshot;
 use crate::repo::snapshots::plan_snapshot_tag_updates;
 use crate::repo::snapshots::retag_snapshots;
 use crate::repo::status::read_repo_status;
@@ -157,7 +157,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         source_dirs,
         SnapshotTagSet::from_compact_strings(&tags)?,
     )?;
-    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo)?;
+    let (repo_paths, repo_manifest) = load_repo_manifest(&repo)?;
     let requests = sources
         .iter()
         .map(|source| SnapshotCaptureRequest {
@@ -178,14 +178,14 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         let plans = plan_snapshot_captures(&requests)?;
         output::record(&plans)?;
         for plan in plans {
-            output::line(format_args!("{}", describe_snapshot_capture_plan(&plan)));
+            output::line(format_args!("{}", describe_capture_plan(&plan)));
         }
         return Ok(());
     }
     if !confirm.yes {
         output::line(format_args!("snapshot capture plan:"));
         for plan in plan_snapshot_captures(&requests)? {
-            output::line(format_args!("  {}", describe_snapshot_capture_plan(&plan)));
+            output::line(format_args!("  {}", describe_capture_plan(&plan)));
         }
         if !prompt_yes_no("Proceed?", false)? {
             return Err(crate::Error::Cancelled);
@@ -299,9 +299,11 @@ fn delete(
     }
 
     let control = control_with_profile(profile).with_progress(CliProgressSink::new());
-    let orphan_count = delete_repo_snapshot_and_cleanup(repo, snapshot_id, &control)?;
+    let result = delete_snapshot(repo, snapshot_id, &control)?;
+    output::record(&result)?;
     output::line(format_args!(
-        "deleted snapshot '{snapshot_id}': removed manifest, {orphan_count} orphaned artifacts cleaned up"
+        "deleted snapshot '{snapshot_id}': removed manifest, {} orphaned artifacts cleaned up",
+        result.removed_artifact_count
     ));
     Ok(())
 }
@@ -352,15 +354,14 @@ fn replace_tags(
 }
 
 fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
-    let result = estimate_snapshot(source_dir, &SnapshotTagSet::from_compact_strings(tags)?)?;
-    let estimate = &result.estimate;
+    let result = measure_snapshot(source_dir, &SnapshotTagSet::from_compact_strings(tags)?)?;
     output::record(&serde_json::json!({
         "file_count": result.file_count,
-        "logical_bytes": result.total_logical_size,
-        "unique_chunks": estimate.unique_chunk_count,
-        "unique_chunk_bytes": estimate.unique_chunk_bytes,
-        "encoded_artifact_bytes": estimate.encoded_artifact_bytes,
-        "bundle_count": estimate.bundle_count,
+        "logical_bytes": result.logical_bytes,
+        "unique_chunks": result.unique_chunk_count,
+        "unique_chunk_bytes": result.unique_chunk_bytes,
+        "encoded_artifact_bytes": result.encoded_artifact_bytes,
+        "bundle_count": result.bundle_count,
     }))?;
     output::line(format_args!(
         "fresh capture measurement (default packaging presets):"
@@ -368,20 +369,29 @@ fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
     output::line(format_args!("  files: {}", result.file_count));
     output::line(format_args!(
         "  logical size:  {:.2} MiB",
-        mib(result.total_logical_size)
+        mib(result.logical_bytes)
     ));
     output::line(format_args!(
         "  unique chunks: {}",
-        estimate.unique_chunk_count
+        result.unique_chunk_count
     ));
     output::line(format_args!(
         "  unique chunk bytes: {:.2} MiB",
-        mib(estimate.unique_chunk_bytes)
+        mib(result.unique_chunk_bytes)
     ));
     output::line(format_args!(
         "  encoded artifacts: {:.2} MiB",
-        mib(estimate.encoded_artifact_bytes)
+        mib(result.encoded_artifact_bytes)
     ));
-    output::line(format_args!("  bundles: {}", estimate.bundle_count));
+    output::line(format_args!("  bundles: {}", result.bundle_count));
     Ok(())
+}
+
+fn describe_capture_plan(plan: &SnapshotCapturePlan) -> String {
+    format!(
+        "Capture new snapshot from {} ({}) with tags {}",
+        plan.folder_name,
+        plan.version_tag,
+        plan.snapshot_tags.to_canonical_strings().join(" ")
+    )
 }

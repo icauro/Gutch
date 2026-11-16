@@ -6,8 +6,8 @@
 
 pub(crate) mod build;
 pub(crate) mod contracts;
-pub(crate) mod estimate;
 pub(crate) mod execute;
+pub(crate) mod measure;
 pub(crate) mod plan;
 mod publish;
 pub(crate) mod reuse;

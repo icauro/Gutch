@@ -1,5 +1,6 @@
 //! `repo` command handlers.
 
+use crate::cli::CommandLineHost;
 use crate::cli::ConstraintCommands;
 use crate::cli::Profile;
 use crate::cli::RemoteCommands;
@@ -27,13 +28,12 @@ use crate::repo::updates::plan_repository_constraints;
 use crate::repo::updates::read_repository_constraints;
 use crate::repo::updates::update_repository_constraints;
 use crate::repo::verify::RepoArtifactVerification;
-use crate::repo::verify::verify_gutch_repo_artifacts;
-use crate::sync::remote::RemoteRepositoryCommandProvider;
+use crate::repo::verify::verify_repo;
 use std::path::Path;
 
 pub(crate) fn run(
     command: RepoCommands,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    host: &CommandLineHost<'_>,
     profile: &Profile,
 ) -> crate::Result<()> {
     match command {
@@ -57,38 +57,26 @@ pub(crate) fn run(
             read_constraint_input(constraints.as_deref(), targets)?,
             dry_run,
         ),
-        RepoCommands::Push { repo, confirm } => {
-            repo_remote::push(repo, confirm, remote_provider, profile)
-        }
+        RepoCommands::Push { repo, confirm } => repo_remote::push(repo, confirm, host, profile),
         RepoCommands::Pull {
             repo,
             remote,
             on_conflict,
             prune,
             confirm,
-        } => repo_remote::pull(
-            repo,
-            remote,
-            on_conflict,
-            prune,
-            confirm,
-            remote_provider,
-            profile,
-        ),
+        } => repo_remote::pull(repo, remote, on_conflict, prune, confirm, host, profile),
         RepoCommands::Remote { command } => match command {
-            RemoteCommands::List => repo_remote::list(remote_provider),
-            RemoteCommands::TagReferences { repo } => tag_references(repo, remote_provider),
-            RemoteCommands::Create { repo, scope_id } => {
-                repo_remote::create(repo, scope_id, remote_provider)
-            }
+            RemoteCommands::List => repo_remote::list(host),
+            RemoteCommands::TagReferences { repo } => tag_references(repo, host),
+            RemoteCommands::Create { repo, scope_id } => repo_remote::create(repo, scope_id, host),
             RemoteCommands::Bind {
                 repo,
                 remote_repo_id,
-            } => repo_remote::bind(repo, remote_repo_id, remote_provider),
+            } => repo_remote::bind(repo, remote_repo_id, host),
             RemoteCommands::Unbind {
                 repo,
                 delete_remote,
-            } => repo_remote::unbind(repo, delete_remote, remote_provider),
+            } => repo_remote::unbind(repo, delete_remote, host),
         },
         RepoCommands::Rename {
             repo,
@@ -210,7 +198,7 @@ fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result
     } else {
         RepoArtifactVerification::Fast
     };
-    let result = verify_gutch_repo_artifacts(repo, snapshot_id, mode)?;
+    let result = verify_repo(repo, snapshot_id, mode)?;
     output::record(&result)?;
 
     output::line(format_args!("{SECTION_SEPARATOR}"));

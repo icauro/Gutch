@@ -31,7 +31,7 @@ use crate::repo::index::load_chunk_index;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_path;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote;
 use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
@@ -56,7 +56,7 @@ struct LocalSyncSnapshot {
     snapshot_blueprint_hash_b3: String,
 }
 
-pub fn plan_push_with_provider<P: RemoteRepositoryReader + ?Sized>(
+pub fn plan_repo_push<P: RemoteRepositoryReader + ?Sized>(
     repo_root: &Path,
     provider: &P,
 ) -> Result<RepoPushPlan> {
@@ -76,7 +76,7 @@ fn collect_local_sync_snapshots(
             repo_root.display()
         )));
     }
-    let (repo_paths, _) = load_gutch_repo_manifest(repo_root)?;
+    let (repo_paths, _) = load_repo_manifest(repo_root)?;
     let mut local_snapshots = Vec::with_capacity(status.snapshots.len());
     for snapshot in &status.snapshots {
         let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;

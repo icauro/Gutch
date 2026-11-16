@@ -33,7 +33,7 @@ fn save_test_snapshot(paths: &RepoPaths, path: &str, bytes: &[u8]) -> SnapshotMa
 fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     let root = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(root.path());
-    crate::repo::paths::ensure_gutch_repo_layout(&paths, "selection").unwrap();
+    crate::repo::paths::ensure_repo_layout(&paths, "selection").unwrap();
     let selected = save_test_snapshot(&paths, "empty", b"");
     let unselected = save_test_snapshot(&paths, "missing", b"unavailable payload");
     crate::test_util::index_manifest(&paths, &unselected);
@@ -42,13 +42,12 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         RepoArtifactVerification::Fast,
         RepoArtifactVerification::Strict,
     ] {
-        let result =
-            verify_gutch_repo_artifacts(root.path(), Some(&selected.snapshot_id), mode).unwrap();
+        let result = verify_repo(root.path(), Some(&selected.snapshot_id), mode).unwrap();
         assert!(result.ok);
         assert_eq!(result.snapshot_count, 1);
         assert_eq!(result.snapshots[0].snapshot_id, selected.snapshot_id);
         assert_eq!(result.snapshots[0].required_artifact_count, 0);
-        let all = verify_gutch_repo_artifacts(root.path(), None, mode).unwrap();
+        let all = verify_repo(root.path(), None, mode).unwrap();
         assert!(!all.ok);
         assert_eq!(all.snapshot_count, 2);
         assert_eq!(all.snapshots_ok, 1);
@@ -67,7 +66,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     entry.raw_size += 1;
     index.entries.insert(chunk, entry);
     crate::repo::index::write_chunk_index(&paths, &index).unwrap();
-    let error = verify_gutch_repo_artifacts(
+    let error = verify_repo(
         root.path(),
         Some(&selected.snapshot_id),
         RepoArtifactVerification::Fast,
@@ -77,7 +76,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
 
     crate::repo::index::write_chunk_index(&paths, &crate::repo::index::empty_chunk_index())
         .unwrap();
-    let error = verify_gutch_repo_artifacts(
+    let error = verify_repo(
         root.path(),
         Some(&selected.snapshot_id),
         RepoArtifactVerification::Fast,
@@ -97,7 +96,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         &crate::progress::OperationControl::default(),
     )
     .unwrap();
-    let error = verify_gutch_repo_artifacts(
+    let error = verify_repo(
         root.path(),
         Some(&selected.snapshot_id),
         RepoArtifactVerification::Fast,
@@ -110,15 +109,13 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
 fn empty_repository_succeeds_but_unknown_snapshot_is_an_error() {
     let root = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(root.path());
-    crate::repo::paths::ensure_gutch_repo_layout(&paths, "empty").unwrap();
-    let result =
-        verify_gutch_repo_artifacts(root.path(), None, RepoArtifactVerification::Fast).unwrap();
+    crate::repo::paths::ensure_repo_layout(&paths, "empty").unwrap();
+    let result = verify_repo(root.path(), None, RepoArtifactVerification::Fast).unwrap();
     assert!(result.ok);
     assert_eq!(result.snapshot_count, 0);
     let unknown = "a".repeat(64);
     let error =
-        verify_gutch_repo_artifacts(root.path(), Some(&unknown), RepoArtifactVerification::Fast)
-            .unwrap_err();
+        verify_repo(root.path(), Some(&unknown), RepoArtifactVerification::Fast).unwrap_err();
     assert!(error.to_string().contains("snapshot not found in repo"));
 }
 

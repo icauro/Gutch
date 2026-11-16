@@ -19,7 +19,7 @@ use crate::repo::coordination;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::load_chunk_index;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use std::collections::HashMap;
 use std::fs::File;
@@ -69,13 +69,13 @@ pub struct SnapshotArtifactVerifyResult {
 }
 
 /// Verify repo artifact integrity. When `snapshot_id` is None, all repo snapshots are verified.
-pub fn verify_gutch_repo_artifacts(
+pub fn verify_repo(
     repo_root: &Path,
     snapshot_id: Option<&str>,
     mode: RepoArtifactVerification,
 ) -> Result<RepoArtifactVerifyResult> {
     coordination::read(repo_root, || {
-        let (repo_paths, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
+        let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let constraints = repo_manifest.constraints.clone().unwrap_or_default();
 

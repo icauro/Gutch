@@ -11,7 +11,6 @@ use crate::capture::plan::plan_snapshot_capture;
 use crate::capture::scan::format_system_time_utc;
 use crate::capture::scan::source_modified_at;
 use crate::capture::sources::capture_snapshot;
-use crate::capture::sources::discovery::source_snapshot_candidate;
 use crate::installation::InstallationRequest;
 use crate::installation::reconstruct_snapshot;
 use crate::manifest;
@@ -19,13 +18,13 @@ use crate::manifest::ChunkRef;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::ensure_gutch_repo_layout;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::ensure_repo_layout;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::read_repo_status;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
-use crate::repo::snapshots::retag_snapshot_by_id;
+use crate::repo::snapshots::retag_snapshots;
 use crate::repo::verify::RepoArtifactVerification;
-use crate::repo::verify::verify_gutch_repo_artifacts;
+use crate::repo::verify::verify_repo;
 use crate::runtime::RuntimeResourceHints;
 use crate::snapshot::identity::snapshot_id_from_entries;
 use std::fs;
@@ -41,18 +40,12 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
     let repo_root = temp.path().join("repo");
     let source_root = temp.path().join("sources");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    ensure_repo_layout(&repo_paths, "base").unwrap();
 
     let new_source = source_root.join("game-v1.0.0-windows-x86_64-base-2026_07_14");
     fs::create_dir_all(&new_source).unwrap();
     fs::write(new_source.join("game.exe"), b"old-content").unwrap();
 
-    let old_candidate = source_snapshot_candidate(
-        &new_source,
-        &manifest::SnapshotTagSet::default(),
-        String::new(),
-    )
-    .unwrap();
     let old_files = vec![manifest::FileManifest {
         path: "game.exe".into(),
         size: 11,
@@ -76,7 +69,7 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
         .collect::<Vec<_>>();
     let old_snapshot_id = snapshot_id_from_entries(&old_entries);
     let mut old_manifest =
-        SnapshotManifest::new(old_snapshot_id.clone(), old_candidate.snapshot_tags.clone());
+        SnapshotManifest::new(old_snapshot_id.clone(), manifest::SnapshotTagSet::default());
     old_manifest.source_modified_at = format_system_time_utc(
         source_modified_at(&new_source, &OperationControl::default()).unwrap(),
     );
@@ -137,7 +130,7 @@ fn test_repo_with_source(
 ) -> (PathBuf, PathBuf) {
     let repo_root = temp.path().join("repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    ensure_repo_layout(&repo_paths, "base").unwrap();
     let source_dir = temp.path().join(source_name);
     fs::create_dir_all(&source_dir).unwrap();
     fs::write(source_dir.join("game.exe"), content).unwrap();
@@ -158,7 +151,7 @@ fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     })
     .unwrap();
     assert!(destination.join("game.exe").is_file());
-    let verification = verify_gutch_repo_artifacts(
+    let verification = verify_repo(
         repo_root,
         Some(snapshot_id),
         RepoArtifactVerification::Strict,
@@ -254,7 +247,7 @@ fn same_tags_create_distinct_snapshots() {
     assert_ne!(first.snapshot_id, second.snapshot_id);
 
     for snapshot_id in [&first.snapshot_id, &second.snapshot_id] {
-        let (repo_paths, _) = load_gutch_repo_manifest(&repo_root).unwrap();
+        let (repo_paths, _) = load_repo_manifest(&repo_root).unwrap();
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, snapshot_id).unwrap();
         test_reconstruct_and_strict_verify(&repo_root, snapshot_id);
     }
@@ -291,7 +284,7 @@ fn cancelled_capture_retains_first_snapshot() {
     });
     assert!(failed.is_err());
 
-    let (repo_paths, _) = load_gutch_repo_manifest(&repo_root).unwrap();
+    let (repo_paths, _) = load_repo_manifest(&repo_root).unwrap();
     let retained =
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
             .unwrap();
@@ -373,7 +366,7 @@ fn same_id_different_tags_returns_metadata_conflict() {
             .any(|difference| difference.field == "snapshot_tags")
     );
 
-    let (repo_paths, _) = load_gutch_repo_manifest(&repo_root).unwrap();
+    let (repo_paths, _) = load_repo_manifest(&repo_root).unwrap();
     let stored =
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
             .unwrap();
@@ -488,22 +481,30 @@ fn explicit_retag_reports_previous_and_new_tags() {
         "os=windows".to_string(),
     ])
     .unwrap();
-    let retagged = retag_snapshot_by_id(
-        &repo_root,
-        &first.snapshot_id,
-        new_tags.clone(),
-        &OperationControl::default(),
-    )
-    .unwrap();
+    let retag = |tags: manifest::SnapshotTagSet| {
+        retag_snapshots(
+            &repo_root,
+            std::collections::BTreeMap::from([(first.snapshot_id.clone(), tags)]),
+            &OperationControl::default(),
+        )
+    };
+    let retagged = retag(new_tags.clone()).unwrap().remove(0);
     assert_eq!(retagged.snapshot_id, first.snapshot_id);
     assert_eq!(retagged.previous_tags, test_tags());
     assert_eq!(retagged.new_tags, new_tags);
 
-    let (repo_paths, _) = load_gutch_repo_manifest(&repo_root).unwrap();
+    let (repo_paths, _) = load_repo_manifest(&repo_root).unwrap();
     let stored =
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
             .unwrap();
     assert_eq!(stored.snapshot_tags, new_tags);
+
+    let mut hyphenated = manifest::SnapshotTagSet::default();
+    hyphenated
+        .key_value
+        .insert("released_at".into(), "2026-09-07".into());
+    let error = retag(hyphenated).unwrap_err();
+    assert!(error.to_string().contains("hyphens"), "{error}");
 }
 
 #[test]
@@ -517,7 +518,7 @@ fn tampered_blueprint_returns_integrity_conflict() {
         &test_tags(),
         OperationControl::default(),
     );
-    let (repo_paths, _) = load_gutch_repo_manifest(&repo_root).unwrap();
+    let (repo_paths, _) = load_repo_manifest(&repo_root).unwrap();
     let mut stored =
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
             .unwrap();
@@ -760,12 +761,4 @@ fn direct_capture_and_retag_reject_hyphenated_tag_values() {
         .key_value
         .insert("released_at".into(), "2026-09-07".into());
     assert!(explicit.normalized().is_err());
-    let error = retag_snapshot_by_id(
-        Path::new("unused"),
-        "unused",
-        explicit,
-        &OperationControl::default(),
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("hyphens"));
 }

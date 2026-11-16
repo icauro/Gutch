@@ -185,7 +185,7 @@ pub(crate) fn commit_completed_changes(root: &Path) -> Result<()> {
 /// Checks that need the complete metadata of a write before it is committed.
 fn validate_committable(root: &Path) -> Result<()> {
     if root.join("repo_metadata.json").exists() {
-        let (_, repository) = super::paths::load_gutch_repo_manifest(root)?;
+        let (_, repository) = super::paths::load_repo_manifest(root)?;
         if let Some(constraints) = repository.constraints {
             super::updates::validate_repository_tag_constraints(root, &constraints)?;
         }

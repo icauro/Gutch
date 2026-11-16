@@ -246,7 +246,7 @@ fn capture(repo: &Path, source: &Path, content: &[u8]) -> String {
     std::fs::write(source.join("file"), content).unwrap();
     let paths = RepoPaths::from_repo_root(repo);
     if !paths.repo_metadata_path.exists() {
-        crate::repo::paths::ensure_gutch_repo_layout(&paths, "fixture").unwrap();
+        crate::repo::paths::ensure_repo_layout(&paths, "fixture").unwrap();
     }
     crate::capture::sources::capture_snapshot(crate::capture::contracts::SnapshotCaptureRequest {
         repo_root: repo.to_path_buf(),
@@ -335,7 +335,7 @@ fn prune_removes_local_only_snapshots_and_their_bundles_without_requesting_them(
     assert!(provider.take_requested_bundles().is_empty());
     assert!(stats.pruned_bundle_count > 0);
     assert_eq!(bundle_ids(&clone), shared_bundles);
-    let verified = crate::repo::verify::verify_gutch_repo_artifacts(
+    let verified = crate::repo::verify::verify_repo(
         &clone,
         None,
         crate::repo::verify::RepoArtifactVerification::Strict,

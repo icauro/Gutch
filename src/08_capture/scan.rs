@@ -308,6 +308,7 @@ impl NewestFileTime {
 }
 
 /// Returns the newest file modification time under `dir`, as `scan` records it.
+#[cfg(test)]
 pub(crate) fn source_modified_at(dir: &Path, control: &OperationControl) -> Result<SystemTime> {
     if !dir.is_dir() {
         return Err(Error::invalid_input(format!(

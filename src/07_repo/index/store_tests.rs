@@ -13,7 +13,7 @@ fn incoming_indexes_keep_cached_and_local_only_locations_for_both_storage_modes(
         for (cached, shared) in [(true, true), (false, true), (false, false)] {
             let directory = tempfile::tempdir().unwrap();
             let paths = RepoPaths::from_repo_root(directory.path());
-            crate::repo::paths::ensure_gutch_repo_layout(&paths, "merge").unwrap();
+            crate::repo::paths::ensure_repo_layout(&paths, "merge").unwrap();
             let chunk_hash = ChunkHash::of(b"shared chunk");
             let (local_bundle_id, remote_bundle_id) = match storage_mode {
                 ArtifactStorageMode::Bundled => (

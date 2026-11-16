@@ -14,7 +14,6 @@ pub enum OperationKind {
     SnapshotDelete,
     Push,
     Pull,
-    SnapshotSourcesCapture,
     Fetch,
     Verify,
 }

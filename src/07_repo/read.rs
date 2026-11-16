@@ -7,8 +7,8 @@ use crate::repo::paths::RepoPaths;
 use std::path::Path;
 
 /// Load one committed repository metadata document under reader protection.
-pub fn load_gutch_repo_manifest(root: &Path) -> Result<(RepoPaths, RepoManifest)> {
-    coordination::read(root, || crate::repo::paths::load_gutch_repo_manifest(root))
+pub fn load_repo_manifest(root: &Path) -> Result<(RepoPaths, RepoManifest)> {
+    coordination::read(root, || crate::repo::paths::load_repo_manifest(root))
 }
 
 /// Load a coherent snapshot metadata/blueprint pair under reader protection.

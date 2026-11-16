@@ -23,12 +23,6 @@ pub(crate) fn summarize_snapshot_tags(
     }
 }
 
-/// Formats canonical tags for pre-scan display. This is a tag summary, never
-/// a snapshot ID: content-derived identity is only available after scanning.
-pub(crate) fn format_snapshot_tag_summary(snapshot_tags: &manifest::SnapshotTagSet) -> String {
-    snapshot_tags.to_canonical_strings().join(" ")
-}
-
 pub(crate) fn exclusive_tag_or_empty(
     snapshot_tags: &manifest::SnapshotTagSet,
     prefix: &str,

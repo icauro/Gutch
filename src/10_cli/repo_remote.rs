@@ -3,15 +3,15 @@
 use std::path::PathBuf;
 
 use crate::Error;
+use crate::cli::CommandLineHost;
 use crate::cli::Profile;
 use crate::cli::arguments::ConfirmArgs;
 use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::prompt_yes_no;
-use crate::repo::read::load_gutch_repo_manifest;
+use crate::repo::read::load_repo_manifest;
 use crate::sync::remote::PullConflictPolicy;
-use crate::sync::remote::RemoteRepositoryCommandProvider;
 use crate::sync::remote::RemoteRepositorySummary;
 use crate::sync::remote::RemoteTagReferencesResult;
 use crate::sync::remote::RepoPullPlan;
@@ -19,9 +19,8 @@ use crate::sync::remote::RepoPushPlan;
 use crate::sync::remote::bind_remote_repo;
 use crate::sync::remote::create_remote_repo;
 use crate::sync::remote::inspect_repo_tag_references;
-use crate::sync::remote::list_remote_repositories;
-use crate::sync::remote::plan_pull_with_provider;
-use crate::sync::remote::plan_push_with_provider;
+use crate::sync::remote::plan_repo_pull;
+use crate::sync::remote::plan_repo_push;
 use crate::sync::remote::pull_repo;
 use crate::sync::remote::push_repo;
 use crate::sync::remote::unbind_remote_repo;
@@ -29,12 +28,13 @@ use crate::sync::remote::unbind_remote_repo;
 pub(crate) fn push(
     repo: PathBuf,
     confirm: ConfirmArgs,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    host: &CommandLineHost<'_>,
     profile: &Profile,
 ) -> crate::Result<()> {
-    let provider = require_provider(remote_provider)?;
+    let provider = host.require_remote_provider()?;
+    let provider = provider.as_ref();
     let repository_provider = provider.repository_provider();
-    let plan = plan_push_with_provider(&repo, repository_provider)?;
+    let plan = plan_repo_push(&repo, repository_provider)?;
     print_push_plan(&plan);
     output::record(&plan)?;
     if confirm.dry_run {
@@ -82,12 +82,13 @@ pub(crate) fn pull(
     policy: PullConflictPolicy,
     prune: bool,
     confirm: ConfirmArgs,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    host: &CommandLineHost<'_>,
     profile: &Profile,
 ) -> crate::Result<()> {
-    let provider = require_provider(remote_provider)?;
+    let provider = host.require_remote_provider()?;
+    let provider = provider.as_ref();
     let repository_provider = provider.repository_provider();
-    let plan = plan_pull_with_provider(&repo, repository_provider, remote.as_deref(), policy)?;
+    let plan = plan_repo_pull(&repo, repository_provider, remote.as_deref(), policy)?;
     print_pull_plan(&plan);
     output::record(&plan)?;
     if confirm.dry_run {
@@ -123,11 +124,10 @@ pub(crate) fn pull(
     Ok(())
 }
 
-pub(crate) fn list(
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-) -> crate::Result<()> {
-    let provider = require_provider(remote_provider)?;
-    let entries = list_remote_repositories(provider)?;
+pub(crate) fn list(host: &CommandLineHost<'_>) -> crate::Result<()> {
+    let provider = host.require_remote_provider()?;
+    let provider = provider.as_ref();
+    let entries = provider.list_remote_repositories()?;
     output::record(&entries)?;
     for entry in &entries {
         output::line(format_args!(
@@ -145,11 +145,12 @@ pub(crate) fn list(
 pub(crate) fn create(
     repo: PathBuf,
     scope_id: String,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    host: &CommandLineHost<'_>,
 ) -> crate::Result<()> {
-    let provider = require_provider(remote_provider)?;
+    let provider = host.require_remote_provider()?;
+    let provider = provider.as_ref();
     create_remote_repo(&repo, &scope_id, provider)?;
-    let (_, manifest) = load_gutch_repo_manifest(&repo)?;
+    let (_, manifest) = load_repo_manifest(&repo)?;
     let remote_repo_id = manifest
         .remote_repo_id
         .ok_or_else(|| Error::repository("created remote repo was not linked"))?;
@@ -164,9 +165,9 @@ pub(crate) fn create(
 pub(crate) fn bind(
     repo: PathBuf,
     remote_repo_id: String,
-    provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    host: &CommandLineHost<'_>,
 ) -> crate::Result<()> {
-    if let Some(provider) = provider {
+    if let Some(provider) = host.optional_remote_provider()?.as_deref() {
         provider.configure_repository_binding(&repo, &remote_repo_id)?;
     }
     bind_remote_repo(&repo, &remote_repo_id)?;
@@ -181,9 +182,9 @@ pub(crate) fn bind(
 pub(crate) fn unbind(
     repo: PathBuf,
     delete_remote: bool,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    host: &CommandLineHost<'_>,
 ) -> crate::Result<()> {
-    let (paths, manifest) = load_gutch_repo_manifest(&repo)?;
+    let (paths, manifest) = load_repo_manifest(&repo)?;
     let Some(remote_repo_id) = manifest.remote_repo_id else {
         output::line(format_args!(
             "repo '{}' is not bound, nothing to do.",
@@ -193,11 +194,11 @@ pub(crate) fn unbind(
     };
 
     let provider = if delete_remote {
-        Some(require_provider(remote_provider)?)
+        Some(host.require_remote_provider()?)
     } else {
         None
     };
-    unbind_remote_repo(&repo, delete_remote, provider)?;
+    unbind_remote_repo(&repo, delete_remote, provider.as_deref())?;
     if delete_remote {
         output::line(format_args!("deleted remote repo {remote_repo_id}"));
     }
@@ -208,11 +209,9 @@ pub(crate) fn unbind(
     Ok(())
 }
 
-pub(crate) fn tag_references(
-    repo: PathBuf,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-) -> crate::Result<()> {
-    let provider = require_provider(remote_provider)?;
+pub(crate) fn tag_references(repo: PathBuf, host: &CommandLineHost<'_>) -> crate::Result<()> {
+    let provider = host.require_remote_provider()?;
+    let provider = provider.as_ref();
     let result: RemoteTagReferencesResult = inspect_repo_tag_references(&repo, provider)?;
     output::record(&result)?;
 
@@ -231,16 +230,6 @@ pub(crate) fn tag_references(
     }
     output::line(format_args!("advisory_only: true"));
     Ok(())
-}
-
-fn require_provider(
-    provider: Option<&dyn RemoteRepositoryCommandProvider>,
-) -> crate::Result<&dyn RemoteRepositoryCommandProvider> {
-    provider.ok_or_else(|| {
-        Error::invalid_input(
-            "remote provider context is required; configure a backend endpoint and session",
-        )
-    })
 }
 
 fn scope_label(entry: &RemoteRepositorySummary) -> &str {

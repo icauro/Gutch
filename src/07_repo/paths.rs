@@ -38,9 +38,9 @@ pub struct RepoPaths {
 }
 
 impl RepoPaths {
-    pub fn from_store_root(store_root: &Path, gutch_repo_id: &str) -> Result<Self> {
-        validate_path_component(gutch_repo_id, "Gutch repo ID")?;
-        let repo_root = store_root.join("v1").join("repos").join(gutch_repo_id);
+    pub fn from_store_root(store_root: &Path, repo_id: &str) -> Result<Self> {
+        validate_path_component(repo_id, "Gutch repo ID")?;
+        let repo_root = store_root.join("v1").join("repos").join(repo_id);
         Ok(Self::from_repo_root(&repo_root))
     }
 
@@ -92,13 +92,13 @@ pub(crate) fn validate_path_component(value: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn ensure_gutch_repo_layout(paths: &RepoPaths, name: &str) -> Result<RepoManifest> {
+pub(crate) fn ensure_repo_layout(paths: &RepoPaths, name: &str) -> Result<RepoManifest> {
     filesystem::create_dir_all(&paths.snapshots_root)?;
     filesystem::create_dir_all(&paths.bundles_root)?;
     filesystem::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_metadata_path.exists() {
-        read_gutch_repo_manifest(paths)?
+        read_repo_manifest(paths)?
     } else {
         let repo_manifest = RepoManifest::new(name.to_string());
         write_json(&paths.repo_metadata_path, &repo_manifest)?;
@@ -108,7 +108,7 @@ pub(crate) fn ensure_gutch_repo_layout(paths: &RepoPaths, name: &str) -> Result<
     Ok(repo_manifest)
 }
 
-pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoManifest)> {
+pub fn load_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoManifest)> {
     let paths = RepoPaths::from_repo_root(repo_root);
     if !paths.repo_metadata_path.exists() {
         return Err(Error::repository(format!(
@@ -116,11 +116,11 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoMani
             paths.repo_metadata_path.display()
         )));
     }
-    let repo_manifest = read_gutch_repo_manifest(&paths)?;
+    let repo_manifest = read_repo_manifest(&paths)?;
     Ok((paths, repo_manifest))
 }
 
-fn read_gutch_repo_manifest(paths: &RepoPaths) -> Result<RepoManifest> {
+fn read_repo_manifest(paths: &RepoPaths) -> Result<RepoManifest> {
     let mut manifest = RepoManifest::from_json_bytes(
         REPO_METADATA_FILE,
         &filesystem::read(&paths.repo_metadata_path)?,
@@ -148,10 +148,7 @@ pub(crate) fn ensure_repository_writable(repo_root: &Path) -> Result<()> {
     }
 }
 
-pub(crate) fn write_gutch_repo_manifest(
-    paths: &RepoPaths,
-    repo_manifest: &RepoManifest,
-) -> Result<()> {
+pub(crate) fn write_repo_manifest(paths: &RepoPaths, repo_manifest: &RepoManifest) -> Result<()> {
     write_json(&paths.repo_metadata_path, repo_manifest)?;
     match &repo_manifest.remote_repo_id {
         None => {

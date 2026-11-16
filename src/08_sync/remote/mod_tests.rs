@@ -97,7 +97,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
     let capture = |name: &str, chunk_profile| {
         let repo = root.path().join(name);
         let paths = RepoPaths::from_repo_root(&repo);
-        crate::repo::paths::ensure_gutch_repo_layout(&paths, name).unwrap();
+        crate::repo::paths::ensure_repo_layout(&paths, name).unwrap();
         let captured = crate::capture::sources::capture_snapshot(
             crate::capture::contracts::SnapshotCaptureRequest {
                 repo_root: repo.clone(),
@@ -180,7 +180,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
 fn pull_plan_preserves_local_repository_metadata_and_index() {
     let root = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(root.path());
-    crate::repo::paths::ensure_gutch_repo_layout(&paths, "local").unwrap();
+    crate::repo::paths::ensure_repo_layout(&paths, "local").unwrap();
     crate::repo::index::write_chunk_index(
         &paths,
         &crate::repo::index::load_chunk_index(&paths).unwrap(),
@@ -208,7 +208,7 @@ fn pull_plan_preserves_local_repository_metadata_and_index() {
 #[test]
 fn pull_planning_accepts_a_reader_without_host_or_http() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let plan = plan_pull_with_provider(
+    let plan = plan_repo_pull(
         directory.path(),
         &EmptyReader,
         None,
@@ -225,11 +225,8 @@ fn pull_planning_accepts_a_reader_without_host_or_http() {
 #[test]
 fn binding_a_remote_repo_keeps_the_id_opaque() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    crate::repo::paths::ensure_gutch_repo_layout(
-        &RepoPaths::from_repo_root(directory.path()),
-        "fixture",
-    )
-    .expect("repo layout");
+    crate::repo::paths::ensure_repo_layout(&RepoPaths::from_repo_root(directory.path()), "fixture")
+        .expect("repo layout");
 
     bind_remote_repo(directory.path(), "provider-specific-id").expect("bind repo");
     assert_eq!(

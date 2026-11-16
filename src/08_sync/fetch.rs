@@ -27,9 +27,9 @@ use crate::repo::index::load_chunk_index;
 use crate::repo::index::preserve_local_chunk_locations;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::ensure_gutch_repo_layout;
-use crate::repo::paths::load_gutch_repo_manifest;
-use crate::repo::paths::write_gutch_repo_manifest as write_repo_manifest;
+use crate::repo::paths::ensure_repo_layout;
+use crate::repo::paths::load_repo_manifest;
+use crate::repo::paths::write_repo_manifest;
 use crate::repo::snapshot_manifests::SNAPSHOT_PRODUCT_METADATA_FILE;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
@@ -67,13 +67,6 @@ pub(crate) struct PreparedSnapshotFetch {
 }
 
 pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchResult> {
-    fetch_snapshot_for_artifact_ids(request, None)
-}
-
-pub fn fetch_snapshot_for_artifact_ids(
-    request: &SnapshotFetchRequest,
-    required_artifact_ids_override: Option<&HashSet<String>>,
-) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
     fs::create_dir_all(&request.repo_path)?;
     write_with_control(&request.repo_path, &request.control.clone(), || {
@@ -84,19 +77,10 @@ pub fn fetch_snapshot_for_artifact_ids(
         let transfer_progress = Arc::new(FetchTransferProgress::default());
         let prepared =
             prepare_snapshot_fetch(request, &download_client, &progress, &transfer_progress)?;
-        let required_artifacts = required_artifact_ids_override
-            .map(|ids| {
-                prepared
-                    .required_artifacts
-                    .iter()
-                    .filter(|artifact| ids.contains(artifact.id().as_ref()))
-                    .cloned()
-                    .collect::<HashSet<_>>()
-            })
-            .unwrap_or_else(|| prepared.required_artifacts.clone());
+        let required_artifacts = &prepared.required_artifacts;
         let pending_artifact_downloads = select_pending_artifact_downloads(
             &prepared.pending_artifact_downloads,
-            &required_artifacts,
+            required_artifacts,
         );
         let downloaded_artifact_count = download_pending_artifacts(
             request,
@@ -174,7 +158,7 @@ pub(crate) fn prepare_snapshot_fetch(
     );
     let repo_paths = RepoPaths::from_repo_root(&request.repo_path);
     let repository_existed = repo_paths.repo_metadata_path.exists();
-    ensure_gutch_repo_layout(&repo_paths, "download")?;
+    ensure_repo_layout(&repo_paths, "download")?;
 
     let repo_manifest: RepoManifest = match request.repo_metadata_url.as_deref() {
         Some(url) => {
@@ -184,7 +168,7 @@ pub(crate) fn prepare_snapshot_fetch(
             let bytes = downloader.download(url, phase, message, None, MAX_METADATA_BYTES)?;
             RepoManifest::from_json_bytes("remote repo_metadata.json", &bytes)?
         }
-        None => load_gutch_repo_manifest(&repo_paths.repo_root)?.1,
+        None => load_repo_manifest(&repo_paths.repo_root)?.1,
     };
     let (downloaded_manifest, blueprint_bytes) = download_snapshot_manifest(request, &downloader)?;
     check_incoming_constraints(
@@ -348,7 +332,7 @@ fn check_incoming_constraints(
     let incoming_constraints = repo_manifest.constraints.clone().unwrap_or_default();
     incoming_constraints.validate_snapshot(snapshot_manifest, "fetch")?;
     if repository_existed {
-        let local_constraints = load_gutch_repo_manifest(&repo_paths.repo_root)?
+        let local_constraints = load_repo_manifest(&repo_paths.repo_root)?
             .1
             .constraints
             .unwrap_or_default();

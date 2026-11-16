@@ -34,8 +34,8 @@ use crate::repo::index::required_bundle_ids;
 use crate::repo::index::required_chunk_hashes;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::load_gutch_repo_manifest;
-use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
+use crate::repo::paths::write_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::runtime::RuntimeResourceHints;
@@ -82,7 +82,7 @@ fn capture_repository_group(
 
         let mut results = Vec::with_capacity(group.len());
         for request in group {
-            let (_, mut manifest) = load_gutch_repo_manifest(&repo_root)?;
+            let (_, mut manifest) = load_repo_manifest(&repo_root)?;
             manifest.set_content_packaging_profile(
                 request.chunk_profile,
                 request.compression_algorithm,
@@ -96,7 +96,7 @@ fn capture_repository_group(
                 &mut reuse_state,
                 &build_pool,
             )?);
-            write_gutch_repo_manifest(&repo_paths, &manifest)?;
+            write_repo_manifest(&repo_paths, &manifest)?;
             // A later failure in this batch keeps the snapshots captured so far.
             commit_completed_changes(&repo_root)?;
         }
@@ -116,7 +116,7 @@ pub(crate) fn execute_repo_snapshot_capture(
     let prepare_span = control.profile_span("capture.prepare_source");
     let (repo_paths, repo_manifest) = {
         let _span = control.profile_span("capture.prepare_source.load_repo_state");
-        load_gutch_repo_manifest(&request.repo_root)?
+        load_repo_manifest(&request.repo_root)?
     };
     let prepared_input = {
         let _span = control.profile_span("capture.prepare_source.prepare_input");

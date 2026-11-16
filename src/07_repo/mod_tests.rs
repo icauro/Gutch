@@ -6,9 +6,9 @@ use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_path;
 use crate::repo::paths::chunk_path;
-use crate::repo::paths::ensure_gutch_repo_layout;
-use crate::repo::paths::load_gutch_repo_manifest;
-use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::paths::ensure_repo_layout;
+use crate::repo::paths::load_repo_manifest;
+use crate::repo::paths::write_repo_manifest;
 use crate::repo::recovery::rebuild_chunk_index_from_artifacts;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::save_snapshot_product_metadata_for_snapshots;
@@ -39,7 +39,7 @@ use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::bundle_id_from_bundle_path;
 use crate::repo::paths::chunk_path_in_root;
 use crate::repo::verify::RepoArtifactVerification;
-use crate::repo::verify::verify_gutch_repo_artifacts;
+use crate::repo::verify::verify_repo;
 use crate::runtime::build_thread_pool;
 use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::test_util::chunk_entries;
@@ -61,7 +61,7 @@ fn exclusive_tags(version: &str, os: &str, arch: &str, tier: &str) -> manifest::
 fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
     let temp = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(temp.path());
-    ensure_gutch_repo_layout(&paths, "test-repo").unwrap();
+    ensure_repo_layout(&paths, "test-repo").unwrap();
     let mut snapshot_ids = Vec::new();
     for label in ["snapshot-a", "snapshot-b"] {
         let mut snapshot =
@@ -137,7 +137,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
 }
 
 #[test]
-fn gutch_repo_paths_from_repo_root() {
+fn repo_paths_from_repo_root() {
     let root = PathBuf::from("/test/repo");
     let paths = RepoPaths::from_repo_root(&root);
     assert_eq!(paths.repo_root(), root);
@@ -156,11 +156,11 @@ fn gutch_repo_paths_from_repo_root() {
 fn local_repo_config_contains_only_the_remote_link() {
     let temp = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(temp.path());
-    ensure_gutch_repo_layout(&paths, "linked").unwrap();
+    ensure_repo_layout(&paths, "linked").unwrap();
 
-    let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
+    let mut repo_manifest = load_repo_manifest(temp.path()).unwrap().1;
     repo_manifest.remote_repo_id = Some("99".to_string());
-    write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
+    write_repo_manifest(&paths, &repo_manifest).unwrap();
 
     let local_config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&paths.local_repo_config_path).unwrap()).unwrap();
@@ -217,7 +217,7 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
     );
 }
 #[test]
-fn gutch_repo_paths_from_store_root() {
+fn repo_paths_from_store_root() {
     let root = PathBuf::from("/test/store");
     let paths = RepoPaths::from_store_root(&root, "my-repo").unwrap();
 
@@ -288,13 +288,13 @@ fn required_bundle_ids_uses_chunk_index_mapping() {
 }
 
 #[test]
-fn check_gutch_repo_reports_snapshots() {
+fn check_repo_reports_snapshots() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().to_path_buf();
     let repo_root = root.join("repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
 
-    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    ensure_repo_layout(&repo_paths, "base").unwrap();
     let snapshot_id = test_hash("snapshot-one");
     let mut manifest = SnapshotManifest::new(
         snapshot_id.clone(),
@@ -337,10 +337,10 @@ fn check_gutch_repo_reports_snapshots() {
 }
 
 #[test]
-fn check_gutch_repo_treats_missing_artifact_roots_as_empty() {
+fn check_repo_treats_missing_artifact_roots_as_empty() {
     let temp = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(temp.path());
-    ensure_gutch_repo_layout(&paths, "empty-artifacts").unwrap();
+    ensure_repo_layout(&paths, "empty-artifacts").unwrap();
     fs::remove_dir_all(&paths.bundles_root).unwrap();
     fs::remove_dir_all(&paths.chunks_root).unwrap();
 
@@ -356,7 +356,7 @@ fn check_gutch_repo_treats_missing_artifact_roots_as_empty() {
 fn check_and_verify_report_loose_chunk_artifacts() {
     let temp = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(temp.path());
-    ensure_gutch_repo_layout(&paths, "loose-repo").unwrap();
+    ensure_repo_layout(&paths, "loose-repo").unwrap();
 
     let raw_bytes = b"loose artifact content";
     let chunk_hash = test_chunk_hash("loose artifact content");
@@ -366,7 +366,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     fs::create_dir_all(chunk_path.parent().unwrap()).unwrap();
     fs::write(&chunk_path, &compressed_bytes).unwrap();
 
-    let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
+    let mut repo_manifest = load_repo_manifest(temp.path()).unwrap().1;
     repo_manifest.set_content_packaging_profile(
         ChunkSizingPreset::Chunk128KiB,
         CompressionKind::Zstd,
@@ -374,7 +374,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
         BundleSizingPreset::Bundle16MiB,
         ArtifactStorageMode::LooseChunks,
     );
-    write_gutch_repo_manifest(&paths, &repo_manifest).unwrap();
+    write_repo_manifest(&paths, &repo_manifest).unwrap();
 
     let snapshot_id = test_hash("loose snapshot");
     let mut snapshot = SnapshotManifest::new(
@@ -419,7 +419,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     assert_eq!(status.snapshots[0].required_artifact_count, 1);
     assert_eq!(status.snapshots[0].missing_artifact_count, 0);
 
-    let verification = verify_gutch_repo_artifacts(
+    let verification = verify_repo(
         temp.path(),
         Some(&snapshot.snapshot_id),
         RepoArtifactVerification::Strict,
@@ -509,7 +509,7 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().to_path_buf();
     let paths = RepoPaths::from_repo_root(&root);
-    ensure_gutch_repo_layout(&paths, "base").unwrap();
+    ensure_repo_layout(&paths, "base").unwrap();
 
     let chunk_hash = ChunkHash::of(b"hello");
     let mut builder = BundleBuilder::new(CompressionProfile::default());
@@ -551,7 +551,7 @@ fn inspect_repo_shows_snapshot_tags() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().to_path_buf();
     let paths = RepoPaths::from_repo_root(&root);
-    ensure_gutch_repo_layout(&paths, "base").unwrap();
+    ensure_repo_layout(&paths, "base").unwrap();
 
     let snapshot_id = test_hash("snapshot-two");
     let mut manifest = SnapshotManifest::new(
@@ -590,7 +590,7 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().to_path_buf();
     let paths = RepoPaths::from_repo_root(&root);
-    ensure_gutch_repo_layout(&paths, "base").unwrap();
+    ensure_repo_layout(&paths, "base").unwrap();
 
     let chunk_one = test_hash("chunk-one");
     let chunk_two = test_hash("chunk-two");
@@ -671,7 +671,7 @@ fn force_init_replaces_an_unparsable_manifest() {
     };
     assert!(crate::repo::init_policy::initialize_repo(temp.path(), options(false)).is_err());
     crate::repo::init_policy::initialize_repo(temp.path(), options(true)).unwrap();
-    load_gutch_repo_manifest(temp.path()).unwrap();
+    load_repo_manifest(temp.path()).unwrap();
 }
 
 #[test]
@@ -685,7 +685,7 @@ fn deleting_a_missing_snapshot_reports_not_found() {
         },
     )
     .unwrap();
-    let error = crate::repo::snapshots::delete_repo_snapshot_and_cleanup(
+    let error = crate::repo::snapshots::delete_snapshot(
         temp.path(),
         &"a".repeat(64),
         &crate::progress::OperationControl::default(),
@@ -712,9 +712,7 @@ fn a_newer_repository_format_is_refused_for_reading_and_writing() {
             }
         )
     };
-    assert!(is_unsupported(
-        load_gutch_repo_manifest(temp.path()).unwrap_err()
-    ));
+    assert!(is_unsupported(load_repo_manifest(temp.path()).unwrap_err()));
     assert!(is_unsupported(
         crate::repo::coordination::write(temp.path(), || Ok(())).unwrap_err()
     ));

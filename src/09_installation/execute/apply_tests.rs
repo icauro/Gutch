@@ -20,7 +20,7 @@ use crate::progress::{OperationControl, ProgressPhase};
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::paths::ensure_repo_layout;
 use crate::runtime::RuntimeResourceHints;
 use crate::test_util::chunk_entries;
 use crate::test_util::loose_bytes;
@@ -296,7 +296,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
     fs::create_dir_all(&source_root).unwrap();
     fs::write(source_root.join("game.exe"), b"gameold!").unwrap();
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "mixed-loose-test").unwrap();
+    ensure_repo_layout(&repo_paths, "mixed-loose-test").unwrap();
 
     let shared_chunk_hash = test_hash(b"game");
     let source_only_chunk_hash = test_hash(b"old!");
@@ -398,7 +398,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     let destination_temp = tempfile::tempdir().unwrap();
     let destination = destination_temp.path().join("pipeline_loose_destination");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "loose-test").unwrap();
+    ensure_repo_layout(&repo_paths, "loose-test").unwrap();
 
     let chunk_hash = test_hash(b"game");
     let artifact = ArtifactRef::LooseChunk {
@@ -466,7 +466,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
     let destination_temp = tempfile::tempdir().unwrap();
     let destination = destination_temp.path().join("pipeline_bundled_destination");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "bundled-test").unwrap();
+    ensure_repo_layout(&repo_paths, "bundled-test").unwrap();
 
     let first = b"1111";
     let second = b"2222";
@@ -614,7 +614,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
     let repo_root = workspace.path().join("repo");
     let destination = workspace.path().join("output");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "readiness-test").unwrap();
+    ensure_repo_layout(&repo_paths, "readiness-test").unwrap();
     let compression = CompressionProfile::default();
     let mut entries_by_hash = BTreeMap::new();
     let mut existing_artifacts = HashSet::new();

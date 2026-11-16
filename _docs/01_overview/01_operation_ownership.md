@@ -15,7 +15,7 @@ owners.
 | Source discovery and snapshot capture | Private `capture/` engine, exposed through `gutch::api` | Supply source configuration, tags, and confirmation; present the plan and result |
 | Repo layout and metadata | Private Gutch repo engine, exposed through `gutch::api` | Supply the repo root and persist only through Gutch operations |
 | Repo status and advisory tag references | Private Gutch repo engine, exposed through `gutch::api` | Render the returned status and references |
-| Verify Gutch repo artifacts | Private Gutch repo engine, exposed as `gutch::api::verify_gutch_repo_artifacts` | Supply the repo path, snapshot selection, and verification mode |
+| Verify Gutch repo artifacts | Private Gutch repo engine, exposed as `gutch::api::verify_repo` | Supply the repo path, snapshot selection, and verification mode |
 | Fetch snapshot artifacts | Private `repo/` acquisition workflow, exposed as `gutch::api::fetch_snapshot` | Resolve authorized artifact sources and provide progress/cancellation |
 | Fetch and reconstruct a destination | Private `installation/` workflow, exposed as `gutch::api::fetch_and_reconstruct_snapshot` | Supply authorized sources and destination/staging paths |
 | Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installation`; CLI `gutch installation verify` | Supply the repo path, destination, mode, and runtime hints |
@@ -61,7 +61,7 @@ internal implementation owners.
 |---|---|
 | `api` | Supported public types, operations, provider contracts, and CLI entry points |
 | `cli` | Generic command parsing, family handlers, terminal progress, reporting, and the CLI's tracked-repository config file |
-| `capture` | Source configuration and discovery, scanning, estimation, planning, packing, and capture execution |
+| `capture` | Source configuration and discovery, scanning, measurement, planning, packing, and capture execution |
 | `installation` | Inspection, change previews, shared execution, selective publication, installation state, and combined fetch/reconstruction |
 | `repo` | Layout, guarded readers, persistence, indexes, transactions, recovery, and cleanup |
 | `sync` | URL-based snapshot fetch into a repository and provider-driven push, pull, and remote linking |
@@ -135,15 +135,14 @@ handle-release ordering intact across these boundaries.
 
 ## Public naming
 
-Local-to-remote synchronization uses `push_repo`, `plan_push_with_provider`,
+Local-to-remote synchronization uses `push_repo`, `plan_repo_push`,
 `RepoPushPlan`, `RepoPushSnapshotChange`, and `RepoPushStats`, matching `repo push`.
 The corresponding download direction remains `pull_repo` and `RepoPullPlan`.
 
 Artifact fetch inputs use `ArtifactDownload { artifact_id, url }`,
 `ArtifactUrlProvider::resolve_artifact_urls`, and `SnapshotFetchRequest.artifacts`
-and `.artifact_url_provider`. `fetch_snapshot_for_artifact_ids` can restrict the
-fetch to selected bundle or loose-chunk IDs. Serialized downloads use
-`artifactId` and `url`; CLI direct URLs use `--artifact ID=URL` or
+and `.artifact_url_provider`. Serialized downloads use
+`artifactId` and `url`; CLI direct URLs use `--artifact-url ID=URL` or
 `--artifact-url-manifest FILE`. The bundle-download endpoint adapter retains
 its endpoint-specific `bundleId`/`downloadUrl` response mapping. Bundle counters
 and `RemoteBundleSource` remain bundle-specific.

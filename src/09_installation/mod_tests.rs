@@ -21,7 +21,7 @@ use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::paths::ensure_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::runtime::RuntimeResourceHints;
 use crate::snapshot::identity::snapshot_id_from_entries;
@@ -60,7 +60,7 @@ fn test_snapshot_manifest(files: Vec<(&str, &[u8])>) -> SnapshotManifest {
 
 fn write_repair_test_repo(root: &Path, manifest: &SnapshotManifest) {
     let paths = RepoPaths::from_repo_root(root);
-    ensure_gutch_repo_layout(&paths, "test").unwrap();
+    ensure_repo_layout(&paths, "test").unwrap();
     write_snapshot_manifest_artifacts(
         &paths,
         manifest,
@@ -144,7 +144,7 @@ fn resolved_snapshot_state_uses_product_runtime() {
     let root_temp = tempfile::tempdir().unwrap();
     let root = root_temp.path().join("resolved_snapshot_launch_state");
     let paths = RepoPaths::from_repo_root(&root);
-    ensure_gutch_repo_layout(&paths, "test").unwrap();
+    ensure_repo_layout(&paths, "test").unwrap();
     let mut tags = SnapshotTagSet::default();
     tags.insert("os", "windows").unwrap();
     tags.insert("arch", "x86_64").unwrap();
@@ -258,7 +258,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     let root_temp = tempfile::tempdir().unwrap();
     let root = root_temp.path().join("repair_plan_bundle_subset");
     let paths = RepoPaths::from_repo_root(&root);
-    ensure_gutch_repo_layout(&paths, "test").unwrap();
+    ensure_repo_layout(&paths, "test").unwrap();
 
     let chunk_a = test_hash("chunk-a");
     let chunk_b = test_hash("chunk-b");

@@ -137,16 +137,6 @@ pub struct ChunkRef {
     pub raw_size: u32,
 }
 
-/// Measured artifact sizes for a fresh capture with the default profile.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Estimate {
-    pub unique_chunk_bytes: u64,
-    pub unique_chunk_count: usize,
-    pub encoded_artifact_bytes: u64,
-    pub artifact_count: usize,
-    pub bundle_count: usize,
-}
-
 #[cfg(test)]
 #[path = "content_tests.rs"]
 mod tests;

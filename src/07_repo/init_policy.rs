@@ -12,8 +12,8 @@ use crate::filesystem;
 use crate::manifest::constraints::RepositoryConstraints;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::ensure_gutch_repo_layout;
-use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::paths::ensure_repo_layout;
+use crate::repo::paths::write_repo_manifest;
 use std::fs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,7 +102,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     if paths.repo_metadata_path.exists() {
         // An unreadable manifest is what `init --force` replaces, so classify it
         // here instead of failing the assessment. I/O failures still propagate.
-        let manifest_error = match crate::repo::paths::load_gutch_repo_manifest(repo_root) {
+        let manifest_error = match crate::repo::paths::load_repo_manifest(repo_root) {
             Ok(_) => None,
             Err(error @ (Error::Io(_) | Error::IoContext { .. } | Error::Cancelled)) => {
                 return Err(error);
@@ -206,7 +206,7 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<Rep
             ));
         }
         if options.force && assessment.path_kind != RepoInitPathKind::Missing {
-            clear_gutch_repo_artifacts(repo_root)?;
+            clear_repo_artifacts(repo_root)?;
         }
 
         let repo_name = repo_root
@@ -215,10 +215,10 @@ pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<Rep
             .filter(|name| !name.is_empty())
             .unwrap_or("base");
         let repo_paths = RepoPaths::from_repo_root(repo_root);
-        let mut repo_manifest = ensure_gutch_repo_layout(&repo_paths, repo_name)?;
+        let mut repo_manifest = ensure_repo_layout(&repo_paths, repo_name)?;
         repo_manifest.constraints =
             (!options.constraints.is_empty()).then_some(options.constraints);
-        write_gutch_repo_manifest(&repo_paths, &repo_manifest)?;
+        write_repo_manifest(&repo_paths, &repo_manifest)?;
         Ok(repo_manifest)
     })
 }
@@ -258,7 +258,7 @@ pub(crate) fn repo_init_needs_confirmation_error(assessment: &RepoInitAssessment
     Error::repository(format!("{REPO_INIT_NEEDS_CONFIRMATION}:{payload}"))
 }
 
-pub(super) fn clear_gutch_repo_artifacts(repo_root: &Path) -> Result<()> {
+pub(super) fn clear_repo_artifacts(repo_root: &Path) -> Result<()> {
     let paths = RepoPaths::from_repo_root(repo_root);
     for (_, artifact) in super::inventory::list_repo_artifact_paths(&paths)? {
         if !super::coordination::defer_artifact_deletion(&artifact)? {

@@ -20,7 +20,7 @@ use crate::repo::artifacts::classify_required_artifacts;
 use crate::repo::coordination;
 use crate::repo::index::load_chunk_index;
 use crate::repo::paths::RepoPaths;
-use crate::repo::paths::load_gutch_repo_manifest;
+use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
@@ -80,12 +80,12 @@ pub struct RepoSnapshotStatus {
 
 pub fn read_repo_status(repo_root: &Path) -> Result<RepoStatus> {
     if !repo_root.is_dir() {
-        return check_gutch_repo_unlocked(repo_root);
+        return check_repo_unlocked(repo_root);
     }
-    coordination::read(repo_root, || check_gutch_repo_unlocked(repo_root))
+    coordination::read(repo_root, || check_repo_unlocked(repo_root))
 }
 
-fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
+fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     let repo_path = repo_root.to_path_buf();
     let repo_path_display = repo_path.display().to_string();
     if !repo_path.exists() {
@@ -112,7 +112,7 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
         ));
     }
 
-    let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo_path)?;
+    let (repo_paths, repo_manifest) = load_repo_manifest(&repo_path)?;
 
     let inventory = scan_artifact_inventory(&repo_paths)?;
 

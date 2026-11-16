@@ -42,9 +42,9 @@ use crate::repo::inventory::list_repo_snapshot_ids;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_id_from_bundle_path;
 use crate::repo::paths::bundle_path;
-use crate::repo::paths::ensure_gutch_repo_layout;
-use crate::repo::paths::load_gutch_repo_manifest;
-use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::paths::ensure_repo_layout;
+use crate::repo::paths::load_repo_manifest;
+use crate::repo::paths::write_repo_manifest;
 use crate::repo::snapshot_manifests::SNAPSHOT_PRODUCT_METADATA_FILE;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
@@ -297,7 +297,7 @@ fn write_remote_snapshot_artifacts(
     Ok(())
 }
 
-pub fn plan_pull_with_provider<P: RemoteRepositoryReader + ?Sized>(
+pub fn plan_repo_pull<P: RemoteRepositoryReader + ?Sized>(
     repo_root: &Path,
     provider: &P,
     remote_spec: Option<&str>,
@@ -436,7 +436,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
         // The remote metadata replaces the local copy, so this release must be
         // able to write what it describes.
         manifest.repository_format.check(RepositoryAccess::Write)?;
-        let local_constraints = load_gutch_repo_manifest(self.repo)?
+        let local_constraints = load_repo_manifest(self.repo)?
             .1
             .constraints
             .unwrap_or_default();
@@ -448,7 +448,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
         }
         validate_existing_constraints(self.repo, &incoming_constraints, "pull")?;
         manifest.remote_repo_id = Some(self.repository.id.clone());
-        write_gutch_repo_manifest(self.repo_paths, &manifest)
+        write_repo_manifest(self.repo_paths, &manifest)
     }
 
     fn download_chunk_index(&self) -> Result<()> {
@@ -579,7 +579,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
             provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
         let repo_paths = RepoPaths::from_repo_root(&repo);
         let repository_existed = repo_paths.repo_metadata_path.exists();
-        ensure_gutch_repo_layout(&repo_paths, &repository.name)?;
+        ensure_repo_layout(&repo_paths, &repository.name)?;
         progress.report(ProgressPhase::Planning, "Planning pull changes", None);
         let snapshots = provider.list_snapshots(&repository)?;
         let mut snapshots_by_id = HashMap::with_capacity(snapshots.len());

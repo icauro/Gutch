@@ -5,6 +5,10 @@ use gutch::api::{
 };
 use std::sync::Arc;
 
+fn run_from_args<const N: usize>(args: [&str; N]) -> gutch::api::Result<()> {
+    gutch::api::run_command_line(args, &gutch::api::CommandLineHost::default())
+}
+
 #[test]
 fn comparison_mismatch_returns_to_the_embedding_host() {
     let root = tempfile::tempdir().unwrap();
@@ -17,7 +21,7 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
             .unwrap()
             .compare_passed
     );
-    let result = gutch::api::run_from_args([
+    let result = run_from_args([
         "gutch",
         "debug",
         "compare-trees",
@@ -31,7 +35,7 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
 
 #[test]
 fn command_line_usage_errors_keep_the_parser_message_and_exit_code() {
-    let error = gutch::api::run_from_args(["gutch", "--bogus"]).unwrap_err();
+    let error = run_from_args(["gutch", "--bogus"]).unwrap_err();
     assert!(matches!(error, Error::Usage(_)), "{error:?}");
     assert_eq!(error.exit_code(), 2);
     let message = error.to_string();
@@ -109,7 +113,7 @@ fn assert_api_and_cli_capture_equivalent(
         control: Default::default(),
     })
     .unwrap();
-    let (_, manifest) = load_gutch_repo_manifest(&repo).unwrap();
+    let (_, manifest) = load_repo_manifest(&repo).unwrap();
     assert_eq!(
         manifest.content_packaging_profile.compression,
         CompressionKind::Lz4
@@ -141,7 +145,7 @@ fn assert_api_and_cli_capture_equivalent(
         "loose-chunks",
     ])
     .unwrap();
-    let (_, cli_manifest) = load_gutch_repo_manifest(&cli_repo).unwrap();
+    let (_, cli_manifest) = load_repo_manifest(&cli_repo).unwrap();
     assert_eq!(
         serde_json::to_value(&manifest.content_packaging_profile).unwrap(),
         serde_json::to_value(&cli_manifest.content_packaging_profile).unwrap()

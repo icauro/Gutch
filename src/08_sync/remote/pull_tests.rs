@@ -4,7 +4,7 @@ use super::*;
 fn incoming_snapshot_is_rejected_before_metadata_is_written() {
     let root = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(root.path());
-    crate::repo::paths::ensure_gutch_repo_layout(&paths, "test").unwrap();
+    crate::repo::paths::ensure_repo_layout(&paths, "test").unwrap();
     crate::repo::updates::update_repository_constraints(
         root.path(),
         crate::manifest::constraints::RepositoryConstraints {

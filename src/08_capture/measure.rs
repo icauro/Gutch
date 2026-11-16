@@ -1,23 +1,30 @@
-//! Fresh reconstruction estimation for directory or single-file inputs.
+//! Fresh-capture storage measurement for directory or single-file inputs.
 use crate::capture::build::pipeline::build_directory;
 use crate::capture::build::types::BuildConfig;
 use crate::capture::execute::prepare_input_path;
-use crate::manifest::Estimate;
 use crate::manifest::SnapshotTagSet;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Debug)]
-pub struct SnapshotEstimateResult {
+/// Artifact sizes a fresh capture with the default packaging presets would
+/// store, ignoring any repository reuse.
+#[derive(Debug, Clone, Serialize)]
+pub struct SnapshotMeasurement {
     pub file_count: usize,
-    pub total_logical_size: u64,
-    pub estimate: Estimate,
+    pub logical_bytes: u64,
+    pub unique_chunk_count: usize,
+    pub unique_chunk_bytes: u64,
+    pub encoded_artifact_bytes: u64,
+    pub artifact_count: usize,
+    pub bundle_count: usize,
 }
 
-pub fn estimate_snapshot(
+/// Builds `source` in memory and measures the artifacts it would produce.
+pub fn measure_snapshot(
     source: &Path,
     tags: &SnapshotTagSet,
-) -> crate::Result<SnapshotEstimateResult> {
+) -> crate::Result<SnapshotMeasurement> {
     let input = prepare_input_path(source)?;
     let (result, _) = build_directory(&input.dir, &BuildConfig::for_snapshot(tags))?;
     let mut chunks = HashMap::new();
@@ -26,9 +33,11 @@ pub fn estimate_snapshot(
             chunks.insert(&chunk.chunk_hash, chunk.raw_size);
         }
     }
-    let estimate = Estimate {
-        unique_chunk_bytes: chunks.values().map(|size| u64::from(*size)).sum(),
+    Ok(SnapshotMeasurement {
+        file_count: result.snapshot_manifest.file_count(),
+        logical_bytes: result.snapshot_manifest.total_logical_size,
         unique_chunk_count: chunks.len(),
+        unique_chunk_bytes: chunks.values().map(|size| u64::from(*size)).sum(),
         encoded_artifact_bytes: result.bundles.iter().map(|bundle| bundle.size).sum::<u64>()
             + result
                 .loose_chunks
@@ -37,10 +46,5 @@ pub fn estimate_snapshot(
                 .sum::<u64>(),
         artifact_count: result.bundles.len() + result.loose_chunks.len(),
         bundle_count: result.bundles.len(),
-    };
-    Ok(SnapshotEstimateResult {
-        file_count: result.snapshot_manifest.file_count(),
-        total_logical_size: result.snapshot_manifest.total_logical_size,
-        estimate,
     })
 }

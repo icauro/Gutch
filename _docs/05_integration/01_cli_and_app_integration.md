@@ -41,15 +41,17 @@ Command handlers parse arguments, request confirmation, adapt progress, render
 reports, and map failed results to command errors. Engine operations own source
 selection, tag merging, capture sequencing, profile persistence, and filesystem
 behavior. The public API includes source resolution and batch capture, snapshot
-estimation, bundle inspection, path comparison, corruption diagnostics, remote
-listing, and tag-reference inspection alongside the main snapshot operations.
+measurement, bundle inspection, path comparison, corruption diagnostics and
+tag-reference inspection alongside the main snapshot operations. Each
+operation has one entry point; presentation text belongs to the host.
 
 `capture_snapshot` persists the selected packaging profile after a
 successful capture for every caller. Batch capture validates all source plans
 before starting; successful earlier captures remain if a later capture fails.
 It is not an atomic multi-snapshot transaction.
 
-`run_from_args` returns failures to its embedding host. Failed path comparison
+`run_command_line(args, &CommandLineHost)` is the single command-line entry
+point and returns failures to its embedding host. Failed path comparison
 and repository verification write their requested reports and then return an
 error; the executable maps that error to exit status 1, or 2 for command-line
 usage errors. Declining a confirmation returns `Cancelled`, so a cancelled
@@ -81,10 +83,14 @@ move S3 credentials into Gutch.
 
 ## Remote commands
 
-Embedded hosts can invoke `run_from_args_with_remote_provider` for repo listing,
-remote creation, binding, pull, push, unbinding and advisory tag references. Host-specific
-options are resolved before invoking the generic parser. Credentials remain
-with the provider; Gutch receives authorized operations and artifact sources.
+`CommandLineHost` names the displayed executable and may supply a
+`RemoteProviderFactory`. Gutch calls the factory only when a command needs
+remote access: remote listing, creation, pull, push, tag references and
+`unbind --delete-remote` require it, and `bind` uses it when present so the
+host can apply binding requirements. Hosts therefore authenticate only for
+remote commands. Host-specific options are resolved before invoking the
+generic parser. Credentials remain with the provider; Gutch receives
+authorized operations and artifact sources.
 
 ## Command vocabulary
 

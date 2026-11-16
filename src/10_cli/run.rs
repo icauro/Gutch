@@ -1,9 +1,6 @@
 //! Command-line entry points: parse, set up profiling and error export, dispatch.
 
 use super::arguments::Cli;
-use super::arguments::Commands;
-use super::arguments::RemoteCommands;
-use super::arguments::RepoCommands;
 use super::session::set_verbose_output_enabled;
 use super::{dispatch, output, reporting};
 use crate::filesystem::write_json;
@@ -13,58 +10,52 @@ use crate::sync::remote::RemoteRepositoryCommandProvider;
 use std::ffi::OsString;
 use std::sync::Arc;
 
-pub fn requires_remote_provider<I, T>(args: I) -> bool
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    use clap::Parser;
+/// Creates the remote provider when a command first needs one, so hosts
+/// authenticate only for remote commands.
+pub type RemoteProviderFactory<'a> =
+    dyn Fn() -> crate::Result<Box<dyn RemoteRepositoryCommandProvider + 'a>> + 'a;
 
-    let Ok(cli) = Cli::try_parse_from(args) else {
-        return false;
-    };
-    match cli.command {
-        Commands::Repo { command } => match command {
-            RepoCommands::Push { .. } | RepoCommands::Pull { .. } => true,
-            RepoCommands::Remote { command } => match command {
-                RemoteCommands::Bind { .. } => false,
-                RemoteCommands::Unbind { delete_remote, .. } => delete_remote,
-                _ => true,
-            },
-            _ => false,
-        },
-        _ => false,
+/// How an embedding host presents and backs the Gutch command line.
+///
+/// The command grammar and execution path remain owned by Gutch; hosts choose
+/// the displayed executable name and may supply remote repository access.
+#[derive(Clone, Copy)]
+pub struct CommandLineHost<'a> {
+    pub bin_name: &'a str,
+    pub remote_provider: Option<&'a RemoteProviderFactory<'a>>,
+}
+
+impl Default for CommandLineHost<'_> {
+    fn default() -> Self {
+        Self {
+            bin_name: "gutch",
+            remote_provider: None,
+        }
     }
 }
 
-pub fn run_from_args<I, T>(args: I) -> crate::Result<()>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    run_from_args_with_remote_provider(args, None)
+impl<'a> CommandLineHost<'a> {
+    /// Creates the provider for a command that cannot run without one.
+    pub(crate) fn require_remote_provider(
+        &self,
+    ) -> crate::Result<Box<dyn RemoteRepositoryCommandProvider + 'a>> {
+        self.optional_remote_provider()?.ok_or_else(|| {
+            crate::Error::invalid_input(
+                "remote provider context is required; configure a backend endpoint and session",
+            )
+        })
+    }
+
+    /// Creates the provider when the host supplies one.
+    pub(crate) fn optional_remote_provider(
+        &self,
+    ) -> crate::Result<Option<Box<dyn RemoteRepositoryCommandProvider + 'a>>> {
+        self.remote_provider.map(|create| create()).transpose()
+    }
 }
 
-pub fn run_from_args_with_remote_provider<I, T>(
-    args: I,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-) -> crate::Result<()>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    run_from_args_with_remote_provider_named(args, remote_provider, "gutch")
-}
-
-/// Runs the shared command parser with a caller-selected display name.
-///
-/// The command grammar and execution path remain owned by Gutch; callers can
-/// present the same commands under their own executable name.
-pub fn run_from_args_with_remote_provider_named<I, T>(
-    args: I,
-    remote_provider: Option<&dyn RemoteRepositoryCommandProvider>,
-    bin_name: &str,
-) -> crate::Result<()>
+/// Parses and runs one command line, returning failures to the host.
+pub fn run_command_line<I, T>(args: I, host: &CommandLineHost<'_>) -> crate::Result<()>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -72,7 +63,7 @@ where
     use clap::CommandFactory;
     use clap::FromArgMatches;
 
-    let command = Cli::command().bin_name(bin_name);
+    let command = Cli::command().bin_name(host.bin_name);
     let cli = match command.try_get_matches_from(args) {
         Ok(matches) => Cli::from_arg_matches(&matches)
             .map_err(|error| crate::Error::Usage(error.render().to_string()))?,
@@ -104,7 +95,7 @@ where
         let _command_span = profiler
             .as_ref()
             .map(|profiler| profiler.span("cli.command"));
-        dispatch::run(cli, remote_provider, &profiler)
+        dispatch::run(cli, host, &profiler)
     });
     let output_result = output::finish(&command_result);
     let command_result = command_result.and(output_result);

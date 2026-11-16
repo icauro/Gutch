@@ -194,8 +194,7 @@ pub trait RemoteRepositoryCommandProvider {
 
     fn delete_remote_repository(&self, repository: &RemoteRepository) -> Result<()>;
 
-    fn referenced_tag_references(&self, repository: &RemoteRepository)
-    -> Result<Vec<TagReference>>;
+    fn tag_references(&self, repository: &RemoteRepository) -> Result<Vec<TagReference>>;
 }
 
 /// Which copy pull keeps when a local file differs from the remote one.

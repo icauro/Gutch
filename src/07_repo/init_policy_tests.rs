@@ -1,7 +1,7 @@
 use super::*;
 use crate::manifest;
 use crate::manifest::snapshot::SnapshotManifest;
-use crate::repo::paths::ensure_gutch_repo_layout;
+use crate::repo::paths::ensure_repo_layout;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::test_util::{test_chunk_hash, test_hash};
 
@@ -19,7 +19,7 @@ fn assess_repo_init_path_reports_existing_repo() {
     let temp = tempfile::tempdir().unwrap();
     let repo_root = temp.path().join("repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    ensure_repo_layout(&repo_paths, "base").unwrap();
 
     let assessment = assess_repo_init_path(&repo_root).unwrap();
     assert_eq!(assessment.path_kind, RepoInitPathKind::ExistingRepo);
@@ -31,7 +31,7 @@ fn initialize_repo_init_without_force_rejects_existing_repo() {
     let temp = tempfile::tempdir().unwrap();
     let repo_root = temp.path().join("repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    ensure_repo_layout(&repo_paths, "base").unwrap();
 
     let err = initialize_repo(
         &repo_root,
@@ -49,7 +49,7 @@ fn initialize_repo_init_with_force_replaces_existing_repo_artifacts() {
     let temp = tempfile::tempdir().unwrap();
     let repo_root = temp.path().join("repo");
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
-    ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
+    ensure_repo_layout(&repo_paths, "base").unwrap();
     let snapshot_id = test_hash("snapshot-one");
     let mut snapshot_manifest = SnapshotManifest::new(
         snapshot_id.clone(),
