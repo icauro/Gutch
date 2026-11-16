@@ -649,3 +649,65 @@ fn object_store_remote_rejects_names_that_change_the_key_layout() {
     assert!(remote.create_repo("team", "../app").is_err());
     assert!(remote.create_repo("", "app").is_err());
 }
+
+#[test]
+fn fetching_one_file_downloads_only_the_bundles_holding_it() {
+    let root = tempfile::tempdir().unwrap();
+    let origin = root.path().join("origin");
+    let source = root.path().join("source");
+    let shared = [5; 64 * 1024];
+    capture(&origin, &source, &shared);
+    let shared_bundles = bundle_ids(&origin);
+    // The second snapshot reuses the first one's bundle for `file` and adds
+    // a bundle for `other`.
+    std::fs::write(source.join("other"), [6; 64 * 1024]).unwrap();
+    let snapshot = capture(&origin, &source, &shared);
+    bind(&origin);
+    let provider = MemoryProvider::default();
+    push(&origin, &provider).unwrap();
+    provider.take_requested_bundles();
+
+    let clone = root.path().join("clone");
+    let metadata_only = pull_repo(
+        &RepoPullRequest {
+            repo_root: clone.clone(),
+            remote_repo_id: Some("memory".into()),
+            snapshot_ids: vec![snapshot.clone()],
+            bundles: PullBundles::None,
+            ..Default::default()
+        },
+        &provider,
+    )
+    .unwrap();
+    assert_eq!(metadata_only.snapshot_downloaded_count, 1);
+    assert!(provider.take_requested_bundles().is_empty());
+    assert!(bundle_ids(&clone).is_empty());
+
+    let fetch = |path: &str| {
+        fetch_snapshot_file(
+            &SnapshotFileFetchRequest {
+                repo_root: clone.clone(),
+                remote_repo_id: Some("memory".into()),
+                snapshot_id: snapshot.clone(),
+                path: path.into(),
+                ..Default::default()
+            },
+            &provider,
+        )
+    };
+    assert_eq!(fetch("file").unwrap(), shared);
+    assert_eq!(provider.take_requested_bundles(), shared_bundles);
+    assert_eq!(bundle_ids(&clone), shared_bundles);
+
+    assert_eq!(fetch("other").unwrap(), [6; 64 * 1024]);
+    assert_eq!(bundle_ids(&clone), bundle_ids(&origin));
+    // Fetching a file again downloads nothing.
+    provider.take_requested_bundles();
+    fetch("file").unwrap();
+    assert!(provider.take_requested_bundles().is_empty());
+    let error = fetch("missing").unwrap_err();
+    assert!(
+        error.to_string().contains("has no file 'missing'"),
+        "{error}"
+    );
+}

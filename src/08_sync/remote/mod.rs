@@ -5,6 +5,7 @@
 //! mutations, progress, cancellation, and synchronization order.
 
 mod artifact_decision;
+mod file_fetch;
 mod link;
 mod local_hashes;
 mod object_store;
@@ -14,6 +15,7 @@ mod pull;
 mod push;
 
 pub use artifact_decision::remote_artifact_hash;
+pub use file_fetch::{SnapshotFileFetchRequest, fetch_snapshot_file};
 pub use link::RemoteRepoBindRequest;
 pub use link::RemoteRepoBindResult;
 pub use link::RemoteRepoCreateRequest;
@@ -44,6 +46,7 @@ pub use provider::RepoPullResult;
 pub use provider::RepoPushPlan;
 pub use provider::RepoPushResult;
 pub use provider::RepoPushSnapshotChange;
+pub use pull::PullBundles;
 pub use pull::RepoPullRequest;
 pub use pull::plan_pull_repo;
 pub use pull::pull_repo;

@@ -103,6 +103,10 @@ pub(crate) enum RepoCommands {
         /// lacks.
         #[arg(long = "snapshot", value_name = "ID")]
         snapshot_ids: Vec<String>,
+        /// Download snapshot metadata but no bundles; a later pull without
+        /// it downloads them.
+        #[arg(long)]
+        metadata_only: bool,
         #[command(flatten)]
         confirm: ConfirmArgs,
     },

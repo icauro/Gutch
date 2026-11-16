@@ -68,6 +68,7 @@ pub(crate) fn run(
             on_conflict,
             prune,
             snapshot_ids,
+            metadata_only,
             confirm,
         } => repo_remote::pull(
             crate::sync::remote::RepoPullRequest {
@@ -76,6 +77,11 @@ pub(crate) fn run(
                 on_conflict,
                 prune,
                 snapshot_ids,
+                bundles: if metadata_only {
+                    crate::sync::remote::PullBundles::None
+                } else {
+                    crate::sync::remote::PullBundles::All
+                },
                 ..Default::default()
             },
             confirm,

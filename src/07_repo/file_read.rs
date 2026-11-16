@@ -4,9 +4,11 @@ use crate::artifact::bundle::BundleReader;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::reference::ArtifactRef;
+use crate::manifest::FileManifest;
+use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::repo::coordination::read_with_control;
-use crate::repo::index::load_chunk_index;
+use crate::repo::index::{ChunkIndex, load_chunk_index};
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::{Error, Result};
@@ -33,33 +35,11 @@ pub fn read_snapshot_file(request: &SnapshotFileReadRequest) -> Result<Vec<u8>> 
     read_with_control(&request.repo_root, control, || {
         let (paths, _) = load_repo_manifest(&request.repo_root)?;
         let manifest = load_snapshot_manifest(&paths, &request.snapshot_id)?;
-        let file = manifest
-            .files()
-            .find(|file| file.path == request.path)
-            .ok_or_else(|| {
-                Error::InvalidInput(format!(
-                    "snapshot '{}' has no file '{}'",
-                    request.snapshot_id, request.path
-                ))
-            })?;
+        let file = find_snapshot_file(&manifest, &request.path)?;
         let chunk_index = load_chunk_index(&paths)?;
 
-        let mut wanted: HashMap<ArtifactRef, HashSet<ChunkHash>> = HashMap::new();
-        for chunk in &file.chunks {
-            let entry = chunk_index.entries.get(&chunk.chunk_hash).ok_or_else(|| {
-                Error::repo(format!(
-                    "missing chunk index entry for chunk '{}'",
-                    chunk.chunk_hash
-                ))
-            })?;
-            wanted
-                .entry(ArtifactRef::from_chunk_entry(&chunk.chunk_hash, entry))
-                .or_default()
-                .insert(chunk.chunk_hash);
-        }
-
         let mut chunks: HashMap<ChunkHash, Vec<u8>> = HashMap::new();
-        for (artifact, hashes) in wanted {
+        for (artifact, hashes) in file_artifacts(file, &chunk_index)? {
             control.checkpoint()?;
             let path = artifact.local_path(&paths)?;
             if !path.is_file() {
@@ -125,6 +105,43 @@ pub fn read_snapshot_file(request: &SnapshotFileReadRequest) -> Result<Vec<u8>> 
         }
         Ok(content)
     })
+}
+
+/// The file at `path` in a snapshot.
+pub(crate) fn find_snapshot_file<'a>(
+    manifest: &'a SnapshotManifest,
+    path: &str,
+) -> Result<&'a FileManifest> {
+    manifest
+        .files()
+        .find(|file| file.path == path)
+        .ok_or_else(|| {
+            Error::InvalidInput(format!(
+                "snapshot '{}' has no file '{path}'",
+                manifest.snapshot_id
+            ))
+        })
+}
+
+/// The bundles and loose chunks that hold a file, each with the file's chunks in it.
+pub(crate) fn file_artifacts(
+    file: &FileManifest,
+    chunk_index: &ChunkIndex,
+) -> Result<HashMap<ArtifactRef, HashSet<ChunkHash>>> {
+    let mut artifacts: HashMap<ArtifactRef, HashSet<ChunkHash>> = HashMap::new();
+    for chunk in &file.chunks {
+        let entry = chunk_index.entries.get(&chunk.chunk_hash).ok_or_else(|| {
+            Error::repo(format!(
+                "missing chunk index entry for chunk '{}'",
+                chunk.chunk_hash
+            ))
+        })?;
+        artifacts
+            .entry(ArtifactRef::from_chunk_entry(&chunk.chunk_hash, entry))
+            .or_default()
+            .insert(chunk.chunk_hash);
+    }
+    Ok(artifacts)
 }
 
 #[cfg(test)]

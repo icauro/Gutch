@@ -33,6 +33,7 @@ use crate::progress::OperationKind;
 use crate::progress::ProgressPhase;
 use crate::repo::cleanup::remove_snapshot_from_repo;
 use crate::repo::coordination;
+use crate::repo::file_read::file_artifacts;
 use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::preserve_local_chunk_locations;
@@ -330,6 +331,21 @@ fn write_remote_snapshot_artifacts(
     Ok(())
 }
 
+/// Which bundles a pull downloads for the snapshots it pulls.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum PullBundles {
+    /// Every bundle the snapshots need.
+    #[default]
+    All,
+    /// None: only snapshot metadata and the chunk index. The snapshots can
+    /// be listed and compared, while installing or verifying them reports
+    /// the bundles missing until a later pull downloads them.
+    None,
+    /// Only the bundles holding these files, given as paths inside the
+    /// snapshots. A path a snapshot does not have is skipped.
+    Files(Vec<String>),
+}
+
 /// Which repository to pull into and how. The provider is passed beside the request.
 #[derive(Debug, Clone, Default)]
 pub struct RepoPullRequest {
@@ -344,6 +360,9 @@ pub struct RepoPullRequest {
     /// this way lacks the other snapshots, and pushing it would delete them
     /// from the remote, so pull everything before a push.
     pub snapshot_ids: Vec<String>,
+    /// Which bundles to download for the pulled snapshots. Bundles of
+    /// snapshots outside `snapshot_ids` are never downloaded.
+    pub bundles: PullBundles,
     pub control: OperationControl,
 }
 
@@ -394,6 +413,34 @@ pub(super) fn required_bundle_ids_by_snapshot(
         });
     }
     Ok(by_snapshot)
+}
+
+/// Narrows each snapshot's bundles to those holding `files`.
+fn bundles_holding_files(
+    repo_paths: &RepoPaths,
+    bundles_by_snapshot: Vec<SnapshotBundleIds>,
+    files: &[String],
+) -> Result<Vec<SnapshotBundleIds>> {
+    let chunk_index = load_chunk_index(repo_paths)?;
+    let mut narrowed = Vec::with_capacity(bundles_by_snapshot.len());
+    for snapshot in bundles_by_snapshot {
+        let manifest = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)?;
+        let mut ids = HashSet::new();
+        for file in manifest.files().filter(|file| files.contains(&file.path)) {
+            for artifact in file_artifacts(file, &chunk_index)?.into_keys() {
+                if artifact.is_bundle() {
+                    ids.insert(artifact.id().to_string());
+                }
+            }
+        }
+        let mut bundle_ids: Vec<String> = ids.into_iter().collect();
+        bundle_ids.sort();
+        narrowed.push(SnapshotBundleIds {
+            snapshot_id: snapshot.snapshot_id,
+            bundle_ids,
+        });
+    }
+    Ok(narrowed)
 }
 
 pub(super) fn local_bundle_paths(bundles_root: &Path) -> Result<Vec<PathBuf>> {
@@ -751,11 +798,20 @@ pub fn pull_repo(
         let bundles_by_snapshot: Vec<SnapshotBundleIds> = local_bundles_by_snapshot
             .into_iter()
             .filter(|snapshot| {
-                snapshots_by_id
-                    .get(snapshot.snapshot_id.as_str())
-                    .is_some_and(|remote| remote.artifact_ready)
+                request.bundles != PullBundles::None
+                    && (request.snapshot_ids.is_empty()
+                        || request.snapshot_ids.contains(&snapshot.snapshot_id))
+                    && snapshots_by_id
+                        .get(snapshot.snapshot_id.as_str())
+                        .is_some_and(|remote| remote.artifact_ready)
             })
             .collect();
+        let bundles_by_snapshot = match &request.bundles {
+            PullBundles::Files(files) => {
+                bundles_holding_files(&repo_paths, bundles_by_snapshot, files)?
+            }
+            _ => bundles_by_snapshot,
+        };
         let required_bundles: HashSet<String> = bundles_by_snapshot
             .iter()
             .flat_map(|snapshot| snapshot.bundle_ids.iter())

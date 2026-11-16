@@ -19,7 +19,7 @@ use crate::repo::snapshot_manifests::{SnapshotDiffRequest, diff_snapshots};
 use crate::snapshot::diff::SnapshotDiffResult;
 use crate::sync::remote::{
     RemoteRepoProvider, RemoteRepoReader, RepoPullRequest, RepoPullResult, RepoPushRequest,
-    RepoPushResult, pull_repo, push_repo,
+    RepoPushResult, SnapshotFileFetchRequest, fetch_snapshot_file, pull_repo, push_repo,
 };
 use crate::{Error, Result};
 
@@ -147,6 +147,25 @@ impl Repo {
             path: path.to_owned(),
             ..Default::default()
         })
+    }
+
+    /// Reads one file of a snapshot on the bound remote, downloading the
+    /// snapshot's metadata and only the bundles that hold the file.
+    pub fn fetch_file(
+        &self,
+        remote: &dyn RemoteRepoReader,
+        snapshot_id: &str,
+        path: &str,
+    ) -> Result<Vec<u8>> {
+        fetch_snapshot_file(
+            &SnapshotFileFetchRequest {
+                repo_root: self.root.clone(),
+                snapshot_id: snapshot_id.to_owned(),
+                path: path.to_owned(),
+                ..Default::default()
+            },
+            remote,
+        )
     }
 
     /// Pushes to the remote repository this one is bound to.

@@ -26,9 +26,16 @@ request yourself, as described below.
 `repo.read_file(&snapshot_id, "docs/readme.txt")?` returns one file of a
 snapshot without installing it. It decodes only the bundles that hold the
 file's chunks, checks the content against the snapshot's hashes, and returns
-it in memory. The repository must hold those bundles: pull with
-`RepoPullRequest::snapshot_ids` to fetch one snapshot, its metadata and its
-bundles, without the rest of the remote.
+it in memory. The repository must hold those bundles.
+`repo.fetch_file(&remote, &snapshot_id, path)?` gets them first: it pulls the
+snapshot's metadata and only the bundles holding the file, then reads it.
+
+`RepoPullRequest::snapshot_ids` pulls only some snapshots, and
+`RepoPullRequest::bundles` chooses which of their bundles to download:
+`PullBundles::All` (default), `PullBundles::None` for metadata only, enough to
+list and compare files, or `PullBundles::Files` for the bundles holding given
+paths. A snapshot pulled without all its bundles cannot be installed or
+verified until a pull with `PullBundles::All` completes it.
 [`examples/capture_and_install.rs`](../examples/capture_and_install.rs) is
 this program with argument handling:
 
@@ -80,7 +87,7 @@ receives preview events, is passed beside the request. Simple lookups, such as
 | Repository | `init_repo`, `plan_init_repo`, `verify_repo`, `rename_repo`, `rebuild_repo_index` | `RepoInitRequest`, `RepoInitPlan`, `RepoInitResult`, `RepoVerifyRequest`, ... |
 | Snapshot | `capture_snapshot`, `plan_capture_snapshot`, `measure_snapshot`, `diff_snapshots`, `read_snapshot_file`, `delete_snapshot` | `SnapshotCaptureRequest`, `SnapshotCapturePlan`, `SnapshotCaptureResult`, `SnapshotFileReadRequest`, ... |
 | Installation | `reconstruct_installation`, `verify_installation`, `repair_installation`, `plan_repair_installation`, `preview_installation` | `InstallationReconstructRequest`, `InstallationVerifyRequest`, `InstallationRepairRequest`, `InstallationRepairPlan`, `InstallationPreviewRequest`, ... |
-| Remote | `push_repo`, `plan_push_repo`, `pull_repo`, `plan_pull_repo`, `bind_remote_repo`, `create_remote_repo`, `unbind_remote_repo` | `RepoPushRequest`, `RepoPushPlan`, `RepoPushResult`, `RepoPullRequest`, ... |
+| Remote | `push_repo`, `plan_push_repo`, `pull_repo`, `plan_pull_repo`, `fetch_snapshot_file`, `bind_remote_repo`, `create_remote_repo`, `unbind_remote_repo` | `RepoPushRequest`, `RepoPushPlan`, `RepoPushResult`, `RepoPullRequest`, `PullBundles`, `SnapshotFileFetchRequest`, ... |
 
 See the crate documentation (`cargo doc -p gutch --open`) for the rest. Results
 are plain structs, the same data the CLI prints with `--json`: for example
