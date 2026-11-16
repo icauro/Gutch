@@ -3,6 +3,7 @@ use crate::Result;
 use crate::capture::build::types::BuildResult;
 use crate::capture::build::types::BuiltBundle;
 use crate::capture::build::types::BuiltLooseChunk;
+use crate::capture::build::types::StagedArtifactFile;
 use crate::capture::reuse::CaptureReuseState;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
 use crate::capture::reuse::add_built_loose_chunks_to_chunk_index;
@@ -34,30 +35,46 @@ fn write_bundles(
                 bundles.iter().map(|bundle| bundle.size).sum(),
             )
         });
-    let control_for_work = control.clone();
-    pool.install(|| {
-        bundles
-            .par_iter()
-            .map(|bundle| {
-                control_for_work.checkpoint()?;
-                let bundle_path = bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
-                let _bundle_span =
-                    control_for_work.profile_span_with_args("capture.bundle.publish", || {
-                        capture_artifact_write_trace_args(
-                            "bundle",
-                            &bundle.bundle_id,
-                            &bundle_path,
-                            bundle.size,
-                        )
-                    });
-                if let Some(parent) = bundle_path.parent() {
-                    filesystem::create_dir_all(parent)?;
-                }
-                bundle.staged_file.promote_unless_present(&bundle_path)
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
+    ensure_durable(
+        bundles.iter().map(|bundle| &bundle.staged_file),
+        pool,
+        control,
+    )?;
+    for bundle in bundles {
+        control.checkpoint()?;
+        let bundle_path = bundle_path_in_root(bundles_root, &bundle.bundle_id)?;
+        let _bundle_span = control.profile_span_with_args("capture.bundle.publish", || {
+            capture_artifact_write_trace_args(
+                "bundle",
+                &bundle.bundle_id,
+                &bundle_path,
+                bundle.size,
+            )
+        });
+        if let Some(parent) = bundle_path.parent() {
+            filesystem::create_dir_all(parent)?;
+        }
+        bundle.staged_file.promote_unless_present(&bundle_path)?;
+    }
     Ok(())
+}
+
+/// Flushes run in parallel, but renames then run one at a time: concurrent
+/// renames contend inside the filesystem, and on Windows NTFS four parallel
+/// renames measured about 50 times slower than the same renames in sequence.
+/// Builds normally flush their own files already, so this rarely does any work.
+fn ensure_durable<'a>(
+    files: impl Iterator<Item = &'a StagedArtifactFile>,
+    pool: &rayon::ThreadPool,
+    control: &OperationControl,
+) -> Result<()> {
+    let files = files.collect::<Vec<_>>();
+    pool.install(|| {
+        files.par_iter().try_for_each(|file| {
+            control.checkpoint()?;
+            file.ensure_durable()
+        })
+    })
 }
 
 fn write_loose_chunks(
@@ -74,20 +91,15 @@ fn write_loose_chunks(
         "capture.publish_snapshot.write_loose_chunk_artifacts",
         || capture_count_bytes_trace_args(chunks.len(), total_bytes),
     );
-    let control_for_work = control.clone();
-    pool.install(|| {
-        chunks
-            .par_iter()
-            .map(|chunk| {
-                control_for_work.checkpoint()?;
-                let chunk_path = chunk_path_in_root(chunks_root, chunk.chunk_hash);
-                if let Some(parent) = chunk_path.parent() {
-                    filesystem::create_dir_all(parent)?;
-                }
-                chunk.staged_file.promote_unless_present(&chunk_path)
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
+    ensure_durable(chunks.iter().map(|chunk| &chunk.staged_file), pool, control)?;
+    for chunk in chunks {
+        control.checkpoint()?;
+        let chunk_path = chunk_path_in_root(chunks_root, chunk.chunk_hash);
+        if let Some(parent) = chunk_path.parent() {
+            filesystem::create_dir_all(parent)?;
+        }
+        chunk.staged_file.promote_unless_present(&chunk_path)?;
+    }
     Ok(())
 }
 

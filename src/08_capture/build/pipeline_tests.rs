@@ -216,8 +216,18 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
     .unwrap();
     assert_eq!(plan.groups.len(), 1);
     assert_eq!(plan.probe_raw_bytes, 0);
-    let split =
-        build_bundled_chunks(plan, &profile, &staging, &pool, &control, 512 * 1024 * 1024).unwrap();
+    let flusher = StagingFlusher::new(1, &control).unwrap();
+    let split = build_bundled_chunks(
+        plan,
+        &profile,
+        &staging,
+        &pool,
+        &control,
+        512 * 1024 * 1024,
+        &flusher,
+    )
+    .unwrap();
+    flusher.finish().unwrap();
     assert_eq!(split.len(), 2);
     assert!(
         split

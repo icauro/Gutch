@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::artifact::bundle::BundleTableEntry;
@@ -111,11 +113,49 @@ pub struct BuildResult {
 #[derive(Debug)]
 pub(crate) struct StagedArtifactFile {
     path: PathBuf,
+    handle: Option<File>,
+    durable: AtomicBool,
 }
 
 impl StagedArtifactFile {
+    #[cfg(test)]
     pub(crate) fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self {
+            path,
+            handle: None,
+            durable: AtomicBool::new(false),
+        }
+    }
+
+    /// Keeps the handle that wrote the file so it can be flushed without reopening.
+    pub(crate) fn with_handle(path: PathBuf, handle: Option<File>) -> Self {
+        Self {
+            path,
+            handle,
+            durable: AtomicBool::new(false),
+        }
+    }
+
+    /// Hands over the writing handle; closing it ends this file's writes.
+    pub(crate) fn take_handle(&mut self) -> Option<File> {
+        self.handle.take()
+    }
+
+    /// Records that the build already flushed this file to disk.
+    pub(crate) fn mark_durable(&self) {
+        self.durable.store(true, Ordering::Release);
+    }
+
+    /// Flushes the file unless the build already did.
+    pub(crate) fn ensure_durable(&self) -> crate::Result<()> {
+        if !self.durable.load(Ordering::Acquire) {
+            match &self.handle {
+                Some(handle) => handle.sync_all()?,
+                None => super::flush::flush_file(&self.path)?,
+            }
+            self.mark_durable();
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -123,13 +163,9 @@ impl StagedArtifactFile {
         &self.path
     }
 
-    /// Staging leaves bytes unsynced; flush them here so no artifact becomes visible before it is durable.
+    /// No artifact becomes visible before it is durable.
     pub(crate) fn promote_to(&self, destination: &Path) -> crate::Result<()> {
-        // Windows flushes file buffers only through a handle opened for writing.
-        fs::OpenOptions::new()
-            .write(true)
-            .open(&self.path)?
-            .sync_all()?;
+        self.ensure_durable()?;
         fs::rename(&self.path, destination)?;
         Ok(())
     }
@@ -146,6 +182,7 @@ impl StagedArtifactFile {
     }
 
     pub(crate) fn discard(&self) {
+        // Windows deletes an open file only once its last handle closes.
         let _ = fs::remove_file(&self.path);
     }
 }
@@ -303,6 +340,23 @@ mod tests {
         super::StagedArtifactFile::new(staged_path.clone())
             .promote_unless_present(&destination)
             .unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"staged");
+        assert!(!staged_path.exists());
+    }
+
+    #[test]
+    fn promotion_flushes_through_the_writing_handle() {
+        use std::io::Write;
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("artifact");
+        let staged_path = temp.path().join("staged");
+        let mut handle = std::fs::File::create(&staged_path).unwrap();
+        handle.write_all(b"staged").unwrap();
+
+        let staged = super::StagedArtifactFile::with_handle(staged_path.clone(), Some(handle));
+        staged.promote_unless_present(&destination).unwrap();
+        drop(staged);
 
         assert_eq!(std::fs::read(&destination).unwrap(), b"staged");
         assert!(!staged_path.exists());

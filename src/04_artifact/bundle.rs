@@ -62,6 +62,9 @@ pub(crate) struct BundleBuildMetrics {
 pub(crate) struct BundleBuildArtifact {
     pub(crate) bundle_id: String,
     pub(crate) staged_path: PathBuf,
+    /// The handle that wrote `staged_path`, still open so it can be flushed
+    /// and closed once, off the encoder thread.
+    pub(crate) staged_handle: Option<File>,
     pub(crate) size: u64,
     pub(crate) entries: Vec<BundleTableEntry>,
     pub(crate) metrics: BundleBuildMetrics,
@@ -161,10 +164,10 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
     }
     filesystem::create_dir_all(staging_root)?;
 
-    let temporary = tempfile::NamedTempFile::new_in(staging_root)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(staging_root)?;
     let capture = {
-        let mut file = temporary.reopen()?;
-        let capture = write_bundle(chunks, profile, &mut file, profiler, &mut load_chunk)?;
+        let file = temporary.as_file_mut();
+        let capture = write_bundle(chunks, profile, file, profiler, &mut load_chunk)?;
         let _flush_span = profiler.map(|profiler| {
             profiler.span_with_args(
                 "capture.bundle.flush",
@@ -173,14 +176,15 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
         });
         file.flush()?;
         drop(_flush_span);
-        // Durability is deferred to publication so encoder threads never wait on the disk.
+        // Encoder threads never wait on the disk; the caller decides when to flush.
         capture
     };
 
-    let (_, staged_path) = temporary.keep().map_err(|error| Error::Io(error.error))?;
+    let (handle, staged_path) = temporary.keep().map_err(|error| Error::Io(error.error))?;
 
     Ok(BundleBuildArtifact {
         staged_path,
+        staged_handle: Some(handle),
         ..capture
     })
 }
@@ -275,6 +279,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     Ok(BundleBuildArtifact {
         bundle_id,
         staged_path: PathBuf::new(),
+        staged_handle: None,
         size: bundle_size,
         entries,
         metrics: BundleBuildMetrics {

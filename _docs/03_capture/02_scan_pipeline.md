@@ -167,8 +167,11 @@ Actual encoded size is checked against the preset maximum; oversized groups
 are split at chunk boundaries. Raw groups are capped at 256 MiB without retaining that whole raw group.
 Both bundles and loose chunks are staged on disk and
 released through the same operation-owned artifact lifecycle. Encoding workers
-do not flush staged files; publication flushes each one to disk immediately
-before renaming it into place, so no artifact becomes visible before it is durable.
+hand each finished staged file to background flush threads, so flushing to disk
+overlaps the remaining encoding; the build waits for every flush before it
+returns. Publication flushes any file the build did not, then renames the files
+into place one at a time, because concurrent renames contend inside the
+filesystem. No artifact becomes visible before it is durable.
 
 ## Failure boundaries
 

@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 use rayon::ThreadPool;
 use rayon::prelude::*;
 
+use super::flush::StagingFlusher;
 use super::progress::BuildProgressTracker;
 use super::types::BuildConfig;
 use super::types::BuildResult;
@@ -433,6 +434,7 @@ fn build_bundled_chunks(
     pool: &ThreadPool,
     control: &OperationControl,
     memory_budget: u64,
+    flusher: &StagingFlusher,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(control, ProgressPhase::Capture, "Building bundles");
@@ -462,8 +464,16 @@ fn build_bundled_chunks(
                 &artifact_staging_root,
                 control,
             )
-            .inspect(|_| {
+            .map(|mut groups| {
+                // A bundle that already exists is discarded later; flushing
+                // that rare duplicate first is harmless.
+                for group in &mut groups {
+                    if let Some(handle) = group.staged_file.take_handle() {
+                        flusher.submit(handle);
+                    }
+                }
                 progress_for_work.completed();
+                groups
             })
         },
     )
@@ -477,6 +487,7 @@ fn build_loose_chunks(
     pool: &ThreadPool,
     control: &OperationControl,
     memory_budget: u64,
+    flusher: &StagingFlusher,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
     control.checkpoint()?;
     let progress =
@@ -502,8 +513,12 @@ fn build_loose_chunks(
                 artifact_staging_root,
                 control,
             )
-            .inspect(|_| {
+            .map(|mut built| {
+                if let Some(handle) = built.chunk.staged_file.take_handle() {
+                    flusher.submit(handle);
+                }
                 progress_for_work.completed();
+                built
             })
         },
     )
@@ -534,12 +549,8 @@ fn build_loose_chunk(
     write_loose_chunk(&mut staged, chunk_hash, &bytes, compression_profile)?;
     let compressed_size = staged.as_file().metadata()?.len();
     size_u32(compressed_size)?;
-    let staged_file = StagedArtifactFile::new(
-        staged
-            .into_temp_path()
-            .keep()
-            .map_err(|error| error.error)?,
-    );
+    let (handle, path) = staged.keep().map_err(|error| error.error)?;
+    let staged_file = StagedArtifactFile::with_handle(path, Some(handle));
     Ok(BuiltLooseChunkResult {
         chunk: BuiltLooseChunk {
             chunk_hash,
@@ -616,7 +627,7 @@ fn build_bundle_compressed_group(
     )?;
     Ok(BuiltBundleCompressedGroup {
         bundle_id: built.bundle_id,
-        staged_file: StagedArtifactFile::new(built.staged_path),
+        staged_file: StagedArtifactFile::with_handle(built.staged_path, built.staged_handle),
         bundle_size: built.size,
         bundle_entries: built.entries,
         bundle_metrics: built.metrics,
@@ -861,6 +872,8 @@ fn build_capture_artifacts(
     let artifact_encode_start = ProfileInstant::start(config.control.profiler());
     let (bundles, loose_chunks) = {
         let _artifact_encode_span = config.control.profile_span("capture.build_artifacts");
+        // Flush threads mostly wait on the disk, so they run beside the encoders.
+        let flusher = StagingFlusher::new(build_pool.current_num_threads(), &config.control)?;
         let mut bundles = Vec::new();
         let mut loose_chunks = Vec::new();
         let bundle_size_policy = BundleSizingPolicy::new(
@@ -902,6 +915,7 @@ fn build_capture_artifacts(
                         build_pool,
                         &config.control,
                         memory_budget_bytes,
+                        &flusher,
                     )?
                 };
 
@@ -938,6 +952,7 @@ fn build_capture_artifacts(
                         build_pool,
                         &config.control,
                         memory_budget_bytes,
+                        &flusher,
                     )?
                 };
 
@@ -951,8 +966,20 @@ fn build_capture_artifacts(
                 }
             }
         }
+        {
+            let _flush_span = config
+                .control
+                .profile_span("capture.wait_for_artifact_flushes");
+            flusher.finish()?;
+        }
         (bundles, loose_chunks)
     };
+    for bundle in &bundles {
+        bundle.staged_file.mark_durable();
+    }
+    for chunk in &loose_chunks {
+        chunk.staged_file.mark_durable();
+    }
 
     timings.artifact_encode_wall = artifact_encode_start.elapsed();
     Ok((bundles, loose_chunks))
