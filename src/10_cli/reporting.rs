@@ -114,51 +114,61 @@ fn print_table_cells(phase: &str, seconds: &str, bytes: &str, throughput: &str) 
     print_table_border();
 }
 
+/// Rows shown in the text table; `summary.json` keeps every span.
+const PROFILE_TABLE_ROWS: usize = 24;
+
 pub(crate) fn print_profile_summary(profile: Option<&Profiler>) {
     let Some(profile) = profile else {
         return;
     };
     let summary = profile.summary();
+    // The `cli.command` span is still open here, so it has not been recorded yet.
+    let command_seconds = profile.elapsed().as_secs_f64();
     let spans = summary
         .spans
         .iter()
         .filter(|span| span.name != "cli.command")
         .collect::<Vec<_>>();
     print_section_title("Profiling Summary");
+    print_metric_line("command wall time", format!("{command_seconds:.3} s"));
     print_metric_line(
         "measured spans",
         spans.iter().map(|span| span.count).sum::<usize>(),
     );
-    print_metric_line(
-        "inclusive span sum",
-        format!(
-            "{:.3} s",
-            spans.iter().map(|span| span.total_seconds).sum::<f64>()
-        ),
+    let shown = &spans[..spans.len().min(PROFILE_TABLE_ROWS)];
+    // Size the name column to the longest name so similar spans stay distinguishable.
+    let name_width = shown
+        .iter()
+        .map(|span| span.name.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max("span".len());
+    let border = format!(
+        "  +{}+----------+------------+------------+",
+        "-".repeat(name_width + 2)
     );
+    output::line(format_args!("{border}"));
     output::line(format_args!(
-        "  +--------------------------------------+----------+------------+------------+"
-    ));
-    output::line(format_args!(
-        "  | {:<36} | {:>8} | {:>10} | {:>10} |",
+        "  | {:<name_width$} | {:>8} | {:>10} | {:>10} |",
         "span", "count", "sum", "max"
     ));
-    output::line(format_args!(
-        "  +--------------------------------------+----------+------------+------------+"
-    ));
-    for span in spans.into_iter().take(24) {
-        let name = fit_table_cell(span.name, 36);
+    output::line(format_args!("{border}"));
+    for span in shown {
         output::line(format_args!(
-            "  | {:<36} | {:>8} | {:>9.3} s | {:>9.3} s |",
-            name, span.count, span.total_seconds, span.maximum_seconds
+            "  | {:<name_width$} | {:>8} | {:>8.3} s | {:>8.3} s |",
+            span.name, span.count, span.total_seconds, span.maximum_seconds
         ));
     }
-    output::line(format_args!(
-        "  +--------------------------------------+----------+------------+------------+"
-    ));
+    output::line(format_args!("{border}"));
+    if spans.len() > shown.len() {
+        print_metric_line(
+            "omitted spans",
+            format!("{} more in summary.json", spans.len() - shown.len()),
+        );
+    }
     print_metric_line(
-        "job coverage",
-        "recorded jobs; nested spans overlap; recording limits may omit jobs",
+        "reading sums",
+        "sum adds every call, including parallel and nested ones; compare with wall time",
     );
 }
 
@@ -199,10 +209,12 @@ pub(crate) struct BuildTimingsSummary {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct BuildTimingPhasesSummary {
+    pub(crate) prepare: WallTimingPhaseSummary,
     pub(crate) scan_chunk: BuildScanChunkPhaseSummary,
     pub(crate) dedupe_plan: BuildDedupePlanPhaseSummary,
     pub(crate) artifact_encode: BuildArtifactEncodePhaseSummary,
     pub(crate) manifest_finalize: WallTimingPhaseSummary,
+    pub(crate) publish: WallTimingPhaseSummary,
 }
 
 #[derive(Debug, Serialize)]
@@ -234,8 +246,6 @@ pub(crate) struct BuildDedupePlanPhaseSummary {
 #[derive(Debug, Serialize)]
 pub(crate) struct BuildDedupePlanDetailsSummary {
     pub(crate) lookup_worker_seconds: Option<f64>,
-    pub(crate) dedupe_lookup_bytes: u64,
-    pub(crate) dedupe_lookup_mib_per_second: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -255,8 +265,6 @@ pub(crate) struct BuildArtifactEncodeDetailsSummary {
     pub(crate) payload_load_bytes: u64,
     pub(crate) payload_load_mib_per_second: Option<f64>,
     pub(crate) bundle_sort_worker_seconds: Option<f64>,
-    pub(crate) bundle_compressed_sort_bytes: u64,
-    pub(crate) bundle_compressed_sort_mib_per_second: Option<f64>,
     pub(crate) ratio_probe_worker_seconds: Option<f64>,
     pub(crate) bundle_compressed_ratio_probe_bytes: u64,
     pub(crate) bundle_compressed_ratio_probe_mib_per_second: Option<f64>,
@@ -298,14 +306,8 @@ pub(crate) struct ReconstructDetailsSummary {
     pub(crate) artifact_read_compressed_bytes: u64,
     pub(crate) artifact_read_decompressed_bytes: u64,
     pub(crate) artifact_read_decompressed_mib_per_second: Option<f64>,
-    pub(crate) bundle_read_compressed_bytes: u64,
-    pub(crate) bundle_read_decompressed_bytes: u64,
-    pub(crate) bundle_read_decompressed_mib_per_second: Option<f64>,
-    pub(crate) file_rebuild_worker_seconds: Option<f64>,
-    pub(crate) file_rebuild_bytes: u64,
-    pub(crate) file_rebuild_mib_per_second: Option<f64>,
     pub(crate) chunk_verify_worker_seconds: Option<f64>,
-    pub(crate) chunk_verify_bytes: Option<u64>,
+    pub(crate) chunk_verify_bytes: u64,
     pub(crate) chunk_verify_mib_per_second: Option<f64>,
     pub(crate) file_hash_worker_seconds: Option<f64>,
     pub(crate) file_verify_bytes: u64,
@@ -361,13 +363,16 @@ pub(crate) fn build_timings_summary(
     mode: ProfileMode,
 ) -> BuildTimingsSummary {
     let detailed = mode == ProfileMode::Detailed;
+    let timed = mode != ProfileMode::Off;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
+            timings.prepare_wall,
             timings.scan_chunk_wall,
             timings.dedupe_plan_wall,
             timings.artifact_encode_wall,
             timings.manifest_finalize_wall,
+            timings.publish_wall,
         ],
     );
     let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
@@ -376,11 +381,14 @@ pub(crate) fn build_timings_summary(
     BuildTimingsSummary {
         scan_strategy: "single_pass".to_string(),
         runtime_plan,
-        total_seconds: detailed.then_some(total_seconds),
-        unaccounted_seconds: detailed.then_some(unaccounted_seconds),
+        total_seconds: timed.then_some(total_seconds),
+        unaccounted_seconds: timed.then_some(unaccounted_seconds),
         phases: BuildTimingPhasesSummary {
+            prepare: WallTimingPhaseSummary {
+                wall_seconds: timed.then_some(secs(timings.prepare_wall)),
+            },
             scan_chunk: BuildScanChunkPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.scan_chunk_wall)),
+                wall_seconds: timed.then_some(secs(timings.scan_chunk_wall)),
                 details: BuildScanChunkDetailsSummary {
                     logical_bytes: timings.logical_bytes,
                     stream_chunk_worker_seconds: detailed.then_some(secs(timings.stream_chunk)),
@@ -401,18 +409,13 @@ pub(crate) fn build_timings_summary(
                 },
             },
             dedupe_plan: BuildDedupePlanPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.dedupe_plan_wall)),
+                wall_seconds: timed.then_some(secs(timings.dedupe_plan_wall)),
                 details: BuildDedupePlanDetailsSummary {
                     lookup_worker_seconds: detailed.then_some(secs(timings.dedupe_lookup)),
-                    dedupe_lookup_bytes: timings.dedupe_lookup_bytes,
-                    dedupe_lookup_mib_per_second: detailed.then_some(mib_per_s(
-                        timings.dedupe_lookup_bytes,
-                        timings.dedupe_lookup,
-                    )),
                 },
             },
             artifact_encode: BuildArtifactEncodePhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.artifact_encode_wall)),
+                wall_seconds: timed.then_some(secs(timings.artifact_encode_wall)),
                 details: BuildArtifactEncodeDetailsSummary {
                     compression_input_bytes: timings.compression_input_bytes,
                     compression_output_bytes: timings.compression_output_bytes,
@@ -431,14 +434,6 @@ pub(crate) fn build_timings_summary(
                     )),
                     bundle_sort_worker_seconds: (bundled
                         .then(|| secs(timings.bundle_compressed_sort)))
-                    .filter(|_| detailed),
-                    bundle_compressed_sort_bytes: timings.bundle_compressed_sort_bytes,
-                    bundle_compressed_sort_mib_per_second: (bundled.then(|| {
-                        mib_per_s(
-                            timings.bundle_compressed_sort_bytes,
-                            timings.bundle_compressed_sort,
-                        )
-                    }))
                     .filter(|_| detailed),
                     ratio_probe_worker_seconds: (bundled
                         .then(|| secs(timings.bundle_compressed_ratio_probe)))
@@ -487,7 +482,10 @@ pub(crate) fn build_timings_summary(
                 },
             },
             manifest_finalize: WallTimingPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.manifest_finalize_wall)),
+                wall_seconds: timed.then_some(secs(timings.manifest_finalize_wall)),
+            },
+            publish: WallTimingPhaseSummary {
+                wall_seconds: timed.then_some(secs(timings.publish_wall)),
             },
         },
     }
@@ -498,6 +496,7 @@ pub(crate) fn reconstruct_timings_summary(
     mode: ProfileMode,
 ) -> ReconstructTimingsSummary {
     let detailed = mode == ProfileMode::Detailed;
+    let timed = mode != ProfileMode::Off;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -511,14 +510,14 @@ pub(crate) fn reconstruct_timings_summary(
 
     ReconstructTimingsSummary {
         runtime_plan,
-        total_seconds: detailed.then_some(total_seconds),
-        unaccounted_seconds: detailed.then_some(unaccounted_seconds),
+        total_seconds: timed.then_some(total_seconds),
+        unaccounted_seconds: timed.then_some(unaccounted_seconds),
         phases: ReconstructTimingPhasesSummary {
             prepare: WallTimingPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.prepare_wall)),
+                wall_seconds: timed.then_some(secs(timings.prepare_wall)),
             },
             reconstruct: ReconstructPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.reconstruct_wall)),
+                wall_seconds: timed.then_some(secs(timings.reconstruct_wall)),
                 details: ReconstructDetailsSummary {
                     artifact_read_decode_worker_seconds: detailed
                         .then_some(secs(timings.artifact_read)),
@@ -528,25 +527,11 @@ pub(crate) fn reconstruct_timings_summary(
                         timings.artifact_read_decompressed_bytes,
                         timings.artifact_read,
                     )),
-                    bundle_read_compressed_bytes: timings.bundle_read_compressed_bytes,
-                    bundle_read_decompressed_bytes: timings.bundle_read_decompressed_bytes,
-                    bundle_read_decompressed_mib_per_second: detailed.then_some(mib_per_s(
-                        timings.bundle_read_decompressed_bytes,
-                        timings.bundle_read,
-                    )),
-                    file_rebuild_worker_seconds: detailed.then_some(secs(timings.file_rebuild)),
-                    file_rebuild_bytes: timings.file_rebuild_bytes,
-                    file_rebuild_mib_per_second: detailed
-                        .then_some(mib_per_s(timings.file_rebuild_bytes, timings.file_rebuild)),
-                    chunk_verify_worker_seconds: (timings
-                        .verify_chunks
-                        .then(|| secs(timings.chunk_verify)))
-                    .filter(|_| detailed),
-                    chunk_verify_bytes: timings.verify_chunks.then_some(timings.chunk_verify_bytes),
-                    chunk_verify_mib_per_second: (timings
-                        .verify_chunks
-                        .then(|| mib_per_s(timings.chunk_verify_bytes, timings.chunk_verify)))
-                    .filter(|_| detailed),
+                    // Every reconstructed chunk is hashed before it is written.
+                    chunk_verify_worker_seconds: detailed.then_some(secs(timings.chunk_verify)),
+                    chunk_verify_bytes: timings.chunk_verify_bytes,
+                    chunk_verify_mib_per_second: detailed
+                        .then_some(mib_per_s(timings.chunk_verify_bytes, timings.chunk_verify)),
                     file_hash_worker_seconds: (timings
                         .verify_files
                         .then(|| secs(timings.file_verify)))
@@ -563,10 +548,10 @@ pub(crate) fn reconstruct_timings_summary(
                 },
             },
             finalize: WallTimingPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.finalize_wall)),
+                wall_seconds: timed.then_some(secs(timings.finalize_wall)),
             },
             promote: WallTimingPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.promote_wall)),
+                wall_seconds: timed.then_some(secs(timings.promote_wall)),
             },
         },
     }
@@ -577,6 +562,7 @@ pub(crate) fn verify_timings_summary(
     mode: ProfileMode,
 ) -> VerifyTimingsSummary {
     let detailed = mode == ProfileMode::Detailed;
+    let timed = mode != ProfileMode::Off;
     let (total_seconds, unaccounted_seconds) = wall_timing_fields(
         timings.total,
         &[
@@ -591,14 +577,14 @@ pub(crate) fn verify_timings_summary(
     VerifyTimingsSummary {
         verify_mode: timings.verify_mode.as_str().to_string(),
         runtime_plan,
-        total_seconds: detailed.then_some(total_seconds),
-        unaccounted_seconds: detailed.then_some(unaccounted_seconds),
+        total_seconds: timed.then_some(total_seconds),
+        unaccounted_seconds: timed.then_some(unaccounted_seconds),
         phases: VerifyTimingPhasesSummary {
             prepare: WallTimingPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.prepare_wall)),
+                wall_seconds: timed.then_some(secs(timings.prepare_wall)),
             },
             verify_files: VerifyFilesPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.verify_files_wall)),
+                wall_seconds: timed.then_some(secs(timings.verify_files_wall)),
                 details: VerifyFilesDetailsSummary {
                     stat_worker_seconds: detailed.then_some(secs(timings.stat)),
                     file_read_worker_seconds: detailed.then_some(secs(timings.file_read)),
@@ -619,7 +605,7 @@ pub(crate) fn verify_timings_summary(
                 },
             },
             extra_file_scan: WallTimingPhaseSummary {
-                wall_seconds: detailed.then_some(secs(timings.extra_file_scan_wall)),
+                wall_seconds: timed.then_some(secs(timings.extra_file_scan_wall)),
             },
         },
     }

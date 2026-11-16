@@ -160,14 +160,9 @@ fn reconstruct_artifact_job(
                     Ok(())
                 },
             )?;
-            let artifact_read_elapsed = read_metrics.read + read_metrics.decompress;
-            timings.artifact_read = artifact_read_elapsed;
+            timings.artifact_read = read_metrics.read + read_metrics.decompress;
             timings.artifact_read_decompressed_bytes = read_metrics.raw_bytes;
-            timings.bundle_read = artifact_read_elapsed;
-
             timings.artifact_read_compressed_bytes = compressed_bytes;
-            timings.bundle_read_compressed_bytes = compressed_bytes;
-            timings.bundle_read_decompressed_bytes = timings.artifact_read_decompressed_bytes;
         }
         ArtifactRef::LooseChunk { hash } => {
             if job.chunks.len() != 1 || job.chunks[0].chunk_hash != *hash {
@@ -210,9 +205,7 @@ fn reconstruct_artifact_job(
     // A terminal success must never expose output ranges still held in memory.
     let flush_started_at = ProfileInstant::detailed(control.profiler());
     output_writer.flush()?;
-    let flush_elapsed = flush_started_at.elapsed();
-    timings.file_write += flush_elapsed;
-    timings.file_rebuild += flush_elapsed;
+    timings.file_write += flush_started_at.elapsed();
     Ok(timings)
 }
 
@@ -307,10 +300,8 @@ pub(crate) fn reconstruct_source_chunk_batch(
     // File readiness must not precede writes still held in the private buffer.
     let flush_started_at = ProfileInstant::detailed(control.profiler());
     output_writer.flush()?;
-    let flush_elapsed = flush_started_at.elapsed();
     let last = timings.last_mut().expect("source batch is nonempty");
-    last.file_write += flush_elapsed;
-    last.file_rebuild += flush_elapsed;
+    last.file_write += flush_started_at.elapsed();
     Ok(timings)
 }
 
@@ -335,7 +326,6 @@ fn verify_and_write_source_chunk(
         ..ReconstructTimings::default()
     };
     let mut target_handles = HashMap::new();
-    let rebuild_started_at = ProfileInstant::detailed(control.profiler());
     for target in job.targets() {
         let write_started_at = ProfileInstant::detailed(control.profiler());
         if let Some(writer) = output_writer.as_deref_mut() {
@@ -357,11 +347,7 @@ fn verify_and_write_source_chunk(
         }
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
-        timings.file_rebuild_bytes = timings
-            .file_rebuild_bytes
-            .saturating_add(bytes.len() as u64);
     }
-    timings.file_rebuild = rebuild_started_at.elapsed();
     Ok(timings)
 }
 
@@ -420,7 +406,6 @@ fn copy_source_file_job(
         }
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(read as u64);
-        timings.file_rebuild_bytes = timings.file_rebuild_bytes.saturating_add(read as u64);
         copied = copied.saturating_add(read as u64);
     }
     {
@@ -430,7 +415,6 @@ fn copy_source_file_job(
         })?;
         timings.file_write += flush_started_at.elapsed();
     }
-    timings.file_rebuild = timings.file_write;
     if copied != file_plan.size {
         return Err(Error::reconstruct(format!(
             "copied source file '{}' has size {}, expected {}",
@@ -458,7 +442,6 @@ fn write_reconstruct_targets(
             chunk.raw_size
         )));
     }
-    let rebuild_started_at = ProfileInstant::detailed(control.profiler());
     for target in targets {
         control.checkpoint()?;
         let write_started_at = ProfileInstant::detailed(control.profiler());
@@ -470,11 +453,7 @@ fn write_reconstruct_targets(
         }
         timings.file_write += write_started_at.elapsed();
         timings.file_write_bytes = timings.file_write_bytes.saturating_add(bytes.len() as u64);
-        timings.file_rebuild_bytes = timings
-            .file_rebuild_bytes
-            .saturating_add(bytes.len() as u64);
     }
-    timings.file_rebuild += rebuild_started_at.elapsed();
     Ok(())
 }
 

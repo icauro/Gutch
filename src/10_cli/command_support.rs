@@ -30,8 +30,11 @@ pub(crate) struct SnapshotCaptureStats {
     pub(crate) repo_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) remote_repo_id: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub(crate) version_tag: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub(crate) os: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub(crate) arch: String,
     pub(crate) storage_mode: String,
     pub(crate) file_count: usize,
@@ -40,7 +43,7 @@ pub(crate) struct SnapshotCaptureStats {
     pub(crate) required_chunk_count: usize,
     pub(crate) required_bundle_count: usize,
     pub(crate) generated_bundle_count: usize,
-    pub(crate) generated_chunk_count: usize,
+    pub(crate) generated_loose_chunk_count: usize,
     pub(crate) reused_chunk_count: usize,
     pub(crate) new_chunk_count: usize,
     pub(crate) reused_chunk_percent: f64,
@@ -57,8 +60,8 @@ pub(crate) struct SnapshotCaptureManyStats {
     pub(crate) total_logical_size: u64,
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) generated_bundle_count: usize,
-    pub(crate) generated_chunk_count: usize,
-    pub(crate) total_build_seconds: Option<f64>,
+    pub(crate) generated_loose_chunk_count: usize,
+    pub(crate) total_capture_seconds: Option<f64>,
     pub(crate) snapshots: Vec<SnapshotCaptureStats>,
 }
 

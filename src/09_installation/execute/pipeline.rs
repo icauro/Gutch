@@ -2,7 +2,6 @@
 
 use crate::error::IoContext;
 use crate::profiling::ProfileInstant;
-use crate::profiling::ProfileSpan;
 use crate::profiling::trace_args;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -197,7 +196,6 @@ pub(crate) fn run_reconstruction_jobs(
         reconstruct_finished_at: jobs.is_empty().then_some(reconstruct_started_at),
         verify_started_at: None,
         verify_finished_at: None,
-        verify_span: None,
         reconstruct_timings,
         verify_timings,
     };
@@ -247,7 +245,6 @@ struct PipelineCoordinator<'a> {
     reconstruct_finished_at: Option<ProfileInstant>,
     verify_started_at: Option<ProfileInstant>,
     verify_finished_at: Option<ProfileInstant>,
-    verify_span: Option<ProfileSpan>,
     reconstruct_timings: ReconstructTimings,
     verify_timings: VerifyTimings,
 }
@@ -472,7 +469,6 @@ impl PipelineCoordinator<'_> {
     fn start_verification(&mut self, file_index: usize) -> (ReconstructWorkItem, ProfileInstant) {
         if self.verify_started_at.is_none() {
             self.verify_started_at = Some(ProfileInstant::start(self.control.profiler()));
-            self.verify_span = self.control.profile_span("installation.reconstruct.verify");
         }
         self.verification_queued[file_index] = true;
         (
@@ -518,7 +514,6 @@ impl PipelineCoordinator<'_> {
             .zip(self.verify_finished_at)
             .map(|(started_at, finished_at)| finished_at.saturating_duration_since(started_at))
             .unwrap_or_default();
-        drop(self.verify_span.take());
         self.verify_timings.stat += verify_elapsed;
         emit_reconstruct_progress(
             self.control,
@@ -734,14 +729,8 @@ fn accumulate_pipeline_timings(
         file_timings.artifact_read_compressed_bytes;
     reconstruct_timings.artifact_read_decompressed_bytes +=
         file_timings.artifact_read_decompressed_bytes;
-    reconstruct_timings.bundle_read += file_timings.bundle_read;
-    reconstruct_timings.bundle_read_compressed_bytes += file_timings.bundle_read_compressed_bytes;
-    reconstruct_timings.bundle_read_decompressed_bytes +=
-        file_timings.bundle_read_decompressed_bytes;
     reconstruct_timings.chunk_verify += file_timings.chunk_verify;
     reconstruct_timings.chunk_verify_bytes += file_timings.chunk_verify_bytes;
-    reconstruct_timings.file_rebuild += file_timings.file_rebuild;
-    reconstruct_timings.file_rebuild_bytes += file_timings.file_rebuild_bytes;
     reconstruct_timings.file_verify += file_timings.file_verify;
     reconstruct_timings.file_verify_bytes += file_timings.file_verify_bytes;
     reconstruct_timings.file_write += file_timings.file_write;

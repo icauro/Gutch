@@ -98,6 +98,15 @@ available independently. The public API exposes `ProfileMode` and
 `Profiler`, attached through `OperationControl::with_profiler`.
 Typed CLI summary builders decide whether diagnostic timing and rate values are
 present; renaming a serialized field does not change its profiling visibility.
+Summary and detailed modes both report operation totals and phase wall times;
+worker seconds and rates need detailed mode. Capture phases cover the whole
+command: `prepare`, `scan_chunk`, `dedupe_plan`, `artifact_encode`,
+`manifest_finalize` and `publish` (staged artifacts flushed, promoted and
+recorded). Rates are reported only for byte-processing work, not for
+bookkeeping such as dedupe lookups or bundle ordering.
+The text table lists span names in full, starts with the command wall time so
+far, and its `sum` column adds parallel and nested calls, so compare it with
+that wall time rather than adding rows.
 Finish the session after operation controls and worker spans have been dropped.
 
 Events use complete durations (`X`), named worker tracks, and live byte/rate

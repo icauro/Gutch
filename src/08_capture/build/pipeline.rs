@@ -165,7 +165,6 @@ struct PlannedBundleGroups {
     encoded_limit: u64,
     groups: Vec<PlannedChunkGroup>,
     sort_duration: Duration,
-    sort_bytes: u64,
     probe_duration: Duration,
     probe_raw_bytes: u64,
 }
@@ -184,7 +183,6 @@ fn plan_bundle_compressed_groups(
             encoded_limit: bundle_policy.max_size,
             groups: Vec::new(),
             sort_duration: Duration::ZERO,
-            sort_bytes: 0,
             probe_duration: Duration::ZERO,
             probe_raw_bytes: 0,
         });
@@ -290,7 +288,6 @@ fn plan_bundle_compressed_groups(
         encoded_limit: bundle_policy.max_size,
         groups: planned_groups,
         sort_duration: hash_sort_duration + locality_sort_duration,
-        sort_bytes,
         probe_duration,
         probe_raw_bytes,
     })
@@ -815,11 +812,7 @@ fn plan_deduplicated_chunks(
                 .profile_span("capture.plan_deduplicated_chunks.select_new_chunks");
             let dedupe_lookup_started_at = ProfileInstant::start(config.control.profiler());
             for (hash, payload) in unique_chunks {
-                let raw_size = payload.raw_size();
                 config.control.checkpoint()?;
-
-                timings.dedupe_lookup_bytes += raw_size;
-
                 if let Some(&compressed_size) = available_chunk_sizes.get(&hash) {
                     if compressed_estimate_seen.insert(hash) {
                         total_compressed += compressed_size;
@@ -896,7 +889,6 @@ fn build_capture_artifacts(
                     )?
                 };
                 timings.bundle_compressed_sort += planned_bundle_groups.sort_duration;
-                timings.bundle_compressed_sort_bytes += planned_bundle_groups.sort_bytes;
                 timings.bundle_compressed_ratio_probe += planned_bundle_groups.probe_duration;
                 timings.bundle_compressed_ratio_probe_bytes +=
                     planned_bundle_groups.probe_raw_bytes;

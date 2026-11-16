@@ -243,6 +243,7 @@ impl ChunkPayloadReader {
 #[derive(Debug, Clone, Default)]
 pub struct BuildTimings {
     pub(crate) storage_mode: ArtifactStorageMode,
+    pub(crate) prepare_wall: Duration,
     pub(crate) scan_chunk_wall: Duration,
     pub(crate) logical_bytes: u64,
     pub(crate) file_hash: Duration,
@@ -253,13 +254,11 @@ pub struct BuildTimings {
     pub(crate) chunk_hash_judgment_bytes: u64,
     pub(crate) dedupe_plan_wall: Duration,
     pub(crate) dedupe_lookup: Duration,
-    pub(crate) dedupe_lookup_bytes: u64,
     pub(crate) artifact_encode_wall: Duration,
     pub(crate) compression_input_bytes: u64,
     pub(crate) compression_output_bytes: u64,
     pub(crate) total_compressed_bytes: u64,
     pub(crate) bundle_compressed_sort: Duration,
-    pub(crate) bundle_compressed_sort_bytes: u64,
     pub(crate) bundle_compressed_ratio_probe: Duration,
     pub(crate) bundle_compressed_ratio_probe_bytes: u64,
     pub(crate) artifact_payload_load: Duration,
@@ -271,6 +270,7 @@ pub struct BuildTimings {
     pub(crate) bundle_compressed_footer_serialization_bytes: u64,
     pub(crate) artifact_output_bytes: u64,
     pub(crate) manifest_finalize_wall: Duration,
+    pub(crate) publish_wall: Duration,
     pub(crate) total: Duration,
     pub(crate) runtime_plan: Option<RuntimePlan>,
 }

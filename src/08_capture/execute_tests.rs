@@ -323,7 +323,7 @@ fn identical_recapture_returns_unchanged() {
         SnapshotCaptureOutcome::Unchanged { .. }
     ));
     assert_eq!(second.generated_bundle_count, 0);
-    assert_eq!(second.generated_chunk_count, 0);
+    assert_eq!(second.generated_loose_chunk_count, 0);
 
     let status = read_repo_status(&repo_root).unwrap();
     assert_eq!(status.snapshots.len(), 1);

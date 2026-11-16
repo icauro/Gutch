@@ -80,7 +80,7 @@ pub struct SnapshotCaptureResult {
     pub required_chunk_count: usize,
     pub required_bundle_count: usize,
     pub generated_bundle_count: usize,
-    pub generated_chunk_count: usize,
+    pub generated_loose_chunk_count: usize,
     pub reused_chunk_count: usize,
     pub new_chunk_count: usize,
     pub(crate) build_timings: BuildTimings,

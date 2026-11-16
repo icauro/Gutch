@@ -71,7 +71,7 @@ fn capture_stats_from_engine_result(
         required_chunk_count: result.required_chunk_count,
         required_bundle_count: result.required_bundle_count,
         generated_bundle_count: result.generated_bundle_count,
-        generated_chunk_count: result.generated_chunk_count,
+        generated_loose_chunk_count: result.generated_loose_chunk_count,
         reused_chunk_count: result.reused_chunk_count,
         new_chunk_count: result.new_chunk_count,
         reused_chunk_percent: ratio_pct(
@@ -267,15 +267,15 @@ fn aggregate_capture_stats(
             .iter()
             .map(|stats| stats.generated_bundle_count)
             .sum(),
-        generated_chunk_count: snapshot_stats
+        generated_loose_chunk_count: snapshot_stats
             .iter()
-            .map(|stats| stats.generated_chunk_count)
+            .map(|stats| stats.generated_loose_chunk_count)
             .sum(),
-        total_build_seconds: snapshot_stats
+        total_capture_seconds: snapshot_stats
             .iter()
             .map(|stats| stats.timings.total_seconds)
             .sum::<Option<f64>>()
-            .filter(|_| mode == ProfileMode::Detailed),
+            .filter(|_| mode != ProfileMode::Off),
         snapshots: snapshot_stats,
     }
 }

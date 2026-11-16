@@ -3,6 +3,7 @@
 use crate::capture::contracts::SnapshotCaptureOutcome;
 use crate::capture::contracts::{SnapshotCaptureRequest, SnapshotCaptureResult};
 use crate::error::metadata_conflict::MetadataFieldDifference;
+use crate::profiling::ProfileInstant;
 use crate::profiling::trace_args;
 use std::path::Path;
 use std::path::PathBuf;
@@ -131,6 +132,7 @@ pub(crate) fn execute_repo_snapshot_capture(
 ) -> Result<SnapshotCaptureResult> {
     let control = &request.control;
     control.checkpoint()?;
+    let operation_started_at = ProfileInstant::start(control.profiler());
     let prepare_span = control.profile_span("capture.prepare_source");
     let (repo_paths, repo_manifest) = {
         let _span = control.profile_span("capture.prepare_source.load_repo_state");
@@ -162,9 +164,11 @@ pub(crate) fn execute_repo_snapshot_capture(
     let build_config = configure_build(&request, reuse_state, &repo_paths, &snapshot_tags);
     drop(prepare_span);
 
+    let prepare_wall = operation_started_at.elapsed();
+
     let BuiltCapture {
         mut result,
-        timings,
+        mut timings,
         source_inventory,
     } = build_with_stable_source(
         &prepared_input.dir,
@@ -174,6 +178,8 @@ pub(crate) fn execute_repo_snapshot_capture(
         &constraints,
         runtime_plan.worker_count,
     )?;
+    timings.prepare_wall = prepare_wall;
+    let publish_started_at = ProfileInstant::start(control.profiler());
     let _publish_span = control.profile_span("capture.publish_snapshot");
     control.checkpoint()?;
     let snapshot_id = result.snapshot_manifest.snapshot_id.clone();
@@ -200,11 +206,12 @@ pub(crate) fn execute_repo_snapshot_capture(
                     &reuse_state.chunk_index,
                 )?
                 .len(),
-                generated_chunks: 0,
+                generated_loose_chunks: 0,
                 generated_bundles: 0,
                 reused_chunks: required_chunks.len(),
             };
             write_chunk_index(&repo_paths, &reuse_state.chunk_index)?;
+            finish_capture_timings(&mut timings, operation_started_at, publish_started_at);
             let capture_result = capture_result(
                 repo_paths.repo_root,
                 &existing_manifest,
@@ -244,10 +251,11 @@ pub(crate) fn execute_repo_snapshot_capture(
     let counts = ArtifactCounts {
         required_chunks: required_chunk_count,
         required_bundles: required_bundle_count,
-        generated_chunks: result.loose_chunks.len(),
+        generated_loose_chunks: result.loose_chunks.len(),
         generated_bundles: result.bundles.len(),
         reused_chunks: reused_chunk_count,
     };
+    finish_capture_timings(&mut timings, operation_started_at, publish_started_at);
     let capture_result = capture_result(
         repo_paths.repo_root,
         &result.snapshot_manifest,
@@ -258,6 +266,16 @@ pub(crate) fn execute_repo_snapshot_capture(
     );
     capture_result.emit_done(control.progress());
     Ok(capture_result)
+}
+
+/// Extends the build timings to the whole capture: preparation and publication included.
+fn finish_capture_timings(
+    timings: &mut BuildTimings,
+    operation_started_at: ProfileInstant,
+    publish_started_at: ProfileInstant,
+) {
+    timings.publish_wall = publish_started_at.elapsed();
+    timings.total = operation_started_at.elapsed();
 }
 
 /// Configures the build to reuse the repository's chunks, bundles and
@@ -295,7 +313,7 @@ fn configure_build<'a>(
 struct ArtifactCounts {
     required_chunks: usize,
     required_bundles: usize,
-    generated_chunks: usize,
+    generated_loose_chunks: usize,
     generated_bundles: usize,
     reused_chunks: usize,
 }
@@ -329,7 +347,7 @@ fn capture_result(
         required_chunk_count: counts.required_chunks,
         required_bundle_count: counts.required_bundles,
         generated_bundle_count: counts.generated_bundles,
-        generated_chunk_count: counts.generated_chunks,
+        generated_loose_chunk_count: counts.generated_loose_chunks,
         reused_chunk_count: counts.reused_chunks,
         new_chunk_count: counts.required_chunks.saturating_sub(counts.reused_chunks),
         build_timings,

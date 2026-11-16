@@ -28,8 +28,8 @@ def run(case):
             ]
         stats = case.reconstruct(repo, capture["snapshot_id"], destination, *options)
         case.compare(data, destination, mode)
-        if mode != "detailed":
-            assert stats["verify_timings"]["total_seconds"] is None
+        # Summary mode measures phase walls; off mode measures nothing.
+        assert (stats["verify_timings"]["total_seconds"] is None) == (mode == "off")
         if mode != "off":
             report = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
             assert report["operation_succeeded"]

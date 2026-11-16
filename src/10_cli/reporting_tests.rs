@@ -23,8 +23,11 @@ fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
         ProfileMode::Detailed,
     ] {
         let detailed = mode == ProfileMode::Detailed;
+        let timed = mode != ProfileMode::Off;
         let build = build_timings_summary(&build, mode);
-        assert_eq!(build.total_seconds.is_some(), detailed);
+        // Summary mode measures phase walls; only worker details need detailed mode.
+        assert_eq!(build.total_seconds.is_some(), timed);
+        assert_eq!(build.phases.publish.wall_seconds.is_some(), timed);
         assert_eq!(
             build
                 .phases
@@ -121,24 +124,26 @@ fn build_summary_separates_wall_phases_from_worker_details() {
         chunk_hash_judgment_bytes: 20 * 1024 * 1024,
         dedupe_plan_wall: Duration::from_secs(1),
         dedupe_lookup: Duration::from_millis(500),
-        dedupe_lookup_bytes: 20 * 1024 * 1024,
         artifact_encode_wall: Duration::from_secs(3),
         compression_input_bytes: 20 * 1024 * 1024,
         compression_output_bytes: 5 * 1024 * 1024,
         bundle_compressed_sort: Duration::from_millis(400),
-        bundle_compressed_sort_bytes: 20 * 1024 * 1024,
         bundle_compressed_frame_compression: Duration::from_secs(5),
         bundle_compressed_frame_input_bytes: 20 * 1024 * 1024,
         bundle_compressed_frame_output_bytes: 5 * 1024 * 1024,
         manifest_finalize_wall: Duration::from_secs(1),
-        total: Duration::from_secs(10),
+        prepare_wall: Duration::from_millis(250),
+        publish_wall: Duration::from_millis(500),
+        total: Duration::from_secs(11),
         ..BuildTimings::default()
     };
 
     let summary = build_timings_summary(&timings, ProfileMode::Detailed);
 
     assert_eq!(summary.scan_strategy, "single_pass");
-    assert!((summary.unaccounted_seconds.unwrap() - 1.0).abs() < f64::EPSILON);
+    assert!((summary.unaccounted_seconds.unwrap() - 1.25).abs() < f64::EPSILON);
+    assert_eq!(summary.phases.prepare.wall_seconds, Some(0.25));
+    assert_eq!(summary.phases.publish.wall_seconds, Some(0.5));
     assert_eq!(summary.phases.scan_chunk.wall_seconds, Some(4.0));
     assert_eq!(
         summary
@@ -176,10 +181,11 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
     let timings = ReconstructTimings {
         prepare_wall: Duration::from_secs(1),
         reconstruct_wall: Duration::from_secs(7),
-        bundle_read: Duration::from_secs(9),
-        file_rebuild: Duration::from_secs(2),
-        file_rebuild_bytes: 4 * 1024 * 1024,
-        file_write: Duration::from_secs(11),
+        artifact_read: Duration::from_secs(9),
+        chunk_verify: Duration::from_secs(1),
+        chunk_verify_bytes: 4 * 1024 * 1024,
+        file_write: Duration::from_secs(2),
+        file_write_bytes: 4 * 1024 * 1024,
         total: Duration::from_secs(9),
         ..ReconstructTimings::default()
     };
@@ -189,16 +195,13 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
 
     assert_eq!(summary.unaccounted_seconds, Some(1.0));
     assert_eq!(summary.phases.reconstruct.wall_seconds, Some(7.0));
-    assert!(json["phases"]["reconstruct"]["details"]["chunk_verify_worker_seconds"].is_null());
-    assert!(json["phases"]["reconstruct"]["details"]["file_hash_worker_seconds"].is_null());
-    assert_eq!(
-        json["phases"]["reconstruct"]["details"]["file_rebuild_bytes"],
-        4 * 1024 * 1024
-    );
-    assert_eq!(
-        json["phases"]["reconstruct"]["details"]["file_rebuild_mib_per_second"],
-        2.0
-    );
+    let details = &json["phases"]["reconstruct"]["details"];
+    // Chunk hashes are always checked; only whole-file hashing is optional.
+    assert_eq!(details["chunk_verify_mib_per_second"], 4.0);
+    assert!(details["file_hash_worker_seconds"].is_null());
+    assert_eq!(details["file_write_bytes"], 4 * 1024 * 1024);
+    assert_eq!(details["file_write_mib_per_second"], 2.0);
+    assert!(details.get("file_rebuild_bytes").is_none());
 }
 
 #[test]

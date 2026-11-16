@@ -187,6 +187,10 @@ impl Profiler {
     pub fn mode(&self) -> ProfileMode {
         self.state.mode
     }
+    /// Wall time since the session started, which is when the command started.
+    pub(crate) fn elapsed(&self) -> Duration {
+        self.state.started.elapsed()
+    }
     pub(crate) fn span(&self, name: &'static str) -> Option<ProfileSpan> {
         self.span_with_args(name, BTreeMap::new)
     }
@@ -338,7 +342,6 @@ pub(super) fn overview_marker(name: &str) -> bool {
             | "installation.reconstruct"
             | "installation.reconstruct.apply"
             | "installation.reconstruct.pipeline"
-            | "installation.reconstruct.verify"
             | "installation.verify"
             | "installation.repair"
             | "installation.repair.verify"
