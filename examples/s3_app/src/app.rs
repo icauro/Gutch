@@ -11,7 +11,9 @@ use gutch::api::{
     CancelFlag, OperationControl, ProgressEvent, RemoteRepoSummary, RemoteSnapshot, Result,
 };
 
-use crate::ops::Remote;
+use crate::cloudflare::{self, Account, R2SignIn};
+use crate::ops::{Remote, check_bucket, explain};
+use crate::provider::{self, Provider, R2_JURISDICTIONS};
 use crate::store::{S3Settings, S3Store};
 
 type S3Remote = Remote<S3Store>;
@@ -27,6 +29,8 @@ struct Outcome {
     installed_snapshot_id: Option<String>,
     /// A snapshot and its files' paths and sizes.
     files: Option<(String, Vec<(String, u64)>)>,
+    /// A Cloudflare sign-in, with the bucket to select.
+    r2: Option<(R2SignIn, Option<String>)>,
 }
 
 enum Update {
@@ -41,8 +45,22 @@ struct Job {
     last_event: Option<ProgressEvent>,
 }
 
+/// Cloudflare R2 sign-in state. The API token stays in memory.
+#[derive(Default)]
+struct R2 {
+    token: String,
+    account_id: String,
+    jurisdiction: String,
+    accounts: Vec<Account>,
+    buckets: Vec<String>,
+    new_bucket: String,
+}
+
 pub struct App {
+    provider: Provider,
+    /// The raw fields; a provider preset replaces some of them on use.
     settings: S3Settings,
+    r2: R2,
     cache_dir: String,
     remote: Option<Arc<S3Remote>>,
 
@@ -68,17 +86,21 @@ pub struct App {
 }
 
 /// What the app remembers between runs, in eframe's settings file
-/// (`app.ron` in the platform's app data folder). The secret key is left out
-/// on purpose: it comes from `AWS_SECRET_ACCESS_KEY` or is typed each run.
+/// (`app.ron` in the platform's app data folder). The secret key and the
+/// Cloudflare token are left out on purpose: they come from
+/// `AWS_SECRET_ACCESS_KEY` and `CLOUDFLARE_API_TOKEN`, or are typed each run.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 struct Saved {
+    provider: Provider,
     endpoint: String,
     region: String,
     bucket: String,
     prefix: String,
     path_style: bool,
     access_key_id: String,
+    r2_account_id: String,
+    r2_jurisdiction: String,
     cache_dir: String,
     new_scope: String,
     tags: String,
@@ -90,14 +112,21 @@ impl Default for Saved {
     /// The first run starts from the usual AWS variables.
     fn default() -> Self {
         let region = variable("AWS_REGION").unwrap_or_else(|| "us-east-1".into());
+        let endpoint = variable("AWS_ENDPOINT_URL");
         Self {
-            endpoint: variable("AWS_ENDPOINT_URL")
-                .unwrap_or_else(|| format!("https://s3.{region}.amazonaws.com")),
+            provider: if endpoint.is_some() {
+                Provider::Other
+            } else {
+                Provider::Aws
+            },
+            endpoint: endpoint.unwrap_or_else(|| provider::aws(&region).endpoint),
             region,
             bucket: String::new(),
             prefix: "gutch".into(),
             path_style: false,
             access_key_id: String::new(),
+            r2_account_id: String::new(),
+            r2_jurisdiction: "default".into(),
             cache_dir: default_cache_dir().display().to_string(),
             new_scope: "team".into(),
             tags: "version=1.0".into(),
@@ -117,6 +146,7 @@ impl App {
             .and_then(|storage| eframe::get_value(storage, SAVED_KEY))
             .unwrap_or_default();
         Self {
+            provider: saved.provider,
             settings: S3Settings {
                 endpoint: saved.endpoint,
                 region: saved.region,
@@ -125,6 +155,12 @@ impl App {
                 path_style: saved.path_style,
                 access_key_id: variable("AWS_ACCESS_KEY_ID").unwrap_or(saved.access_key_id),
                 secret_access_key: variable("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
+            },
+            r2: R2 {
+                token: variable("CLOUDFLARE_API_TOKEN").unwrap_or_default(),
+                account_id: saved.r2_account_id,
+                jurisdiction: saved.r2_jurisdiction,
+                ..Default::default()
             },
             cache_dir: saved.cache_dir,
             remote: None,
@@ -140,7 +176,7 @@ impl App {
             installed_snapshot_id: None,
             files: None,
             job: None,
-            status: "Fill in the bucket and connect.".into(),
+            status: "Pick the provider, fill in the bucket and connect.".into(),
             status_is_error: false,
         }
     }
@@ -148,12 +184,15 @@ impl App {
     fn saved(&self) -> Saved {
         let settings = &self.settings;
         Saved {
+            provider: self.provider,
             endpoint: settings.endpoint.clone(),
             region: settings.region.clone(),
             bucket: settings.bucket.clone(),
             prefix: settings.prefix.clone(),
             path_style: settings.path_style,
             access_key_id: settings.access_key_id.clone(),
+            r2_account_id: self.r2.account_id.clone(),
+            r2_jurisdiction: self.r2.jurisdiction.clone(),
             cache_dir: self.cache_dir.clone(),
             new_scope: self.new_scope.clone(),
             tags: self.tags.clone(),
@@ -162,16 +201,54 @@ impl App {
         }
     }
 
+    /// The S3 settings the chosen provider stands for. With a Cloudflare
+    /// token, the R2 secret key is the token's SHA-256.
+    fn resolved_settings(&self) -> S3Settings {
+        let mut settings = self.settings.clone();
+        let preset = match self.provider {
+            Provider::Aws => provider::aws(&settings.region),
+            Provider::Ovh => provider::ovh(&settings.region),
+            Provider::Minio => provider::minio(&settings.endpoint),
+            Provider::CloudflareR2 => {
+                if !self.r2.token.trim().is_empty() {
+                    settings.secret_access_key = cloudflare::s3_secret(&self.r2.token);
+                }
+                provider::r2(&self.r2.account_id, &self.r2.jurisdiction)
+            }
+            Provider::Other => return settings,
+        };
+        settings.endpoint = preset.endpoint;
+        settings.region = preset.region;
+        settings.path_style = preset.path_style;
+        settings
+    }
+
+    /// Switching to Other keeps the last preset's values to edit by hand.
+    fn pick_provider(&mut self, picked: Provider) {
+        if picked == self.provider {
+            return;
+        }
+        let resolved = self.resolved_settings();
+        self.settings.endpoint = resolved.endpoint;
+        self.settings.path_style = resolved.path_style;
+        self.settings.region = match picked {
+            Provider::Aws | Provider::Minio => "us-east-1".into(),
+            Provider::Ovh => "gra".into(),
+            Provider::CloudflareR2 | Provider::Other => resolved.region,
+        };
+        if picked == Provider::Minio {
+            self.settings.endpoint = "http://localhost:9000".into();
+        }
+        self.provider = picked;
+    }
+
     /// Runs `work` on a worker thread with progress reporting and a cancel flag.
-    fn start(
+    fn spawn(
         &mut self,
         ctx: &egui::Context,
         title: &'static str,
-        work: impl FnOnce(&S3Remote, OperationControl) -> Result<Outcome> + Send + 'static,
+        work: impl FnOnce(OperationControl) -> Result<Outcome> + Send + 'static,
     ) {
-        let Some(remote) = self.remote.clone() else {
-            return;
-        };
         let (sender, updates) = channel();
         let cancel = CancelFlag::default();
         let progress_sender = sender.clone();
@@ -184,7 +261,7 @@ impl App {
             .with_cancel_flag(&cancel);
         let done_ctx = ctx.clone();
         thread::spawn(move || {
-            let _ = sender.send(Update::Done(work(&remote, control)));
+            let _ = sender.send(Update::Done(work(control)));
             done_ctx.request_repaint();
         });
         self.job = Some(Job {
@@ -193,6 +270,19 @@ impl App {
             updates,
             last_event: None,
         });
+    }
+
+    /// Like `spawn`, for work on the connected bucket.
+    fn start(
+        &mut self,
+        ctx: &egui::Context,
+        title: &'static str,
+        work: impl FnOnce(&S3Remote, OperationControl) -> Result<Outcome> + Send + 'static,
+    ) {
+        let Some(remote) = self.remote.clone() else {
+            return;
+        };
+        self.spawn(ctx, title, move |control| work(&remote, control));
     }
 
     fn receive_updates(&mut self) {
@@ -227,16 +317,34 @@ impl App {
                 if outcome.files.is_some() {
                     self.files = outcome.files;
                 }
+                if let Some((signed_in, bucket)) = outcome.r2 {
+                    self.signed_in(signed_in, bucket);
+                }
             }
             Err(error) => {
-                self.status = format!("{title} failed: {error}");
+                self.status = format!("{title} failed: {}", explain(&error.to_string()));
                 self.status_is_error = true;
             }
         }
     }
 
+    fn signed_in(&mut self, signed_in: R2SignIn, bucket: Option<String>) {
+        self.r2.account_id = signed_in.account_id;
+        self.r2.accounts = signed_in.accounts;
+        self.r2.buckets = signed_in.buckets.unwrap_or_default();
+        self.settings.access_key_id = signed_in.access_key_id;
+        self.settings.secret_access_key = signed_in.secret_access_key;
+        if let Some(bucket) = bucket {
+            self.settings.bucket = bucket;
+        } else if !self.r2.buckets.contains(&self.settings.bucket)
+            && let Some(first) = self.r2.buckets.first()
+        {
+            self.settings.bucket = first.clone();
+        }
+    }
+
     fn connect(&mut self, ctx: &egui::Context) {
-        match S3Store::new(&self.settings) {
+        match S3Store::new(&self.resolved_settings()) {
             Ok(store) => {
                 let cache_dir = PathBuf::from(self.cache_dir.trim());
                 self.remote = Some(Arc::new(Remote::new(store, cache_dir)));
@@ -258,30 +366,86 @@ impl App {
         }
     }
 
+    fn test_connection(&mut self, ctx: &egui::Context) {
+        match S3Store::new(&self.resolved_settings()) {
+            Ok(store) => self.spawn(ctx, "Test connection", move |_| {
+                Ok(Outcome {
+                    message: check_bucket(&store)?,
+                    ..Default::default()
+                })
+            }),
+            Err(error) => {
+                self.status = format!("Test connection failed: {error}");
+                self.status_is_error = true;
+            }
+        }
+    }
+
+    /// Signs in to Cloudflare; with `new_bucket`, creates that bucket first.
+    fn r2_sign_in(&mut self, ctx: &egui::Context, new_bucket: Option<String>) {
+        let token = self.r2.token.clone();
+        let account_id = self.r2.account_id.clone();
+        let jurisdiction = self.r2.jurisdiction.clone();
+        let title = if new_bucket.is_some() {
+            "Create bucket"
+        } else {
+            "Sign in to Cloudflare"
+        };
+        self.spawn(ctx, title, move |_| {
+            if let Some(name) = &new_bucket {
+                cloudflare::create_bucket(&token, &account_id, &jurisdiction, name)?;
+            }
+            let signed_in = cloudflare::sign_in(&token, &account_id, &jurisdiction)?;
+            let message = match &signed_in.buckets {
+                Some(buckets) => format!(
+                    "account {}; {} buckets; S3 keys derived from the token",
+                    signed_in.account_id,
+                    buckets.len()
+                ),
+                None => format!(
+                    "account {}; the token may not list buckets, so type the bucket name",
+                    signed_in.account_id
+                ),
+            };
+            Ok(Outcome {
+                message,
+                r2: Some((signed_in, new_bucket)),
+                ..Default::default()
+            })
+        });
+    }
+
     fn connection_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Bucket");
         egui::Grid::new("connection").num_columns(2).show(ui, |ui| {
+            ui.label("Provider")
+                .on_hover_text("Where the bucket is. The app fills in the rest of the address.");
+            let mut picked = self.provider;
+            egui::ComboBox::from_id_salt("provider")
+                .selected_text(picked.label())
+                .show_ui(ui, |ui| {
+                    for provider in Provider::ALL {
+                        ui.selectable_value(&mut picked, provider, provider.label());
+                    }
+                });
+            ui.end_row();
+            self.pick_provider(picked);
+
+            match self.provider {
+                Provider::Aws => region_field(ui, &mut self.settings.region, "eu-central-1"),
+                Provider::Ovh => region_field(ui, &mut self.settings.region, "gra, sbg or de"),
+                Provider::Minio => field(
+                    ui,
+                    "Endpoint",
+                    "The MinIO server's address, for example http://localhost:9000.",
+                    egui::TextEdit::singleline(&mut self.settings.endpoint),
+                ),
+                Provider::CloudflareR2 => self.r2_fields(ui),
+                Provider::Other => raw_fields(ui, &mut self.settings),
+            }
+
+            self.bucket_field(ui);
             let settings = &mut self.settings;
-            field(
-                ui,
-                "Endpoint",
-                "The S3 service address, for example https://s3.eu-central-1.amazonaws.com, \
-                 or http://localhost:9000 for a local MinIO server.",
-                egui::TextEdit::singleline(&mut settings.endpoint),
-            );
-            field(
-                ui,
-                "Region",
-                "The bucket's region, for example eu-central-1. \
-                 MinIO and most other servers accept us-east-1.",
-                egui::TextEdit::singleline(&mut settings.region),
-            );
-            field(
-                ui,
-                "Bucket",
-                "An existing bucket. The app does not create buckets.",
-                egui::TextEdit::singleline(&mut settings.bucket),
-            );
             field(
                 ui,
                 "Key prefix",
@@ -289,27 +453,22 @@ impl App {
                  Leave it empty to use the bucket root.",
                 egui::TextEdit::singleline(&mut settings.prefix),
             );
-            ui.label("");
-            ui.checkbox(&mut settings.path_style, "Path-style URLs (MinIO)")
-                .on_hover_text(
-                    "Address objects as endpoint/bucket/key instead of bucket.endpoint/key. \
-                     Turn it on for MinIO and other servers without bucket subdomains.",
+            if self.provider != Provider::CloudflareR2 {
+                field(
+                    ui,
+                    "Access key ID",
+                    "The ID of an access key that may read, write, list and delete objects \
+                     below the prefix. Filled in from AWS_ACCESS_KEY_ID when it is set.",
+                    egui::TextEdit::singleline(&mut settings.access_key_id),
                 );
-            ui.end_row();
-            field(
-                ui,
-                "Access key ID",
-                "The ID of an access key that may read, write, list and delete objects \
-                 below the prefix. Filled in from AWS_ACCESS_KEY_ID when it is set.",
-                egui::TextEdit::singleline(&mut settings.access_key_id),
-            );
-            field(
-                ui,
-                "Secret key",
-                "The access key's secret. It is kept in memory only and never saved; \
-                 set AWS_SECRET_ACCESS_KEY to avoid typing it each time.",
-                egui::TextEdit::singleline(&mut settings.secret_access_key).password(true),
-            );
+                field(
+                    ui,
+                    "Secret key",
+                    "The access key's secret. It is kept in memory only and never saved; \
+                     set AWS_SECRET_ACCESS_KEY to avoid typing it each time.",
+                    egui::TextEdit::singleline(&mut settings.secret_access_key).password(true),
+                );
+            }
             field(
                 ui,
                 "Local cache",
@@ -319,12 +478,124 @@ impl App {
                 egui::TextEdit::singleline(&mut self.cache_dir),
             );
         });
+        ui.horizontal(|ui| {
+            if ui
+                .button("Connect")
+                .on_hover_text("Sign in to the bucket and list its repositories.")
+                .clicked()
+            {
+                self.connect(ui.ctx());
+            }
+            if ui
+                .button("Test connection")
+                .on_hover_text(
+                    "Check that the keys may list, write and delete objects below the prefix, \
+                     and that the bucket supports conditional writes. \
+                     Writes one small test object and deletes it.",
+                )
+                .clicked()
+            {
+                self.test_connection(ui.ctx());
+            }
+        });
+    }
+
+    fn r2_fields(&mut self, ui: &mut egui::Ui) {
+        let r2 = &mut self.r2;
+        field(
+            ui,
+            "API token",
+            "A Cloudflare API token with the Workers R2 Storage Write permission. \
+             The app derives the S3 keys from it. It is kept in memory only and never \
+             saved; set CLOUDFLARE_API_TOKEN to avoid pasting it each time.",
+            egui::TextEdit::singleline(&mut r2.token).password(true),
+        );
+        ui.label("");
+        ui.hyperlink_to("Create token", cloudflare::TOKEN_PAGE)
+            .on_hover_text(
+                "Open the Cloudflare dashboard. Under R2, choose Manage API tokens, \
+                 create a token with Admin Read & Write, and copy the token value.",
+            );
+        ui.end_row();
+        ui.label("Account")
+            .on_hover_text("Found by Sign in. You can also paste the account ID from the R2 page.");
+        if r2.accounts.len() > 1 {
+            let selected = r2
+                .accounts
+                .iter()
+                .find(|account| account.id == r2.account_id)
+                .map_or(r2.account_id.clone(), |account| account.name.clone());
+            egui::ComboBox::from_id_salt("r2_account")
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    for account in &r2.accounts {
+                        ui.selectable_value(&mut r2.account_id, account.id.clone(), &account.name);
+                    }
+                });
+        } else {
+            ui.text_edit_singleline(&mut r2.account_id);
+        }
+        ui.end_row();
+        ui.label("Jurisdiction")
+            .on_hover_text("Buckets created for the EU or FedRAMP live at their own address.");
+        egui::ComboBox::from_id_salt("r2_jurisdiction")
+            .selected_text(r2.jurisdiction.as_str())
+            .show_ui(ui, |ui| {
+                for jurisdiction in R2_JURISDICTIONS {
+                    ui.selectable_value(&mut r2.jurisdiction, jurisdiction.into(), jurisdiction);
+                }
+            });
+        ui.end_row();
+        ui.label("");
         if ui
-            .button("Connect")
-            .on_hover_text("Sign in to the bucket and list its repositories.")
+            .button("Sign in")
+            .on_hover_text("Find the account and its buckets, and derive the S3 keys.")
             .clicked()
         {
-            self.connect(ui.ctx());
+            self.r2_sign_in(ui.ctx(), None);
+        }
+        ui.end_row();
+    }
+
+    fn bucket_field(&mut self, ui: &mut egui::Ui) {
+        let tooltip = "The bucket that holds the repositories.";
+        if self.provider == Provider::CloudflareR2 && !self.r2.buckets.is_empty() {
+            ui.label("Bucket").on_hover_text(tooltip);
+            egui::ComboBox::from_id_salt("bucket")
+                .selected_text(self.settings.bucket.as_str())
+                .show_ui(ui, |ui| {
+                    for bucket in &self.r2.buckets {
+                        ui.selectable_value(&mut self.settings.bucket, bucket.clone(), bucket);
+                    }
+                });
+            ui.end_row();
+        } else {
+            field(
+                ui,
+                "Bucket",
+                tooltip,
+                egui::TextEdit::singleline(&mut self.settings.bucket),
+            );
+        }
+        if self.provider == Provider::CloudflareR2 {
+            ui.label("New bucket")
+                .on_hover_text("Create an R2 bucket with this name and select it.");
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.r2.new_bucket)
+                        .desired_width(140.0)
+                        .hint_text("lowercase-name"),
+                );
+                let name = self.r2.new_bucket.trim().to_owned();
+                if ui
+                    .add_enabled(!name.is_empty(), egui::Button::new("Create"))
+                    .clicked()
+                {
+                    self.r2.new_bucket.clear();
+                    self.r2_sign_in(ui.ctx(), Some(name));
+                }
+            });
+            ui.end_row();
         }
     }
 
@@ -713,6 +984,38 @@ impl eframe::App for App {
 }
 
 /// One labelled row of a grid. The tooltip shows on both label and field.
+fn region_field(ui: &mut egui::Ui, region: &mut String, example: &str) {
+    field(
+        ui,
+        "Region",
+        &format!("The bucket's region, for example {example}."),
+        egui::TextEdit::singleline(region),
+    );
+}
+
+/// Every S3 setting, for providers without a preset.
+fn raw_fields(ui: &mut egui::Ui, settings: &mut S3Settings) {
+    field(
+        ui,
+        "Endpoint",
+        "The S3 service address, for example https://s3.example.com.",
+        egui::TextEdit::singleline(&mut settings.endpoint),
+    );
+    field(
+        ui,
+        "Region",
+        "The bucket's region. Most servers without regions accept us-east-1.",
+        egui::TextEdit::singleline(&mut settings.region),
+    );
+    ui.label("");
+    ui.checkbox(&mut settings.path_style, "Path-style URLs")
+        .on_hover_text(
+            "Address objects as endpoint/bucket/key instead of bucket.endpoint/key. \
+             Turn it on for servers without bucket subdomains.",
+        );
+    ui.end_row();
+}
+
 fn field(ui: &mut egui::Ui, label: &str, tooltip: &str, widget: impl egui::Widget) {
     ui.label(label).on_hover_text(tooltip);
     ui.add(widget).on_hover_text(tooltip);

@@ -23,14 +23,23 @@ Gutch's own builds and tests. Run its tests with `cargo test` in this folder.
 
 ## Connect
 
-| Field | Example |
+Pick the provider; the app fills in the endpoint, region and URL style.
+
+| Provider | You fill in |
 | --- | --- |
-| Endpoint | `https://s3.eu-central-1.amazonaws.com`, or `http://localhost:9000` for MinIO |
-| Region | `eu-central-1` (MinIO accepts `us-east-1`) |
-| Bucket | An existing bucket; the app does not create buckets |
-| Key prefix | A folder in the bucket for Gutch's objects, such as `gutch`; empty for the bucket root |
-| Path-style URLs | On for MinIO and other servers without bucket subdomains |
-| Access key ID, secret key | Credentials allowed to read, write, list and delete objects below the prefix |
+| AWS S3 | Region, such as `eu-central-1` |
+| Cloudflare R2 | An API token; see below |
+| OVHcloud | Region, such as `gra` or `sbg` |
+| MinIO | Endpoint, such as `http://localhost:9000` |
+| Other S3-compatible | Endpoint, region and whether to use path-style URLs |
+
+Every provider also needs the bucket, a key prefix (a folder in the bucket for
+Gutch's objects, such as `gutch`; empty for the bucket root) and, except R2, an
+access key allowed to read, write, list and delete objects below the prefix.
+
+**Test connection** checks the keys, the bucket and the region, and that the
+bucket supports conditional writes. It writes one small test object and
+deletes it. When something fails, the status line names the likely cause.
 
 Hover over a field or button to see what it does.
 
@@ -38,11 +47,29 @@ On the first run the app fills in the endpoint and region from
 `AWS_ENDPOINT_URL` and `AWS_REGION`. When `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY` are set, it always uses them.
 
+### Cloudflare R2
+
+R2 needs only an API token:
+
+1. Click **Create token**. In the Cloudflare dashboard, under R2, choose
+   **Manage API tokens** and create a token with **Admin Read & Write**.
+2. Paste the token value, or set `CLOUDFLARE_API_TOKEN` before starting the app.
+3. Click **Sign in**. The app finds the account, lists its buckets and derives
+   the S3 keys from the token, as
+   [Cloudflare documents](https://developers.cloudflare.com/r2/api/tokens/#get-s3-api-credentials-from-an-api-token):
+   the access key ID is the token's ID and the secret key is the token's
+   SHA-256.
+4. Pick a bucket, or type a name under **New bucket** and click **Create**.
+
+If the token may not list accounts, paste the account ID from the R2 overview
+page. Buckets in the EU or FedRAMP jurisdiction need the matching jurisdiction.
+
 ## Settings and cache
 
 The app remembers the connection fields, the cache folder, the tags and the
-last folders you picked. It never saves the secret key: set
-`AWS_SECRET_ACCESS_KEY`, or type the key each time you start the app.
+last folders you picked. It never saves the secret key or the Cloudflare
+token: set `AWS_SECRET_ACCESS_KEY` or `CLOUDFLARE_API_TOKEN`, or type them each
+time you start the app.
 
 | | Settings (`app.ron`) | Default cache folder |
 | --- | --- | --- |

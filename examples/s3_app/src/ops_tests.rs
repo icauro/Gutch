@@ -243,6 +243,54 @@ fn browsing_a_snapshot_downloads_only_that_snapshot() {
     assert!(local.read_file(&other, "data/a.txt").is_err());
 }
 
+#[test]
+fn the_bucket_check_passes_and_leaves_nothing_behind() {
+    let store = MemoryStore::default();
+    let message = check_bucket(&store).unwrap();
+    assert!(message.starts_with("connection works"), "{message}");
+    assert!(store.objects.lock().unwrap().is_empty());
+}
+
+/// A bucket that ignores `If-None-Match`.
+#[derive(Default)]
+struct UnconditionalStore(MemoryStore);
+
+impl RemoteObjectStore for UnconditionalStore {
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        self.0.get(key)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<()> {
+        self.0.put(key, bytes)
+    }
+    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<bool> {
+        self.0.put(key, bytes).map(|()| true)
+    }
+    fn delete(&self, key: &str) -> Result<()> {
+        self.0.delete(key)
+    }
+    fn list(&self, prefix: &str) -> Result<Vec<String>> {
+        self.0.list(prefix)
+    }
+}
+
+#[test]
+fn the_bucket_check_reports_missing_conditional_writes() {
+    let store = UnconditionalStore::default();
+    let error = check_bucket(&store).unwrap_err().to_string();
+    assert!(error.contains("ignores conditional writes"), "{error}");
+    assert!(store.0.objects.lock().unwrap().is_empty());
+}
+
+#[test]
+fn errors_get_a_plain_cause() {
+    let explained = explain("S3: could not list: 404 Not Found NoSuchBucket");
+    assert!(
+        explained.ends_with("the bucket does not exist."),
+        "{explained}"
+    );
+    assert_eq!(explain("something else"), "something else");
+}
+
 fn count_files(dir: &Path) -> usize {
     let Ok(entries) = fs::read_dir(dir) else {
         return 0;
