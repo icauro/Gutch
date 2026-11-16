@@ -13,10 +13,10 @@ Paths are relative to this project root.
 .github/workflows/test.yml
 .gitignore
 _dev_guide/
-_dev_guide/build_outputs.md
-_dev_guide/folder_layout.md
-_dev_guide/overview.md
-_dev_guide/test_outputs.md
+_dev_guide/01_first_change.md
+_dev_guide/02_code_and_test_layout.md
+_dev_guide/03_folders_and_outputs.md
+_dev_guide/README.md
 _docs/
 _docs/01_overview/
 _docs/01_overview/01_operation_ownership.md

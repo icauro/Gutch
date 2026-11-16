@@ -62,7 +62,7 @@ Docker is required only for the S3 suite and container benchmarks. Run
 checks with `docker run --rm --init gutch-builder python gutch.py test --suite check`;
 `--init` reaps descendants terminated by timeout tests.
 
-Start with [your first change](CONTRIBUTING.md) and the [test map](tests/README.md).
+Start with the [developer guide](_dev_guide/README.md) and the [test map](tests/README.md).
 `python gutch.py benchmark` lists Gutch's own diagnostic benchmarks; see the
 [benchmark guide](tests/benchmarks/README.md). Comparisons with other tools live in
 [Gutch-Benchmarks](https://github.com/icauro/Gutch-Benchmarks). Failed cases print an
