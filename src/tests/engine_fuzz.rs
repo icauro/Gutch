@@ -23,7 +23,9 @@ fn fuzz_binary_decoders() {
         )
     )
     .for_each(|bytes: &[u8]| {
-        if bytes.len() > 65536 {
+        // Matches MAX_INPUT_BYTES in tests/helpers/fuzz.py, which admits the
+        // corpus's smaller bundles as seeds.
+        if bytes.len() > 131072 {
             return;
         }
         let _ = read_snapshot_blueprint_bytes(bytes);

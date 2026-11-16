@@ -2,19 +2,61 @@
 
 import argparse
 import hashlib
+import shutil
 import time
 
 from tests.datasets.generate import CORPUS_ROOT
 from tests.helpers.cli import execute, REPOSITORY
 
+TARGETS = ("binary_decoders", "bundle_roundtrip", "blueprint_roundtrip")
+# Must match the input bound in src/tests/engine_fuzz.rs. It admits the
+# corpus's smaller bundles so their decoders start from real framing.
+MAX_INPUT_BYTES = 131072
 
-def main():
+
+def seed_inputs():
+    """Yield frozen repository files small enough to seed the decoder target."""
+    for pattern in ("*.gtcbin", "bundles/**/*"):
+        for path in sorted(CORPUS_ROOT.glob(f"*/repository/format-v1/**/{pattern}")):
+            if path.is_file() and path.stat().st_size <= MAX_INPUT_BYTES:
+                yield path
+
+
+def seed_corpus(target, corpus):
+    corpus.mkdir(parents=True, exist_ok=True)
+    if target == "binary_decoders":
+        for path in seed_inputs():
+            data = path.read_bytes()
+            (corpus / hashlib.sha256(data).hexdigest()).write_bytes(data)
+
+
+def fuzz_command(target, root, seconds, seed=None, rustc_bootstrap=False):
+    arguments = [
+        "cargo",
+        "bolero",
+        "test",
+        f"engine_fuzz::fuzz_{target}",
+        "-T",
+        f"{seconds}s",
+        "-l",
+        str(MAX_INPUT_BYTES),
+        "--target-dir",
+        str(REPOSITORY / ".builds/compiler-cache/fuzz"),
+        "--corpus-dir",
+        str(root / "corpus"),
+        "--crashes-dir",
+        str(root / "crashes"),
+    ]
+    if seed is not None:
+        arguments += ["-S", str(seed)]
+    if rustc_bootstrap:
+        arguments += ["--rustc-bootstrap"]
+    return arguments
+
+
+def main(arguments=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--filesystem",
-        choices=("binary_decoders", "bundle_roundtrip", "blueprint_roundtrip", "all"),
-        default="all",
-    )
+    parser.add_argument("--target", choices=(*TARGETS, "all"), default="all")
     parser.add_argument("--seconds", type=int, default=30)
     parser.add_argument("--seed", type=int)
     parser.add_argument(
@@ -22,54 +64,29 @@ def main():
         action="store_true",
         help="Enable compiler instrumentation on the installed stable toolchain",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(arguments)
     if args.seconds < 1:
         parser.error("seconds must be positive")
-    targets = (
-        ("binary_decoders", "bundle_roundtrip", "blueprint_roundtrip")
-        if args.target == "all"
-        else (args.target,)
-    )
-    for target in targets:
+    if shutil.which("cargo-bolero") is None:
+        raise SystemExit(
+            "cargo-bolero is not installed; run "
+            "`cargo install cargo-bolero --locked --no-default-features` first"
+        )
+    for target in TARGETS if args.target == "all" else (args.target,):
         root = REPOSITORY / ".artifacts/tests/fuzz" / target
-        corpus = root / "corpus"
-        corpus.mkdir(parents=True, exist_ok=True)
-        if target == "binary_decoders":
-            for path in CORPUS_ROOT.glob("*/repository/format-v1/**/*.gtcbin"):
-                if path.stat().st_size <= 65536:
-                    data = path.read_bytes()
-                    (corpus / hashlib.sha256(data).hexdigest()).write_bytes(data)
-        arguments = [
-            "cargo",
-            "bolero",
-            "test",
-            f"engine_fuzz::fuzz_{target}",
-            "-T",
-            f"{args.seconds}s",
-            "-l",
-            "65536",
-            "--target-dir",
-            str(REPOSITORY / ".builds/compiler-cache/fuzz"),
-            "--corpus-dir",
-            str(corpus),
-            "--crashes-dir",
-            str(root / "crashes"),
-        ]
-        if args.seed is not None:
-            arguments += ["-S", str(args.seed)]
-        if args.rustc_bootstrap:
-            arguments += ["--rustc-bootstrap"]
+        seed_corpus(target, root / "corpus")
         log = root / f"run-{time.time_ns()}.log"
         print(
             f"Fuzzing {target} for {args.seconds}s after compilation; log: {log}",
             flush=True,
         )
-        try:
-            execute(arguments, REPOSITORY, {}, log, timeout=900 + args.seconds)
-        except FileNotFoundError as error:
-            raise RuntimeError(
-                "Install Rust and cargo-bolero before running native fuzzing"
-            ) from error
+        execute(
+            fuzz_command(target, root, args.seconds, args.seed, args.rustc_bootstrap),
+            REPOSITORY,
+            {},
+            log,
+            timeout=900 + args.seconds,
+        )
         print(f"Passed {target}", flush=True)
     return 0
 

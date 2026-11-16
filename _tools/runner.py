@@ -20,7 +20,7 @@ def run_module(module, arguments):
 
 def replay(directory):
     from tests.run import SCENARIOS
-    from tests.helpers.reproduction import source_revision
+    from tests.helpers.reproduction import lifecycle_arguments, source_revision
 
     path = directory.resolve() / "replay.json"
     record = json.loads(path.read_text(encoding="utf-8"))
@@ -47,19 +47,7 @@ def replay(directory):
         "--keep-artifacts",
     ]
     if lifecycle:
-        for name in (
-            "repo",
-            "expected",
-            "seed",
-            "steps",
-            "storage",
-            "compression",
-            "mutations",
-            "timeout",
-            "sequence",
-        ):
-            if name in record.get("options", {}):
-                arguments.extend(["--" + name, str(record["options"][name])])
+        arguments += lifecycle_arguments(record.get("options", {}))
     return run_module("tests.run", arguments)
 
 

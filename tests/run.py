@@ -129,8 +129,7 @@ def main(arguments=None):
     )
     parser.add_argument(
         "--repository-version",
-        default="v1",
-        help="Repository recipe version (default: v1; synthetic cases use frozen data)",
+        help="Repository recipe version for --dataset (default: v1; synthetic cases use frozen data)",
     )
     parser.add_argument(
         "--expected",
@@ -168,7 +167,7 @@ def main(arguments=None):
         "--timeout",
         type=int,
         default=60,
-        help="Core lifecycle deadline in seconds; other scenarios keep 10s",
+        help="Core lifecycle and frozen-snapshot deadline in seconds; other scenarios keep 10s",
     )
     parser.add_argument(
         "--list",
@@ -198,6 +197,9 @@ def main(arguments=None):
         parser.error("--expected requires --repo")
     if args.dataset and (args.repo or args.expected):
         parser.error("--dataset supplies its own repository and expected inventories")
+    if args.repository_version and not args.dataset:
+        parser.error("--repository-version requires --dataset")
+    args.repository_version = args.repository_version or "v1"
     if (
         args.dataset
         or args.repo
@@ -242,6 +244,7 @@ def main(arguments=None):
         target = REPOSITORY / ".builds/compiler-cache/cargo"
         environment = {"CARGO_TARGET_DIR": str(target)}
         if args.suite in {"check", "fast", "all"} and not args.case:
+            manifest["rust_tests"] = "not run"
             execute(
                 [
                     sys.executable,

@@ -8,6 +8,7 @@ import time
 from uuid import uuid4
 from tests.helpers.filesystem import write_json
 from tests.helpers.cli import execute
+from tests.helpers.reproduction import lifecycle_arguments
 
 
 def reduce_sequence(sequence, fails):
@@ -24,6 +25,30 @@ def reduce_sequence(sequence, fails):
                 index += width
         width //= 2
     return sequence
+
+
+def trial_arguments(options, candidate, artifacts_root):
+    """Rebuild the failed lifecycle's inputs with a candidate operation sequence."""
+    return [
+        sys.executable,
+        "gutch.py",
+        "test",
+        "--case",
+        "repository/lifecycle",
+        "--sequence",
+        ",".join(candidate),
+        "--artifacts-root",
+        str(artifacts_root),
+        *lifecycle_arguments(options, exclude={"sequence"}),
+    ]
+
+
+def trial_report(artifacts_root):
+    """Return the lifecycle result of the single run under a trial's own root."""
+    reports = list(
+        artifacts_root.glob("runs/gutch/*/cases/repository/lifecycle/results.json")
+    )
+    return reports[0] if len(reports) == 1 else None
 
 
 def minimize(directory):
@@ -63,33 +88,9 @@ def minimize(directory):
             return False
         attempts += 1
         run_id = f"trial-{attempts}"
-        arguments = [
-            sys.executable,
-            "gutch.py",
-            "test",
-            "--case",
-            "repository/lifecycle",
-            "--sequence",
-            ",".join(candidate),
-            "--run-id",
-            run_id,
-            "--artifacts-root",
-            str(output),
-        ]
-        for name in (
-            "repo",
-            "expected",
-            "seed",
-            "storage",
-            "compression",
-            "mutations",
-            "timeout",
-        ):
-            if name in replay.get("options", {}):
-                arguments += ["--" + name, str(replay["options"][name])]
         try:
             execute(
-                arguments,
+                trial_arguments(replay.get("options", {}), candidate, output / run_id),
                 root,
                 {},
                 output / f"{run_id}.log",
@@ -98,15 +99,13 @@ def minimize(directory):
             )
         except subprocess.TimeoutExpired:
             return False
-        reports = list(
-            output.glob(f"runs/gutch/{run_id}/cases/repository/lifecycle/results.json")
-        )
-        if not reports:
+        report_path = trial_report(output / run_id)
+        if report_path is None:
             return False
-        report = json.loads(reports[0].read_text(encoding="utf-8"))
+        report = json.loads(report_path.read_text(encoding="utf-8"))
         return (
             report["status"] == "failed"
-            and identity(reports[0].parent, report) == original_identity
+            and identity(report_path.parent, report) == original_identity
         )
 
     if not fails(sequence):
