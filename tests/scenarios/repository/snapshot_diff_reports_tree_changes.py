@@ -51,6 +51,7 @@ def run(case):
             return output
         result = json.loads(output)
         assert result.pop("ok") is True
+        assert result.pop("output_version") == "1.0.0"
         return result
 
     expected = [

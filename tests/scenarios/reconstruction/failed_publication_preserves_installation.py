@@ -64,6 +64,9 @@ def run(case):
         )
         failure = json.loads(error_path.read_text(encoding="utf-8"))
         summary = json.loads(output_path.read_text(encoding="utf-8"))
+        # The nested copy is covered by the summary's own output_version.
+        assert failure.pop("output_version") == "1.0.0"
+        assert summary["output_version"] == "1.0.0"
         assert summary["error_details"] == failure
         assert failure["code"] == "directory_promotion_failed"
         details = failure["details"]
