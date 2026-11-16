@@ -235,16 +235,8 @@ fn write_source(
 ) -> Result<()> {
     control.checkpoint()?;
     match source {
-        RemoteArtifactSource::Bytes(bytes) => {
-            if bytes.len() as u64 > maximum_bytes {
-                return Err(Error::download(
-                    "remote artifact exceeded the allowed size",
-                    false,
-                ));
-            }
-            output.write_all(bytes)?;
-            Ok(())
-        }
+        RemoteArtifactSource::Bytes(bytes) => write_limited(bytes, maximum_bytes, output),
+        RemoteArtifactSource::Fetch(fetch) => write_limited(&fetch()?, maximum_bytes, output),
         RemoteArtifactSource::Url(url) => download_url_streaming(
             client,
             url,
@@ -257,6 +249,17 @@ fn write_source(
             },
         ),
     }
+}
+
+fn write_limited(bytes: &[u8], maximum_bytes: u64, output: &mut impl Write) -> Result<()> {
+    if bytes.len() as u64 > maximum_bytes {
+        return Err(Error::download(
+            "remote artifact exceeded the allowed size",
+            false,
+        ));
+    }
+    output.write_all(bytes)?;
+    Ok(())
 }
 
 fn download_and_publish_bundle(

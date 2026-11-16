@@ -7,6 +7,7 @@
 mod artifact_decision;
 mod link;
 mod local_hashes;
+mod object_store;
 mod progress;
 mod provider;
 mod pull;
@@ -23,6 +24,8 @@ pub use link::bind_remote_repo;
 pub use link::create_remote_repo;
 pub use link::remote_tag_references;
 pub use link::unbind_remote_repo;
+pub use object_store::ObjectStoreRemote;
+pub use object_store::RemoteObjectStore;
 pub use provider::PullConflictPolicy;
 pub use provider::RemoteArtifactSource;
 pub use provider::RemoteArtifactTarget;

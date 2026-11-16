@@ -1,273 +1,90 @@
-//! A remote provider that stores remote repositories in a local folder.
+//! A remote stored in a local folder.
 //!
-//! Gutch has no client for any particular server: an application connects the
-//! remote operations to its own storage by implementing `RemoteRepoReader`,
-//! `RemoteRepoWriter` and `RemoteRepoService`. This example implements them
-//! over plain files, then creates a remote, pushes a repository to it, pulls
-//! it into a second repository and installs from the copy.
+//! Gutch has no client for any particular server. When the remote is plain
+//! storage, an application implements the five-method `RemoteObjectStore`
+//! trait and wraps it in `ObjectStoreRemote`, which supplies the rest: the
+//! key layout, hashes, readiness and a lock against concurrent pushes. This
+//! example stores objects as files, then creates a remote, pushes a
+//! repository to it, pulls it into a second repository and installs from the
+//! copy. (Servers with their own API implement `RemoteRepoReader`,
+//! `RemoteRepoWriter` and `RemoteRepoService` directly.)
 //!
 //! Run with `cargo run --example folder_remote -- WORK_DIR`.
 //! WORK_DIR must not exist yet.
 
 use std::env;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use gutch::api::{
-    Error, InstallationReconstructRequest, InstallationVerifyRequest, OperationControl,
-    RemoteArtifactSource, RemoteArtifactTarget, RemoteBundleSource, RemoteRepo,
-    RemoteRepoCreateRequest, RemoteRepoProvider, RemoteRepoReader, RemoteRepoService,
-    RemoteRepoSummary, RemoteRepoWriter, RemoteSnapshot, RemoteSnapshotSources, RepoInitRequest,
-    RepoPullRequest, RepoPushRequest, Result, SnapshotCaptureRequest, SnapshotTagSet, TagReference,
-    capture_snapshot, create_remote_repo, init_repo, plan_push_repo, pull_repo, push_repo,
-    reconstruct_installation, remote_artifact_hash, verify_installation,
+    InstallationReconstructRequest, InstallationVerifyRequest, ObjectStoreRemote,
+    RemoteObjectStore, RemoteRepoCreateRequest, RepoInitRequest, RepoPullRequest, RepoPushRequest,
+    Result, SnapshotCaptureRequest, capture_snapshot, create_remote_repo, init_repo,
+    plan_push_repo, pull_repo, push_repo, reconstruct_installation, verify_installation,
 };
 
-/// Remote repositories stored as folders under `root`:
-///
-/// ```text
-/// root/SCOPE--NAME/
-///   repo_metadata  chunk_index
-///   snapshots/SNAPSHOT_ID/{metadata, blueprint, product_metadata}
-///   bundles/BUNDLE_ID
-/// ```
-///
-/// A server-backed provider would make the same calls over the network and
-/// could return `RemoteArtifactSource::Url` (for example presigned links)
-/// instead of bytes.
-struct FolderRemote {
+/// Each key is a file path below the root folder.
+struct FolderStore {
     root: PathBuf,
 }
 
-impl FolderRemote {
-    fn repo_dir(&self, repository: &RemoteRepo) -> PathBuf {
-        self.root.join(&repository.id)
-    }
-
-    fn snapshot_dir(&self, repository: &RemoteRepo, snapshot_id: &str) -> PathBuf {
-        self.repo_dir(repository)
-            .join("snapshots")
-            .join(snapshot_id)
-    }
-
-    /// The remote's view of one snapshot; hashes let Gutch skip unchanged files.
-    fn remote_snapshot(
-        &self,
-        repository: &RemoteRepo,
-        snapshot_id: &str,
-    ) -> Result<RemoteSnapshot> {
-        let dir = self.snapshot_dir(repository, snapshot_id);
-        let metadata_hash_b3 = file_hash(&dir.join("metadata"))?;
-        let blueprint_hash_b3 = file_hash(&dir.join("blueprint"))?;
-        Ok(RemoteSnapshot {
-            remote_id: snapshot_id.to_owned(),
-            snapshot_id: snapshot_id.to_owned(),
-            product_metadata_hash_b3: file_hash(&dir.join("product_metadata"))?,
-            artifact_ready: !metadata_hash_b3.is_empty() && !blueprint_hash_b3.is_empty(),
-            metadata_hash_b3,
-            blueprint_hash_b3,
-            uploaded_at: String::new(),
-            created_at: String::new(),
-            tags: Vec::new(),
-            artifact_state: None,
-        })
-    }
-}
-
-impl RemoteRepoReader for FolderRemote {
-    /// `remote_repo_id` is an explicit choice (such as `repo pull --remote-repo-id`);
-    /// otherwise the repository's bound remote is used.
-    fn resolve_repo(
-        &self,
-        remote_repo_id: Option<&str>,
-        bound_remote_repo_id: Option<&str>,
-    ) -> Result<RemoteRepo> {
-        let id = remote_repo_id
-            .or(bound_remote_repo_id)
-            .ok_or_else(|| Error::repo("no remote repo given and none is bound"))?;
-        let dir = self.root.join(id);
-        if !dir.is_dir() {
-            return Err(Error::repo(format!("remote repo {id} does not exist")));
+impl RemoteObjectStore for FolderStore {
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        match fs::read(self.root.join(key)) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
         }
-        let (scope_id, name) = id.split_once("--").unwrap_or(("", id));
-        Ok(RemoteRepo {
-            id: id.to_owned(),
-            scope_id: scope_id.to_owned(),
-            name: name.to_owned(),
-            metadata_hash_b3: file_hash(&dir.join("repo_metadata"))?,
-            chunk_map_hash_b3: file_hash(&dir.join("chunk_index"))?,
-            updated_at: String::new(),
-        })
     }
 
-    fn list_snapshots(&self, repository: &RemoteRepo) -> Result<Vec<RemoteSnapshot>> {
-        let mut snapshots = Vec::new();
-        for snapshot_id in list_names(&self.repo_dir(repository).join("snapshots"))? {
-            snapshots.push(self.remote_snapshot(repository, &snapshot_id)?);
-        }
-        Ok(snapshots)
-    }
-
-    fn repo_metadata_source(&self, repository: &RemoteRepo) -> Result<RemoteArtifactSource> {
-        read_source(&self.repo_dir(repository).join("repo_metadata"))
-    }
-
-    fn chunk_index_source(&self, repository: &RemoteRepo) -> Result<RemoteArtifactSource> {
-        read_source(&self.repo_dir(repository).join("chunk_index"))
-    }
-
-    fn snapshot_sources(
-        &self,
-        repository: &RemoteRepo,
-        snapshot: &RemoteSnapshot,
-    ) -> Result<RemoteSnapshotSources> {
-        let dir = self.snapshot_dir(repository, &snapshot.snapshot_id);
-        let product_metadata = dir.join("product_metadata");
-        Ok(RemoteSnapshotSources {
-            metadata: read_source(&dir.join("metadata"))?,
-            blueprint: read_source(&dir.join("blueprint"))?,
-            product_metadata: if product_metadata.is_file() {
-                Some(read_source(&product_metadata)?)
-            } else {
-                None
-            },
-        })
-    }
-
-    fn bundle_sources(
-        &self,
-        repository: &RemoteRepo,
-        _snapshot: &RemoteSnapshot,
-        bundle_ids: &[String],
-    ) -> Result<Vec<RemoteBundleSource>> {
-        let bundles = self.repo_dir(repository).join("bundles");
-        bundle_ids
-            .iter()
-            .map(|bundle_id| {
-                Ok(RemoteBundleSource {
-                    bundle_id: bundle_id.clone(),
-                    source: read_source(&bundles.join(bundle_id))?,
-                })
-            })
-            .collect()
-    }
-}
-
-impl RemoteRepoWriter for FolderRemote {
-    fn delete_snapshot(&self, repository: &RemoteRepo, snapshot: &RemoteSnapshot) -> Result<()> {
-        remove_if_present(&self.snapshot_dir(repository, &snapshot.snapshot_id))
-    }
-
-    fn create_snapshot(
-        &self,
-        repository: &RemoteRepo,
-        snapshot_id: &str,
-        _tags: &SnapshotTagSet,
-    ) -> Result<RemoteSnapshot> {
-        fs::create_dir_all(self.snapshot_dir(repository, snapshot_id))?;
-        self.remote_snapshot(repository, snapshot_id)
-    }
-
-    fn upload_artifact(
-        &self,
-        repository: &RemoteRepo,
-        target: RemoteArtifactTarget<'_>,
-        bytes: Vec<u8>,
-        control: &OperationControl,
-    ) -> Result<()> {
-        control.checkpoint()?;
-        let repo_dir = self.repo_dir(repository);
-        let path = match target {
-            RemoteArtifactTarget::RepositoryMetadata => repo_dir.join("repo_metadata"),
-            RemoteArtifactTarget::ChunkIndex => repo_dir.join("chunk_index"),
-            RemoteArtifactTarget::SnapshotMetadata(snapshot) => self
-                .snapshot_dir(repository, &snapshot.snapshot_id)
-                .join("metadata"),
-            RemoteArtifactTarget::SnapshotBlueprint(snapshot) => self
-                .snapshot_dir(repository, &snapshot.snapshot_id)
-                .join("blueprint"),
-            RemoteArtifactTarget::SnapshotProductMetadata(snapshot) => self
-                .snapshot_dir(repository, &snapshot.snapshot_id)
-                .join("product_metadata"),
-            RemoteArtifactTarget::Bundle(bundle_id) => repo_dir.join("bundles").join(bundle_id),
-        };
+    /// Writes a temporary file and renames it, so readers never see half an object.
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<()> {
+        let path = self.root.join(key);
         fs::create_dir_all(path.parent().unwrap())?;
-        fs::write(path, bytes)?;
+        let partial = path.with_extension("partial");
+        fs::write(&partial, bytes)?;
+        fs::rename(partial, path)?;
         Ok(())
     }
 
-    fn delete_snapshot_product_metadata(
-        &self,
-        repository: &RemoteRepo,
-        snapshot: &RemoteSnapshot,
-    ) -> Result<()> {
-        let dir = self.snapshot_dir(repository, &snapshot.snapshot_id);
-        remove_if_present(&dir.join("product_metadata"))
+    /// `create_new` fails if the file exists, so only one caller can win.
+    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<bool> {
+        let path = self.root.join(key);
+        fs::create_dir_all(path.parent().unwrap())?;
+        match fs::File::create_new(path) {
+            Ok(mut file) => {
+                file.write_all(bytes)?;
+                Ok(true)
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
-    fn bundle_exists(&self, repository: &RemoteRepo, bundle_id: &str) -> Result<bool> {
-        Ok(self
-            .repo_dir(repository)
-            .join("bundles")
-            .join(bundle_id)
-            .is_file())
+    fn delete(&self, key: &str) -> Result<()> {
+        match fs::remove_file(self.root.join(key)) {
+            Err(error) if error.kind() != ErrorKind::NotFound => Err(error.into()),
+            _ => Ok(()),
+        }
     }
 
-    /// Deletes bundles no snapshot needs any more; returns how many were deleted.
-    fn reconcile_bundles(
-        &self,
-        repository: &RemoteRepo,
-        required_bundle_ids: &[String],
-    ) -> Result<usize> {
-        let bundles = self.repo_dir(repository).join("bundles");
-        let mut deleted = 0;
-        for bundle_id in list_names(&bundles)? {
-            if !required_bundle_ids.contains(&bundle_id) {
-                fs::remove_file(bundles.join(bundle_id))?;
-                deleted += 1;
+    /// Gutch lists only folders of plain files, with prefixes ending in `/`.
+    fn list(&self, prefix: &str) -> Result<Vec<String>> {
+        let entries = match fs::read_dir(self.root.join(prefix)) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut keys = Vec::new();
+        for entry in entries {
+            let name = entry?.file_name().to_string_lossy().into_owned();
+            if !name.ends_with(".partial") {
+                keys.push(format!("{prefix}{name}"));
             }
         }
-        Ok(deleted)
-    }
-}
-
-/// Repository management: the part of a provider that owns accounts and scopes.
-impl RemoteRepoService for FolderRemote {
-    fn repo_provider(&self) -> &dyn RemoteRepoProvider {
-        self
-    }
-
-    fn list_repos(&self) -> Result<Vec<RemoteRepoSummary>> {
-        Ok(list_names(&self.root)?
-            .into_iter()
-            .map(|id| {
-                let (scope, name) = id.split_once("--").unwrap_or(("", &id));
-                RemoteRepoSummary {
-                    scope_id: scope.to_owned(),
-                    scope_name: scope.to_owned(),
-                    scope_slug: scope.to_owned(),
-                    repository_id: id.clone(),
-                    repository_name: name.to_owned(),
-                }
-            })
-            .collect())
-    }
-
-    fn create_repo(&self, scope_id: &str, name: &str) -> Result<String> {
-        let id = format!("{scope_id}--{name}");
-        fs::create_dir_all(self.root.join(&id))?;
-        Ok(id)
-    }
-
-    fn delete_repo(&self, repository: &RemoteRepo) -> Result<()> {
-        remove_if_present(&self.repo_dir(repository))
-    }
-
-    /// Tags the remote's own rules refer to; this provider has no rules.
-    fn tag_references(&self, _repository: &RemoteRepo) -> Result<Vec<TagReference>> {
-        Ok(Vec::new())
+        Ok(keys)
     }
 }
 
@@ -294,9 +111,9 @@ fn main() -> ExitCode {
 }
 
 fn run(work_dir: &Path) -> Result<()> {
-    let remote = FolderRemote {
+    let remote = ObjectStoreRemote::new(FolderStore {
         root: work_dir.join("remote"),
-    };
+    });
     let origin = work_dir.join("origin");
     let copy = work_dir.join("copy");
     let source_dir = work_dir.join("source");
@@ -374,44 +191,4 @@ fn run(work_dir: &Path) -> Result<()> {
         issues.corrupt_file_count()
     );
     Ok(())
-}
-
-/// The hash Gutch expects for a stored file, or "" when it is absent.
-fn file_hash(path: &Path) -> Result<String> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(remote_artifact_hash(&bytes)),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(String::new()),
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn read_source(path: &Path) -> Result<RemoteArtifactSource> {
-    Ok(RemoteArtifactSource::Bytes(fs::read(path)?))
-}
-
-fn list_names(dir: &Path) -> Result<Vec<String>> {
-    let mut names = Vec::new();
-    match fs::read_dir(dir) {
-        Ok(entries) => {
-            for entry in entries {
-                names.push(entry?.file_name().to_string_lossy().into_owned());
-            }
-        }
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    names.sort();
-    Ok(names)
-}
-
-fn remove_if_present(path: &Path) -> Result<()> {
-    let result = if path.is_dir() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
-    };
-    match result {
-        Err(error) if error.kind() != ErrorKind::NotFound => Err(error.into()),
-        _ => Ok(()),
-    }
 }

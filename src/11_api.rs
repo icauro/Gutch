@@ -150,10 +150,12 @@ pub use crate::repo::verify::{RepoVerifyMode, RepoVerifyRequest, RepoVerifyResul
 pub use crate::sync::fetch::fetch_snapshot;
 pub use crate::sync::fetch_types::SnapshotFetchRequest;
 pub use crate::sync::fetch_types::SnapshotFetchResult;
+pub use crate::sync::remote::ObjectStoreRemote;
 pub use crate::sync::remote::PullConflictPolicy;
 pub use crate::sync::remote::RemoteArtifactSource;
 pub use crate::sync::remote::RemoteArtifactTarget;
 pub use crate::sync::remote::RemoteBundleSource;
+pub use crate::sync::remote::RemoteObjectStore;
 pub use crate::sync::remote::RemoteRepo;
 pub use crate::sync::remote::RemoteRepoBindRequest;
 pub use crate::sync::remote::RemoteRepoBindResult;

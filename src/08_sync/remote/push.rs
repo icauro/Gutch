@@ -417,148 +417,156 @@ pub fn push_repo(
         let mut progress = RemoteProgress::new(control, OperationKind::Push);
         let bound_remote_repo_id = linked_remote_repo_id(repo_root)?;
         let repository = provider.resolve_repo(None, Some(&bound_remote_repo_id))?;
-        progress.report(ProgressPhase::Planning, "Planning sync changes", None);
-        let remote_snapshots = provider.list_snapshots(&repository)?;
-        let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo_root)?;
-        let plan = plan_push_from_local(
-            &status,
-            &repo_paths,
-            &local_snapshots,
-            &repository,
-            &remote_snapshots,
-        )?;
-        control.checkpoint()?;
-        let required_bundle_ids = required_local_bundle_ids(&repo_paths, &status)?;
-        // Fail before any upload so the remote never records an unbacked snapshot.
-        for bundle_id in &required_bundle_ids {
-            if !bundle_path(&repo_paths, bundle_id)?.is_file() {
-                return Err(Error::artifact(format!(
-                    "bundle '{bundle_id}' is required by a local snapshot but missing; run repo verify before pushing"
-                )));
-            }
-        }
-        let has_chunk_index = repo_paths.chunk_map_path.exists();
-        let snapshot_upload_count = plan.to_add.len() + plan.to_update.len();
-        progress.set_total_steps(
-            plan.to_remove.len()
-                + 1
-                + usize::from(has_chunk_index)
-                + snapshot_upload_count * 3
-                + required_bundle_ids.len()
-                + 1,
-        );
-        let mut stats = RepoPushResult {
-            command: "repo push",
-            repo_root: repo_paths.repo_root.display().to_string(),
-            remote_repo_id: repository.id.clone(),
-            repo_manifest_uploaded: false,
-            chunk_index_uploaded: false,
-            snapshot_manifest_uploaded_count: 0,
-            product_metadata_uploaded_count: 0,
-            snapshot_blueprint_uploaded_count: 0,
-            bundle_uploaded_count: 0,
-            bundle_skipped_count: 0,
-            remote_bundle_deleted_count: 0,
-            snapshot_count: status.snapshots.len(),
-            bundle_count: required_bundle_ids.len(),
-            snapshot_added_count: plan.to_add.len(),
-            snapshot_removed_count: plan.to_remove.len(),
-            snapshot_updated_count: plan.to_update.len(),
-            snapshot_unchanged_count: plan.unchanged.len(),
-        };
-        let context = PushContext {
-            provider,
-            repository: &repository,
-            repo_paths: &repo_paths,
-            control,
-        };
-
-        let mut remote_by_snapshot_id: HashMap<String, RemoteSnapshot> = remote_snapshots
-            .into_iter()
-            .map(|snapshot| (snapshot.snapshot_id.clone(), snapshot))
-            .collect();
-        for change in &plan.to_remove {
-            control.checkpoint()?;
-            progress.next_step(
-                ProgressPhase::RemoveSnapshots,
-                "Removing remote snapshots",
-                Some(change.snapshot_id.clone()),
-            );
-            if let Some(snapshot) = remote_by_snapshot_id.remove(&change.snapshot_id) {
-                provider.delete_snapshot(&repository, &snapshot)?;
-            }
-        }
-
-        control.checkpoint()?;
-        progress.next_step(
-            ProgressPhase::UploadRepoMetadata,
-            "Uploading repo_root metadata",
-            None,
-        );
-        if plan.repo_manifest_changed {
-            provider.upload_artifact(
+        provider.begin_push(&repository)?;
+        let pushed = (|| {
+            progress.report(ProgressPhase::Planning, "Planning sync changes", None);
+            let remote_snapshots = provider.list_snapshots(&repository)?;
+            let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo_root)?;
+            let plan = plan_push_from_local(
+                &status,
+                &repo_paths,
+                &local_snapshots,
                 &repository,
-                RemoteArtifactTarget::RepositoryMetadata,
-                filesystem::read(&repo_paths.repo_metadata_path)?,
-                control,
+                &remote_snapshots,
             )?;
-            stats.repo_manifest_uploaded = true;
-        }
-        if has_chunk_index {
+            control.checkpoint()?;
+            let required_bundle_ids = required_local_bundle_ids(&repo_paths, &status)?;
+            // Fail before any upload so the remote never records an unbacked snapshot.
+            for bundle_id in &required_bundle_ids {
+                if !bundle_path(&repo_paths, bundle_id)?.is_file() {
+                    return Err(Error::artifact(format!(
+                        "bundle '{bundle_id}' is required by a local snapshot but missing; run repo verify before pushing"
+                    )));
+                }
+            }
+            let has_chunk_index = repo_paths.chunk_map_path.exists();
+            let snapshot_upload_count = plan.to_add.len() + plan.to_update.len();
+            progress.set_total_steps(
+                plan.to_remove.len()
+                    + 1
+                    + usize::from(has_chunk_index)
+                    + snapshot_upload_count * 3
+                    + required_bundle_ids.len()
+                    + 1,
+            );
+            let mut stats = RepoPushResult {
+                command: "repo push",
+                repo_root: repo_paths.repo_root.display().to_string(),
+                remote_repo_id: repository.id.clone(),
+                repo_manifest_uploaded: false,
+                chunk_index_uploaded: false,
+                snapshot_manifest_uploaded_count: 0,
+                product_metadata_uploaded_count: 0,
+                snapshot_blueprint_uploaded_count: 0,
+                bundle_uploaded_count: 0,
+                bundle_skipped_count: 0,
+                remote_bundle_deleted_count: 0,
+                snapshot_count: status.snapshots.len(),
+                bundle_count: required_bundle_ids.len(),
+                snapshot_added_count: plan.to_add.len(),
+                snapshot_removed_count: plan.to_remove.len(),
+                snapshot_updated_count: plan.to_update.len(),
+                snapshot_unchanged_count: plan.unchanged.len(),
+            };
+            let context = PushContext {
+                provider,
+                repository: &repository,
+                repo_paths: &repo_paths,
+                control,
+            };
+
+            let mut remote_by_snapshot_id: HashMap<String, RemoteSnapshot> = remote_snapshots
+                .into_iter()
+                .map(|snapshot| (snapshot.snapshot_id.clone(), snapshot))
+                .collect();
+            for change in &plan.to_remove {
+                control.checkpoint()?;
+                progress.next_step(
+                    ProgressPhase::RemoveSnapshots,
+                    "Removing remote snapshots",
+                    Some(change.snapshot_id.clone()),
+                );
+                if let Some(snapshot) = remote_by_snapshot_id.remove(&change.snapshot_id) {
+                    provider.delete_snapshot(&repository, &snapshot)?;
+                }
+            }
+
             control.checkpoint()?;
             progress.next_step(
-                ProgressPhase::UploadChunkIndex,
-                "Uploading chunk index",
+                ProgressPhase::UploadRepoMetadata,
+                "Uploading repo_root metadata",
                 None,
             );
-            if plan.chunk_index_changed {
+            if plan.repo_manifest_changed {
                 provider.upload_artifact(
                     &repository,
-                    RemoteArtifactTarget::ChunkIndex,
-                    filesystem::read(&repo_paths.chunk_map_path)?,
+                    RemoteArtifactTarget::RepositoryMetadata,
+                    filesystem::read(&repo_paths.repo_metadata_path)?,
                     control,
                 )?;
-                stats.chunk_index_uploaded = true;
+                stats.repo_manifest_uploaded = true;
             }
-        }
-
-        let snapshot_ids_to_upload: HashSet<&str> = plan
-            .to_add
-            .iter()
-            .chain(plan.to_update.iter())
-            .map(|change| change.snapshot_id.as_str())
-            .collect();
-        for snapshot in status
-            .snapshots
-            .iter()
-            .filter(|snapshot| snapshot_ids_to_upload.contains(snapshot.snapshot_id.as_str()))
-        {
-            let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
-            let remote_snapshot = match remote_by_snapshot_id.get(&manifest.snapshot_id) {
-                Some(snapshot) => snapshot.clone(),
-                None => {
-                    let created = provider.create_snapshot(
+            if has_chunk_index {
+                control.checkpoint()?;
+                progress.next_step(
+                    ProgressPhase::UploadChunkIndex,
+                    "Uploading chunk index",
+                    None,
+                );
+                if plan.chunk_index_changed {
+                    provider.upload_artifact(
                         &repository,
-                        &manifest.snapshot_id,
-                        &manifest.snapshot_tags,
+                        RemoteArtifactTarget::ChunkIndex,
+                        filesystem::read(&repo_paths.chunk_map_path)?,
+                        control,
                     )?;
-                    remote_by_snapshot_id.insert(manifest.snapshot_id.clone(), created.clone());
-                    created
+                    stats.chunk_index_uploaded = true;
                 }
-            };
-            context.upload_snapshot(&mut progress, &mut stats, &manifest, &remote_snapshot)?;
-        }
+            }
 
-        context.upload_bundles(&mut progress, &mut stats, &required_bundle_ids)?;
+            let snapshot_ids_to_upload: HashSet<&str> = plan
+                .to_add
+                .iter()
+                .chain(plan.to_update.iter())
+                .map(|change| change.snapshot_id.as_str())
+                .collect();
+            for snapshot in status
+                .snapshots
+                .iter()
+                .filter(|snapshot| snapshot_ids_to_upload.contains(snapshot.snapshot_id.as_str()))
+            {
+                let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
+                let remote_snapshot = match remote_by_snapshot_id.get(&manifest.snapshot_id) {
+                    Some(snapshot) => snapshot.clone(),
+                    None => {
+                        let created = provider.create_snapshot(
+                            &repository,
+                            &manifest.snapshot_id,
+                            &manifest.snapshot_tags,
+                        )?;
+                        remote_by_snapshot_id.insert(manifest.snapshot_id.clone(), created.clone());
+                        created
+                    }
+                };
+                context.upload_snapshot(&mut progress, &mut stats, &manifest, &remote_snapshot)?;
+            }
 
-        control.checkpoint()?;
-        progress.next_step(
-            ProgressPhase::Prune,
-            "Removing unreferenced remote bundles",
-            None,
-        );
-        stats.remote_bundle_deleted_count =
-            provider.reconcile_bundles(&repository, &required_bundle_ids)?;
+            context.upload_bundles(&mut progress, &mut stats, &required_bundle_ids)?;
+
+            control.checkpoint()?;
+            progress.next_step(
+                ProgressPhase::Prune,
+                "Removing unreferenced remote bundles",
+                None,
+            );
+            stats.remote_bundle_deleted_count =
+                provider.reconcile_bundles(&repository, &required_bundle_ids)?;
+            Ok(stats)
+        })();
+        // Always finish the push, but report the push's own error first.
+        let finished = provider.finish_push(&repository, pushed.is_ok());
+        let stats = pushed?;
+        finished?;
         progress.finish("Sync complete");
         Ok(stats)
     })

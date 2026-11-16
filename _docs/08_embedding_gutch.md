@@ -23,7 +23,7 @@ need only a work folder that does not exist yet:
 | [`update_installation`](../examples/update_installation.rs) | Listing what changed between two versions, previewing an update and updating in place while reusing installed content |
 | [`repair_installation`](../examples/repair_installation.rs) | Finding damage, planning and running a repair with a progress sink |
 | [`cancel_reconstruction`](../examples/cancel_reconstruction.rs) | Cancelling an update partway and keeping the old installation intact |
-| [`folder_remote`](../examples/folder_remote.rs) | A remote provider that stores repositories in a local folder, used to push and pull |
+| [`folder_remote`](../examples/folder_remote.rs) | A remote stored in a local folder through `RemoteObjectStore`, used to push and pull |
 
 ```sh
 cargo run --example update_installation -- WORK_DIR
@@ -45,7 +45,9 @@ let result = capture_snapshot(&request)?;      // SnapshotCaptureResult
 ```
 
 Requests own their inputs and include a `control` field for progress and
-cancellation, so most can be written with `..Default::default()`. Anything the
+cancellation, so most can be written with `..Default::default()`. Snapshot
+tags are written as `SnapshotTagSet::from_pairs([("version", "1.2.0")])?`,
+which checks each tag as the CLI's `--tag` does. Anything the
 host supplies at run time, such as a remote provider or a callback that
 receives preview events, is passed beside the request. Simple lookups, such as
 `repo_status` or `repo_constraints`, take only the repository path.
@@ -101,8 +103,41 @@ validates it. These have no CLI command.
 ## Remote providers
 
 Gutch does not include a client for any particular server. The remote
-commands (`repo remote ...`, `repo push`, `repo pull`) work through traits the
-host application implements:
+commands (`repo remote ...`, `repo push`, `repo pull`) work through a provider
+the host application supplies.
+
+### Storage remotes
+
+When the remote is plain storage, such as a folder, an S3 bucket or a blob
+container, implement `RemoteObjectStore` and wrap it in `ObjectStoreRemote`:
+
+| Method | Does |
+| --- | --- |
+| `get(key)` | Returns an object's bytes, or `None` |
+| `put(key, bytes)` | Creates or replaces an object in one step |
+| `put_if_absent(key, bytes)` | Creates an object only if the key is free, atomically; returns whether it did |
+| `delete(key)` | Deletes an object; a missing one is fine |
+| `list(prefix)` | Returns the keys directly below a prefix ending in `/` |
+| `exists(key)`, `download_url(key)` | Optional: a cheaper existence check, and a URL (such as a presigned link) Gutch downloads from instead of calling `get` |
+
+`ObjectStoreRemote` implements every provider trait over those methods. Gutch
+chooses the keys, records the hashes it compares, and deletes bundles no
+snapshot needs. Remote repository IDs are `SCOPE--NAME`.
+
+Only one push changes a remote repository at a time. A push creates the
+object `repos/REPO_ID/push.lock` with `put_if_absent` and deletes it when it
+ends, whether or not it succeeded; a second push fails straight away and says
+how long the first has been running. If a process dies during a push, the lock
+stays; delete that object once no push is running. Snapshots a push uploads
+are visible to pulls only after that push completes. Pulls take no lock, so a
+pull that overlaps a push may fail and can be retried.
+
+[`examples/folder_remote.rs`](../examples/folder_remote.rs) is a complete
+store backed by a local folder.
+
+### Servers with their own API
+
+A server that keeps its own records implements the provider traits directly:
 
 | Trait | Responsibility |
 | --- | --- |
@@ -113,9 +148,12 @@ host application implements:
 
 The service owns sign-in and server configuration; Gutch only asks it for
 files and repository operations. The `*_hash_b3` fields a provider reports for
-stored files are computed with `remote_artifact_hash`.
-[`examples/folder_remote.rs`](../examples/folder_remote.rs) is a complete
-provider backed by a local folder.
+stored files are computed with `remote_artifact_hash`. A source can be bytes,
+a URL, or `RemoteArtifactSource::Fetch`, which Gutch calls only when it needs
+that file. To keep pushes from overlapping, take a lock in
+`RemoteRepoWriter::begin_push` and release it in `finish_push`.
+
+### The command line
 
 To offer the full command line inside your application, with remote commands
 connected to your service, pass a factory to `run_command_line`:

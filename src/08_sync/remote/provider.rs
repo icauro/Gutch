@@ -12,6 +12,7 @@ use crate::progress::OperationControl;
 use crate::repo::tag_references::TagReference;
 use crate::repo::tag_references::TagReferenceStatus;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct RemoteRepo {
@@ -38,10 +39,15 @@ pub struct RemoteSnapshot {
     pub artifact_ready: bool,
 }
 
+/// Where Gutch reads one remote artifact from.
 #[derive(Clone)]
 pub enum RemoteArtifactSource {
     Bytes(Vec<u8>),
+    /// Downloaded over HTTP(S), for example from a presigned link.
     Url(String),
+    /// Read when Gutch needs it, so a provider can hand out many sources
+    /// without holding every artifact in memory.
+    Fetch(Arc<dyn Fn() -> Result<Vec<u8>> + Send + Sync>),
 }
 
 /// URLs may be presigned, so `Debug` never prints them or the bytes.
@@ -50,6 +56,7 @@ impl std::fmt::Debug for RemoteArtifactSource {
         match self {
             Self::Bytes(bytes) => write!(formatter, "Bytes({} bytes)", bytes.len()),
             Self::Url(_) => formatter.write_str("Url(<redacted>)"),
+            Self::Fetch(_) => formatter.write_str("Fetch"),
         }
     }
 }
@@ -109,6 +116,19 @@ pub trait RemoteRepoReader {
 
 /// Write-side control-plane and artifact-upload operations required by Gutch.
 pub trait RemoteRepoWriter {
+    /// Called by `push_repo` before it reads or changes the remote. A provider
+    /// that allows only one push at a time takes its lock here and returns an
+    /// error when another push holds it. The default does nothing.
+    fn begin_push(&self, _repository: &RemoteRepo) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called once after a successful `begin_push`, when the push has ended;
+    /// `succeeded` says whether it completed. The default does nothing.
+    fn finish_push(&self, _repository: &RemoteRepo, _succeeded: bool) -> Result<()> {
+        Ok(())
+    }
+
     fn delete_snapshot(&self, repository: &RemoteRepo, snapshot: &RemoteSnapshot) -> Result<()>;
 
     fn create_snapshot(

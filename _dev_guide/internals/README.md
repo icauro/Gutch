@@ -20,7 +20,14 @@ background-job persistence, or application navigation.
 Remote repo synchronization is provider-neutral at the engine boundary.
 Callers provide a `RemoteRepoReader` for repo/snapshot lookup and a
 `RemoteRepoWriter` for uploads and remote cleanup. Artifact sources may be
-bytes or direct URLs. Gutch owns comparison, pull/push ordering, bounded
+bytes, direct URLs or deferred fetch callbacks. `push_repo` brackets its work
+with `RemoteRepoWriter::begin_push`/`finish_push`; `finish_push` always runs
+once `begin_push` succeeded, and the push's own error wins over a release
+error. `ObjectStoreRemote` (`src/08_sync/remote/object_store.rs`) implements
+the provider traits over a key-value `RemoteObjectStore`: it owns the key
+layout, JSON repository/snapshot records holding the compared hashes, a
+`put_if_absent` push lock, and marks uploaded snapshots ready only when a push
+succeeds. Gutch owns comparison, pull/push ordering, bounded
 transfers, local repo mutation, progress, cancellation, and result types;
 it does not attach remote service bearer sessions or call host authorization routes.
 

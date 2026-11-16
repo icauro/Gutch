@@ -2,7 +2,7 @@
 //! the way a real remote does.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::artifact_decision::remote_artifact_hash;
@@ -394,4 +394,184 @@ fn pull_step_total_matches_the_steps_reported() {
             .max();
         assert_eq!(last_step, Some(finished.total), "prune: {prune}");
     }
+}
+
+/// A key-value store in memory; puts under `fail_prefix` fail.
+#[derive(Default)]
+struct MemoryStore {
+    objects: Mutex<BTreeMap<String, Vec<u8>>>,
+    fail_prefix: Mutex<Option<String>>,
+}
+
+impl MemoryStore {
+    fn keys(&self, prefix: &str) -> Vec<String> {
+        self.list(prefix).unwrap()
+    }
+}
+
+impl RemoteObjectStore for MemoryStore {
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.objects.lock().unwrap().get(key).cloned())
+    }
+
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<()> {
+        if let Some(prefix) = self.fail_prefix.lock().unwrap().as_deref()
+            && key.contains(prefix)
+        {
+            return Err(crate::Error::repo("store unavailable"));
+        }
+        self.objects
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), bytes.to_vec());
+        Ok(())
+    }
+
+    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<bool> {
+        let mut objects = self.objects.lock().unwrap();
+        if objects.contains_key(key) {
+            return Ok(false);
+        }
+        objects.insert(key.to_owned(), bytes.to_vec());
+        Ok(true)
+    }
+
+    fn delete(&self, key: &str) -> Result<()> {
+        self.objects.lock().unwrap().remove(key);
+        Ok(())
+    }
+
+    fn list(&self, prefix: &str) -> Result<Vec<String>> {
+        Ok(self
+            .objects
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .cloned()
+            .collect())
+    }
+}
+
+/// A new repo at `origin` with one snapshot, linked to a new remote repo.
+fn linked_origin(root: &Path, remote: &ObjectStoreRemote<MemoryStore>) -> (PathBuf, String) {
+    let origin = root.join("origin");
+    capture(&origin, &root.join("source"), &[9; 64 * 1024]);
+    let remote_repo_id = create_remote_repo(
+        &RemoteRepoCreateRequest {
+            repo_root: origin.clone(),
+            scope_id: "team".into(),
+            ..Default::default()
+        },
+        remote,
+    )
+    .unwrap()
+    .remote_repo_id;
+    (origin, remote_repo_id)
+}
+
+fn push_to(repo: &Path, remote: &ObjectStoreRemote<MemoryStore>) -> Result<RepoPushResult> {
+    push_repo(
+        &RepoPushRequest {
+            repo_root: repo.to_path_buf(),
+            ..Default::default()
+        },
+        remote,
+    )
+}
+
+fn pull_from(repo: &Path, remote_repo_id: &str, remote: &ObjectStoreRemote<MemoryStore>) {
+    pull_repo(
+        &RepoPullRequest {
+            repo_root: repo.to_path_buf(),
+            remote_repo_id: Some(remote_repo_id.to_owned()),
+            on_conflict: PullConflictPolicy::KeepRemote,
+            ..Default::default()
+        },
+        remote,
+    )
+    .unwrap();
+}
+
+#[test]
+fn object_store_remote_round_trips_a_repository() {
+    let root = tempfile::tempdir().unwrap();
+    let remote = ObjectStoreRemote::new(MemoryStore::default());
+    let (origin, remote_repo_id) = linked_origin(root.path(), &remote);
+    assert_eq!(remote_repo_id, "team--fixture");
+
+    let pushed = push_to(&origin, &remote).unwrap();
+    assert_eq!(pushed.snapshot_added_count, 1);
+    assert!(pushed.bundle_uploaded_count > 0);
+    let again = push_to(&origin, &remote).unwrap();
+    assert_eq!(again.snapshot_unchanged_count, 1);
+    assert_eq!(again.bundle_uploaded_count, 0);
+    assert!(
+        !remote
+            .store()
+            .objects
+            .lock()
+            .unwrap()
+            .contains_key("repos/team--fixture/push.lock")
+    );
+
+    let copy = root.path().join("copy");
+    pull_from(&copy, &remote_repo_id, &remote);
+    assert_eq!(bundle_ids(&copy), bundle_ids(&origin));
+    let repos = remote.list_repos().unwrap();
+    assert_eq!(repos.len(), 1);
+    assert_eq!(repos[0].repository_name, "fixture");
+
+    let repository = remote.resolve_repo(Some(&remote_repo_id), None).unwrap();
+    remote.delete_repo(&repository).unwrap();
+    assert!(remote.store().keys("").is_empty());
+}
+
+#[test]
+fn object_store_remote_allows_one_push_at_a_time() {
+    let root = tempfile::tempdir().unwrap();
+    let remote = ObjectStoreRemote::new(MemoryStore::default());
+    let (origin, remote_repo_id) = linked_origin(root.path(), &remote);
+    let repository = remote.resolve_repo(Some(&remote_repo_id), None).unwrap();
+
+    remote.begin_push(&repository).unwrap();
+    let error = push_to(&origin, &remote).unwrap_err().to_string();
+    assert!(error.contains("repos/team--fixture/push.lock"), "{error}");
+    remote.finish_push(&repository, false).unwrap();
+
+    push_to(&origin, &remote).unwrap();
+}
+
+#[test]
+fn object_store_remote_hides_snapshots_until_their_push_completes() {
+    let root = tempfile::tempdir().unwrap();
+    let remote = ObjectStoreRemote::new(MemoryStore::default());
+    let (origin, remote_repo_id) = linked_origin(root.path(), &remote);
+
+    *remote.store().fail_prefix.lock().unwrap() = Some("/bundles/".into());
+    push_to(&origin, &remote).unwrap_err();
+    assert!(
+        remote
+            .store()
+            .keys("repos/team--fixture/push.lock")
+            .is_empty()
+    );
+    let copy = root.path().join("copy");
+    pull_from(&copy, &remote_repo_id, &remote);
+    assert!(bundle_ids(&copy).is_empty());
+
+    *remote.store().fail_prefix.lock().unwrap() = None;
+    let pushed = push_to(&origin, &remote).unwrap();
+    assert_eq!(pushed.snapshot_updated_count, 1);
+    pull_from(&copy, &remote_repo_id, &remote);
+    assert_eq!(bundle_ids(&copy), bundle_ids(&origin));
+}
+
+#[test]
+fn object_store_remote_rejects_names_that_change_the_key_layout() {
+    let remote = ObjectStoreRemote::new(MemoryStore::default());
+    remote.create_repo("team", "app").unwrap();
+    assert!(remote.create_repo("team", "app").is_err());
+    assert!(remote.create_repo("team", "../app").is_err());
+    assert!(remote.create_repo("", "app").is_err());
 }
