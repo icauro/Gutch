@@ -21,5 +21,5 @@ def run(case):
         result = case.reconstruct(repo, captured["snapshot_id"], destination, *options)
         case.compare(data, destination, f"version-{version}")
         if previous:
-            assert result["reused_source_chunk_count"] > 0
+            assert result["reused_chunk_count"] > 0
         previous = captured["snapshot_id"]

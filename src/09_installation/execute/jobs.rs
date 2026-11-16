@@ -28,7 +28,7 @@ pub(crate) struct ReconstructPipelinePlan {
     pub required_artifacts: HashSet<ArtifactRef>,
     pub required_artifact_count: usize,
     pub(crate) required_chunk_count: usize,
-    pub(crate) reused_source_chunk_count: usize,
+    pub(crate) reused_chunk_count: usize,
 }
 
 pub(crate) struct ReconstructPipelineApplyRequest<'a> {

@@ -19,18 +19,29 @@ use crate::repo::coordination::read_with_control;
 use crate::repo::index::load_chunk_index;
 use crate::transfer::types::TransferConcurrencyPolicy;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum InstallationPublication {
-    #[default]
-    ReplaceDirectory,
-    Selective {
-        extra_files: ExtraFilePolicy,
-    },
-}
+/// How an installation is written. The default changes only missing or
+/// damaged entries and keeps extra files, as repair does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum InstallationPublication {
+    /// Rebuild in staging and replace the whole destination, as reconstruct does.
+    ReplaceDirectory,
+    /// Change only missing or damaged entries in place.
+    Selective { extra_files: ExtraFilePolicy },
+}
+
+impl Default for InstallationPublication {
+    fn default() -> Self {
+        Self::Selective {
+            extra_files: ExtraFilePolicy::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ExtraFilePolicy {
+    #[default]
     Preserve,
     Remove,
 }

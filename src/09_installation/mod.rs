@@ -21,10 +21,8 @@ mod verify;
 
 pub use contracts::InstallationCorruptPlan;
 pub use contracts::InstallationCorruptRequest;
-pub use contracts::InstallationReconstructOutcome;
 pub use contracts::InstallationReconstructRequest;
 pub use contracts::InstallationReconstructResult;
-pub use contracts::InstallationRepairOutcome;
 pub use contracts::InstallationRepairPlan;
 pub use contracts::InstallationRepairRequest;
 pub use contracts::InstallationRepairResult;

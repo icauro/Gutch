@@ -9,16 +9,12 @@ use super::publish::{
 use crate::Result;
 use crate::filesystem::directory::replace_directory;
 use crate::filesystem::paths::validate_destination_paths;
+use crate::installation::contracts::InstallationReconstructResult;
 use crate::installation::contracts::InstallationRepairOutcome;
 use crate::installation::contracts::ReconstructTimings;
-use crate::installation::contracts::{
-    InstallationReconstructOutcome, InstallationReconstructResult,
-};
-use crate::installation::inspect::VerifyTimings;
 use crate::installation::staging::SnapshotStaging;
 use crate::installation::staging::create_snapshot_staging;
 use crate::installation::staging::default_snapshot_staging_dir;
-use crate::manifest::snapshot::SnapshotManifest;
 use crate::profiling::ProfileInstant;
 use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
@@ -66,7 +62,7 @@ pub(crate) fn apply_reconstruct_pipeline(
     let required_chunk_count = pipeline_plan.required_chunk_count;
     let required_bundle_count = pipeline_plan.required_bundle_count;
     let required_artifact_count = pipeline_plan.required_artifact_count;
-    let reused_source_chunk_count = pipeline_plan.reused_source_chunk_count;
+    let reused_chunk_count = pipeline_plan.reused_chunk_count;
     let (mut reconstruct_timings, verify_timings) =
         run_reconstruction_jobs(ExecuteReconstructPipelineRequest {
             pipeline_plan,
@@ -116,25 +112,19 @@ pub(crate) fn apply_reconstruct_pipeline(
         }
     };
     reconstruct_timings.total = operation_started_at.elapsed();
-    let reconstruct_result =
-        build_snapshot_reconstruct_result(BuildSnapshotReconstructResultRequest {
-            snapshot_manifest: request.snapshot_manifest,
-            destination_dir: request.destination_dir,
-            staging_dir: &staging_dir,
-            reused_source_chunk_count,
-            required_chunk_count,
-            required_bundle_count,
-            required_artifact_count,
-            reconstruct_timings,
-            verify_timings,
-        });
     let installation_result = InstallationReconstructResult {
         repo_root: request.repo_root.to_path_buf(),
         snapshot_manifest: request.snapshot_manifest.clone(),
-        reconstruct_result,
-        resolved_bundle_file_count: required_bundle_count,
-        resolved_artifact_file_count: required_artifact_count,
+        snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
+        destination_dir: request.destination_dir.to_path_buf(),
+        staging_dir,
         reuse_from: request.source_destination_dir.clone(),
+        reused_chunk_count,
+        required_chunk_count,
+        required_bundle_count,
+        required_artifact_count,
+        reconstruct_timings,
+        verify_timings,
     };
     Ok((installation_result, repair_result))
 }
@@ -203,34 +193,6 @@ fn replace_with_staging(
     }
     timings.promote_wall = started.elapsed();
     Ok(())
-}
-
-struct BuildSnapshotReconstructResultRequest<'a> {
-    snapshot_manifest: &'a SnapshotManifest,
-    destination_dir: &'a Path,
-    staging_dir: &'a Path,
-    reused_source_chunk_count: usize,
-    required_chunk_count: usize,
-    required_bundle_count: usize,
-    required_artifact_count: usize,
-    reconstruct_timings: ReconstructTimings,
-    verify_timings: VerifyTimings,
-}
-
-fn build_snapshot_reconstruct_result(
-    request: BuildSnapshotReconstructResultRequest<'_>,
-) -> InstallationReconstructOutcome {
-    InstallationReconstructOutcome {
-        snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
-        destination_dir: request.destination_dir.to_path_buf(),
-        staging_dir: request.staging_dir.to_path_buf(),
-        reused_source_chunk_count: request.reused_source_chunk_count,
-        required_chunk_count: request.required_chunk_count,
-        required_bundle_count: request.required_bundle_count,
-        required_artifact_count: request.required_artifact_count,
-        reconstruct_timings: request.reconstruct_timings,
-        verify_timings: request.verify_timings,
-    }
 }
 
 #[cfg(test)]

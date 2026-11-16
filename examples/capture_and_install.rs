@@ -70,9 +70,9 @@ fn run(source_dir: &Path, work_dir: &Path) -> Result<()> {
     println!(
         "installed to {}: {} missing, {} corrupt, {} extra",
         destination_dir.display(),
-        issues.missing_files.len(),
-        issues.corrupt_files.len(),
-        issues.extra_files.len()
+        issues.missing_file_count(),
+        issues.corrupt_file_count(),
+        issues.extra_file_count()
     );
     Ok(())
 }

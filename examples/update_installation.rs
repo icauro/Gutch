@@ -14,9 +14,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use gutch::api::{
-    InstallationPreviewEvent, InstallationPreviewRequest, InstallationReconstructRequest,
-    RepoInitRequest, Result, SnapshotCaptureRequest, SnapshotDiffRequest, SnapshotTagSet,
-    capture_snapshot, diff_snapshots, init_repo, preview_installation, reconstruct_installation,
+    InstallationPreviewEvent, InstallationPreviewRequest, InstallationPublication,
+    InstallationReconstructRequest, RepoInitRequest, Result, SnapshotCaptureRequest,
+    SnapshotDiffRequest, SnapshotTagSet, capture_snapshot, diff_snapshots, init_repo,
+    preview_installation, reconstruct_installation,
 };
 
 fn main() -> ExitCode {
@@ -90,6 +91,7 @@ fn run(work_dir: &Path) -> Result<()> {
     println!("installed 1.0 to {}", app_dir.display());
 
     // The preview streams one event per entry; nothing on disk changes.
+    // `ReplaceDirectory` previews what `reconstruct_installation` does.
     let mut actions = BTreeMap::new();
     let summary = preview_installation(
         &InstallationPreviewRequest {
@@ -97,6 +99,7 @@ fn run(work_dir: &Path) -> Result<()> {
             snapshot_id: new_id.clone(),
             destination_dir: app_dir.clone(),
             reuse_snapshot_id: Some(old_id.clone()),
+            publication: InstallationPublication::ReplaceDirectory,
             ..Default::default()
         },
         &mut |event| {
@@ -108,7 +111,7 @@ fn run(work_dir: &Path) -> Result<()> {
     )?;
     println!(
         "update preview: {actions:?}, {} bytes reusable from the installed 1.0",
-        summary.source_reuse_bytes
+        summary.reused_bytes
     );
 
     // Without `reuse_from`, content is reused from the destination itself.
@@ -119,12 +122,11 @@ fn run(work_dir: &Path) -> Result<()> {
         reuse_snapshot_id: Some(old_id),
         ..Default::default()
     })?;
-    let outcome = &updated.reconstruct_result;
     println!(
         "updated {} to 1.1: {} of {} chunks reused from 1.0",
         app_dir.display(),
-        outcome.reused_source_chunk_count,
-        outcome.required_chunk_count
+        updated.reused_chunk_count,
+        updated.required_chunk_count
     );
     Ok(())
 }

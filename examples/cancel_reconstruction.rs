@@ -113,9 +113,9 @@ fn run(work_dir: &Path) -> Result<()> {
     .issues;
     println!(
         "1.0 after the cancelled update: {} missing, {} corrupt, {} extra",
-        issues.missing_files.len(),
-        issues.corrupt_files.len(),
-        issues.extra_files.len()
+        issues.missing_file_count(),
+        issues.corrupt_file_count(),
+        issues.extra_file_count()
     );
     Ok(())
 }

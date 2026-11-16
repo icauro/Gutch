@@ -52,19 +52,6 @@ pub(crate) struct SnapshotReconstructSource<'a> {
     pub destination_dir: &'a Path,
 }
 
-#[derive(Debug, Clone)]
-pub struct InstallationReconstructOutcome {
-    pub snapshot_id: String,
-    pub destination_dir: PathBuf,
-    pub staging_dir: PathBuf,
-    pub reused_source_chunk_count: usize,
-    pub required_chunk_count: usize,
-    pub required_bundle_count: usize,
-    pub required_artifact_count: usize,
-    pub(crate) reconstruct_timings: ReconstructTimings,
-    pub(crate) verify_timings: VerifyTimings,
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct InstallationReconstructRequest {
     pub repo_root: PathBuf,
@@ -77,14 +64,23 @@ pub struct InstallationReconstructRequest {
     pub control: OperationControl,
 }
 
+/// What a reconstruction installed and how much existing content it reused.
 #[derive(Debug, Clone)]
 pub struct InstallationReconstructResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
-    pub reconstruct_result: InstallationReconstructOutcome,
-    pub resolved_bundle_file_count: usize,
-    pub resolved_artifact_file_count: usize,
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
+    pub staging_dir: PathBuf,
+    /// The folder content was reused from, when the request named one.
     pub reuse_from: Option<PathBuf>,
+    /// Chunks copied from content already on disk instead of read from the repository.
+    pub reused_chunk_count: usize,
+    pub required_chunk_count: usize,
+    pub required_bundle_count: usize,
+    pub required_artifact_count: usize,
+    pub(crate) reconstruct_timings: ReconstructTimings,
+    pub(crate) verify_timings: VerifyTimings,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -154,15 +150,13 @@ pub struct InstallationCorruptResult {
     pub applied_operation_count: usize,
 }
 
+/// What a selective publication found and changed in the destination.
 #[derive(Debug, Clone)]
-pub struct InstallationRepairOutcome {
-    pub snapshot_id: String,
-    pub destination_dir: PathBuf,
+pub(crate) struct InstallationRepairOutcome {
     pub missing_file_count: usize,
     pub corrupt_file_count: usize,
     pub extra_file_count: usize,
     pub removed_extra_file_count: usize,
-    pub reconstruct_result: Option<InstallationReconstructOutcome>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -187,10 +181,16 @@ pub struct InstallationRepairPlan {
     pub required_artifact_ids: Vec<String>,
 }
 
+/// What a repair found, replaced and removed.
 #[derive(Debug, Clone)]
 pub struct InstallationRepairResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
-    pub repair_result: InstallationRepairOutcome,
-    pub resolved_bundle_file_count: usize,
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
+    pub missing_file_count: usize,
+    pub corrupt_file_count: usize,
+    pub extra_file_count: usize,
+    pub removed_extra_file_count: usize,
+    pub required_bundle_count: usize,
 }

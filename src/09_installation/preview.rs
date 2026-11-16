@@ -62,8 +62,10 @@ pub struct InstallationPreviewSummary {
     pub content_inspected: bool,
     pub entry_count: usize,
     pub required_artifact_count: usize,
+    /// Bytes of files left in place; zero when the whole folder is rebuilt.
     pub retained_file_bytes: u64,
-    pub source_reuse_bytes: u64,
+    /// Bytes copied from content already on disk instead of read from the repository.
+    pub reused_bytes: u64,
     /// An estimate: logical bytes only, without filesystem allocation or backup overhead.
     pub staging_file_bytes: u64,
 }
@@ -178,7 +180,7 @@ pub fn preview_installation(
             entry_count: target_manifest.entries.len(),
             required_artifact_count: plan.required_artifact_count,
             retained_file_bytes,
-            source_reuse_bytes: source_reuse_bytes(&plan),
+            reused_bytes: reused_bytes(&plan),
             staging_file_bytes: execution_manifest.files().map(|file| file.size).sum(),
         })
     })
@@ -222,12 +224,15 @@ impl<'a> EntryActions<'a> {
             (InstallationAction::Add, "missing from destination")
         } else if let Some(&reason) = self.corrupt.get(path) {
             (InstallationAction::Replace, reason)
-        } else if !self.selective {
-            (InstallationAction::Replace, "complete staged replacement")
         } else if self.metadata_updates.contains(path) {
             (
                 InstallationAction::UpdateMetadata,
                 "content matches; metadata differs",
+            )
+        } else if !self.selective {
+            (
+                InstallationAction::Keep,
+                "unchanged; copied into the rebuilt folder",
             )
         } else if self.content_inspected {
             (InstallationAction::Keep, "matches target")
@@ -240,7 +245,7 @@ impl<'a> EntryActions<'a> {
     }
 
     /// Reports each target entry in path order and returns the bytes of the
-    /// files kept in place.
+    /// files left in place, which only a selective publication does.
     fn visit_target_entries(
         &self,
         request: &InstallationPreviewRequest,
@@ -256,10 +261,12 @@ impl<'a> EntryActions<'a> {
         for (path, entry) in entries {
             request.control.checkpoint()?;
             let (action, reason) = self.action(path);
-            if matches!(
-                action,
-                InstallationAction::Keep | InstallationAction::UpdateMetadata
-            ) {
+            if self.selective
+                && matches!(
+                    action,
+                    InstallationAction::Keep | InstallationAction::UpdateMetadata
+                )
+            {
                 retained_file_bytes += entry.as_file().map_or_default(|file| file.size);
             }
             visitor(InstallationPreviewEvent::Entry {
@@ -301,7 +308,7 @@ fn visit_extra_files(
 }
 
 /// Bytes the plan writes from the verified source instead of from artifacts.
-fn source_reuse_bytes(plan: &ReconstructPipelinePlan) -> u64 {
+fn reused_bytes(plan: &ReconstructPipelinePlan) -> u64 {
     plan.jobs
         .iter()
         .map(|job| match job {

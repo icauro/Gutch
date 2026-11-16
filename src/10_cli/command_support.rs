@@ -104,7 +104,7 @@ pub(crate) struct InstallationRepairStats {
     pub(crate) corrupt_file_count: usize,
     pub(crate) extra_file_count: usize,
     pub(crate) removed_extra_file_count: usize,
-    pub(crate) resolved_bundle_file_count: usize,
+    pub(crate) required_bundle_count: usize,
     pub(crate) elapsed_seconds: Option<f64>,
 }
 
@@ -126,15 +126,13 @@ pub(crate) struct SnapshotReconstructStats {
     pub(crate) destination_dir: String,
     pub(crate) staging_dir: String,
     pub(crate) reuse_snapshot_id: Option<String>,
-    pub(crate) source_destination_dir: Option<String>,
+    pub(crate) reuse_from: Option<String>,
     pub(crate) file_count: usize,
     pub(crate) required_chunk_count: usize,
     pub(crate) required_bundle_count: usize,
     pub(crate) required_artifact_count: usize,
-    pub(crate) resolved_bundle_file_count: usize,
-    pub(crate) resolved_artifact_file_count: usize,
-    pub(crate) reused_source_chunk_count: usize,
-    pub(crate) reused_source_chunk_percent: f64,
+    pub(crate) reused_chunk_count: usize,
+    pub(crate) reused_chunk_percent: f64,
     pub(crate) total_logical_size: u64,
     pub(crate) total_compressed_size_estimate: u64,
     pub(crate) reconstruct_timings: ReconstructTimingsSummary,
@@ -152,7 +150,7 @@ impl SnapshotReconstructStats {
         profile: Option<&Profiler>,
     ) -> Self {
         let manifest = &execution.snapshot_manifest;
-        let result = &execution.reconstruct_result;
+        let result = execution;
         Self {
             command: "installation reconstruct",
             repo_root: execution.repo_root.display().to_string(),
@@ -160,7 +158,7 @@ impl SnapshotReconstructStats {
             destination_dir: result.destination_dir.display().to_string(),
             staging_dir: result.staging_dir.display().to_string(),
             reuse_snapshot_id,
-            source_destination_dir: execution
+            reuse_from: execution
                 .reuse_from
                 .as_ref()
                 .map(|path| path.display().to_string()),
@@ -168,11 +166,9 @@ impl SnapshotReconstructStats {
             required_chunk_count: result.required_chunk_count,
             required_bundle_count: result.required_bundle_count,
             required_artifact_count: result.required_artifact_count,
-            resolved_bundle_file_count: execution.resolved_bundle_file_count,
-            resolved_artifact_file_count: execution.resolved_artifact_file_count,
-            reused_source_chunk_count: result.reused_source_chunk_count,
-            reused_source_chunk_percent: ratio_pct(
-                result.reused_source_chunk_count as u64,
+            reused_chunk_count: result.reused_chunk_count,
+            reused_chunk_percent: ratio_pct(
+                result.reused_chunk_count as u64,
                 result.required_chunk_count as u64,
             ),
             total_logical_size: manifest.total_logical_size,
@@ -200,10 +196,8 @@ impl SnapshotReconstructStats {
         ));
         if verbose_output_enabled() {
             output::line(format_args!(
-                "reused {} of {} chunks from source ({:.2}%)",
-                self.reused_source_chunk_count,
-                self.required_chunk_count,
-                self.reused_source_chunk_percent
+                "reused {} of {} chunks from existing content ({:.2}%)",
+                self.reused_chunk_count, self.required_chunk_count, self.reused_chunk_percent
             ));
             if let Some(fetch) = &self.fetch {
                 fetch.print_details();

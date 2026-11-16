@@ -12,7 +12,7 @@ from tests.helpers.cli import REPOSITORY, execute
 EXPECTED = {
     "capture_and_install": "0 missing, 0 corrupt, 0 extra",
     "update_installation": "chunks reused from 1.0",
-    "repair_installation": "after repair: 0 missing, 0 corrupt, 0 extra",
+    "repair_installation": "after repair: 0 missing, 0 corrupt, 0 extra; matches snapshot: true",
     "cancel_reconstruction": "1.0 after the cancelled update: 0 missing, 0 corrupt, 0 extra",
     "folder_remote": "0 missing, 0 corrupt",
 }

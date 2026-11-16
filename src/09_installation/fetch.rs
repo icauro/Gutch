@@ -112,10 +112,8 @@ pub fn fetch_and_reconstruct_installation(
             let transfer_stats = transfer_progress.stats(request.fetch_request.transfer_policy);
             let fetch_result = build_fetch_result(
                 &request.fetch_request,
-                reconstruct_result
-                    .reconstruct_result
-                    .required_artifact_count,
-                reconstruct_result.reconstruct_result.required_bundle_count,
+                reconstruct_result.required_artifact_count,
+                reconstruct_result.required_bundle_count,
                 pending_artifact_downloads.len(),
                 pending_artifact_downloads
                     .iter()

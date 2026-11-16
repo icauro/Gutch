@@ -39,13 +39,20 @@ pub fn repair_installation(
             },
         },
     )?;
+    let reconstruction = result.reconstruction;
+    let repair = result
+        .repair
+        .expect("selective publication returns repair result");
     Ok(InstallationRepairResult {
-        repo_root: result.reconstruction.repo_root,
-        snapshot_manifest: result.reconstruction.snapshot_manifest,
-        resolved_bundle_file_count: result.reconstruction.resolved_bundle_file_count,
-        repair_result: result
-            .repair
-            .expect("selective publication returns repair result"),
+        repo_root: reconstruction.repo_root,
+        snapshot_manifest: reconstruction.snapshot_manifest,
+        snapshot_id: reconstruction.snapshot_id,
+        destination_dir: reconstruction.destination_dir,
+        missing_file_count: repair.missing_file_count,
+        corrupt_file_count: repair.corrupt_file_count,
+        extra_file_count: repair.extra_file_count,
+        removed_extra_file_count: repair.removed_extra_file_count,
+        required_bundle_count: reconstruction.required_bundle_count,
     })
 }
 

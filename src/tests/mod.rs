@@ -135,11 +135,10 @@ fn apply_snapshot_ops_reuses_verified_source_destination() {
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
-    .unwrap()
-    .reconstruct_result;
+    .unwrap();
 
     assert!(
-        result.reused_source_chunk_count > 0,
+        result.reused_chunk_count > 0,
         "expected at least one source chunk to be reused"
     );
     assert!(destination_dir.join("shared.txt").exists());

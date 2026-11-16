@@ -370,8 +370,8 @@ fn run(work_dir: &Path) -> Result<()> {
     .issues;
     println!(
         "installed from the pulled copy: {} missing, {} corrupt",
-        issues.missing_files.len(),
-        issues.corrupt_files.len()
+        issues.missing_file_count(),
+        issues.corrupt_file_count()
     );
     Ok(())
 }

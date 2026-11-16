@@ -78,10 +78,8 @@ pub use crate::capture::sources::resolve_capture_sources;
 // Installation
 pub use crate::installation::InstallationCorruptPlan;
 pub use crate::installation::InstallationCorruptRequest;
-pub use crate::installation::InstallationReconstructOutcome;
 pub use crate::installation::InstallationReconstructRequest;
 pub use crate::installation::InstallationReconstructResult;
-pub use crate::installation::InstallationRepairOutcome;
 pub use crate::installation::InstallationRepairPlan;
 pub use crate::installation::InstallationRepairRequest;
 pub use crate::installation::InstallationRepairResult;

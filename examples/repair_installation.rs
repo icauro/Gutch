@@ -109,7 +109,7 @@ fn run(work_dir: &Path) -> Result<()> {
         plan.missing_file_count, plan.corrupt_file_count, plan.extra_file_count
     );
     println!("repairing:");
-    let repaired = repair_installation(&request)?.repair_result;
+    let repaired = repair_installation(&request)?;
     println!(
         "repaired {} files, removed {} extra",
         repaired.missing_file_count + repaired.corrupt_file_count,
@@ -118,10 +118,11 @@ fn run(work_dir: &Path) -> Result<()> {
 
     let issues = verify_installation(&verify)?.issues;
     println!(
-        "after repair: {} missing, {} corrupt, {} extra",
-        issues.missing_files.len(),
-        issues.corrupt_files.len(),
-        issues.extra_files.len()
+        "after repair: {} missing, {} corrupt, {} extra; matches snapshot: {}",
+        issues.missing_file_count(),
+        issues.corrupt_file_count(),
+        issues.extra_file_count(),
+        issues.matches_snapshot()
     );
     Ok(())
 }

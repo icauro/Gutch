@@ -160,7 +160,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
     assert_eq!(plan.required_bundle_count, 0);
     assert_eq!(plan.required_artifact_count, 0);
     assert!(plan.required_artifacts.is_empty());
-    assert_eq!(plan.reused_source_chunk_count, 1);
+    assert_eq!(plan.reused_chunk_count, 1);
     assert!(matches!(
         plan.jobs[0],
         ReconstructJob::CopySourceFile { .. }
@@ -215,7 +215,7 @@ fn pipeline_plan_reconstructs_changed_source_file_from_bundles() {
     .unwrap();
 
     assert_eq!(plan.required_bundle_count, 1);
-    assert_eq!(plan.reused_source_chunk_count, 0);
+    assert_eq!(plan.reused_chunk_count, 0);
     assert!(matches!(plan.jobs[0], ReconstructJob::Artifact(_)));
 }
 
@@ -270,7 +270,7 @@ fn pipeline_plan_mixes_source_and_bundle_chunks_for_changed_file() {
     .unwrap();
 
     assert_eq!(plan.required_bundle_count, 1);
-    assert_eq!(plan.reused_source_chunk_count, 1);
+    assert_eq!(plan.reused_chunk_count, 1);
     assert!(
         plan.jobs
             .iter()
@@ -455,7 +455,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
     )
     .unwrap();
 
-    assert_eq!(result.0.reconstruct_result.required_artifact_count, 1);
+    assert_eq!(result.0.required_artifact_count, 1);
     assert_eq!(fs::read(destination.join("game.exe")).unwrap(), b"game");
 }
 
@@ -1016,7 +1016,7 @@ fn pipeline_plan_preserves_fanout_targets_between_source_and_artifact_jobs() {
             artifact_ids,
             HashSet::from([first_bundle.to_string(), second_bundle.to_string()])
         );
-        assert_eq!(plan.reused_source_chunk_count, 11);
+        assert_eq!(plan.reused_chunk_count, 11);
         let first_artifact = ArtifactRef::Bundle {
             id: first_bundle.as_str().into(),
         };

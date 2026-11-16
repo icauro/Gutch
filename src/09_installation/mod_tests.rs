@@ -214,8 +214,7 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
-    .unwrap()
-    .repair_result;
+    .unwrap();
 
     assert_eq!(result.extra_file_count, 1);
     assert_eq!(result.removed_extra_file_count, 0);
@@ -243,8 +242,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
-    .unwrap()
-    .repair_result;
+    .unwrap();
 
     assert_eq!(result.extra_file_count, 2);
     assert_eq!(result.removed_extra_file_count, 2);

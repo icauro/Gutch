@@ -117,7 +117,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         runtime_hints: command.runtime.hints(),
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
     })?;
-    let result = execution.repair_result;
+    let result = &execution;
     let stats = InstallationRepairStats {
         command: "installation repair",
         repo_root: execution.repo_root.display().to_string(),
@@ -128,7 +128,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
         corrupt_file_count: result.corrupt_file_count,
         extra_file_count: result.extra_file_count,
         removed_extra_file_count: result.removed_extra_file_count,
-        resolved_bundle_file_count: execution.resolved_bundle_file_count,
+        required_bundle_count: execution.required_bundle_count,
         elapsed_seconds: diagnostic_seconds(started_at.elapsed(), profile.as_deref()),
     };
     write_stats_json_output(&stats, profile.as_deref())?;
@@ -396,9 +396,10 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
     let snapshot_manifest = execution.snapshot_manifest;
     let classification = execution.issues;
     let timings = execution.verify_timings;
-    let missing_file_count = classification.missing_files.len();
-    let corrupt_file_count = classification.corrupt_files.len();
-    let extra_file_count = classification.extra_files.len();
+    let missing_file_count = classification.missing_file_count();
+    let corrupt_file_count = classification.corrupt_file_count();
+    let extra_file_count = classification.extra_file_count();
+    let verification_passed = classification.matches_snapshot();
     // Extra entries are reported but do not fail verification: repair keeps them by default.
     let extra_files: Vec<String> = classification
         .extra_files
@@ -421,7 +422,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
         missing_file_count,
         corrupt_file_count,
         extra_file_count,
-        verification_passed: errors.is_empty(),
+        verification_passed,
         errors: errors.clone(),
         extra_files: extra_files.clone(),
         timings: verify_timings_summary(&timings, profile_mode(command.profile.as_deref())),

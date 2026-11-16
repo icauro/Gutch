@@ -180,7 +180,7 @@ struct PipelinePlanBuilder<'a> {
     /// The source catalog fixes one location for each hash; the size is
     /// checked before lookup.
     source_chunk_job_indices: HashMap<ChunkHash, usize>,
-    reused_source_chunk_count: usize,
+    reused_chunk_count: usize,
 }
 
 impl<'a> PipelinePlanBuilder<'a> {
@@ -198,7 +198,7 @@ impl<'a> PipelinePlanBuilder<'a> {
             chunk_targets: Vec::new(),
             artifact_job_indices: HashMap::new(),
             source_chunk_job_indices: HashMap::new(),
-            reused_source_chunk_count: 0,
+            reused_chunk_count: 0,
         }
     }
 
@@ -224,7 +224,7 @@ impl<'a> PipelinePlanBuilder<'a> {
             file_index,
             source_path,
         });
-        self.reused_source_chunk_count += file_manifest.chunks.len();
+        self.reused_chunk_count += file_manifest.chunks.len();
         Ok(())
     }
 
@@ -270,7 +270,7 @@ impl<'a> PipelinePlanBuilder<'a> {
         source_chunk: &SourceChunkLocation,
         target: ReconstructTarget,
     ) {
-        self.reused_source_chunk_count += 1;
+        self.reused_chunk_count += 1;
         if let Some(&job_index) = self.source_chunk_job_indices.get(&chunk_ref.chunk_hash) {
             let ReconstructJob::SourceChunk(source_job) = &mut self.jobs[job_index] else {
                 unreachable!("source chunk job index points to another job kind");
@@ -442,7 +442,7 @@ impl<'a> PipelinePlanBuilder<'a> {
             required_artifact_count: required_artifacts.len(),
             required_artifacts,
             required_chunk_count,
-            reused_source_chunk_count: self.reused_source_chunk_count,
+            reused_chunk_count: self.reused_chunk_count,
         }
     }
 }
@@ -497,10 +497,10 @@ pub(crate) fn build_installation_changes(
     chunk_index: Option<&ChunkIndex>,
     classification: InstallationIssues,
 ) -> Result<InstallationChanges> {
-    let missing_file_count = classification.missing_files.len();
-    let corrupt_file_count = classification.corrupt_files.len();
-    let extra_file_count = classification.extra_files.len();
-    let needs_rebuild = missing_file_count > 0 || corrupt_file_count > 0;
+    let missing_file_count = classification.missing_file_count();
+    let corrupt_file_count = classification.corrupt_file_count();
+    let extra_file_count = classification.extra_file_count();
+    let needs_rebuild = !classification.matches_snapshot();
     let affected_manifest = subset_manifest_for_issues(snapshot_manifest, &classification)?;
     let required_artifacts = if needs_rebuild {
         chunk_index

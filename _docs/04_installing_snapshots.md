@@ -91,7 +91,7 @@ the staging space it needs. It never changes the installation.
 
 | Option | Effect |
 | --- | --- |
-| `--mode replace-directory` | Preview a full reconstruct instead of a repair |
+| `--mode replace-directory` | Preview a full reconstruct instead of a repair; unchanged files still show as `keep`, though they are copied into the rebuilt folder |
 | `--remove-extra-files` | Preview removing entries the snapshot does not contain |
 | `--metadata-only` | Compare names, sizes and flags only; much faster, but cannot detect changed content of the same size |
 | `--reuse-snapshot`, `--reuse-from` | Account for content reused from another installation |

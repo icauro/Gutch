@@ -80,6 +80,8 @@ impl InstallationIssue {
     }
 }
 
+/// What verification found, by kind. Extra files are reported but do not
+/// stop an installation from matching its snapshot.
 #[derive(Debug, Clone, Default)]
 pub struct InstallationIssues {
     pub missing_files: Vec<InstallationIssue>,
@@ -88,6 +90,23 @@ pub struct InstallationIssues {
 }
 
 impl InstallationIssues {
+    /// True when no snapshot file is missing or corrupt; extra files are allowed.
+    pub fn matches_snapshot(&self) -> bool {
+        self.missing_files.is_empty() && self.corrupt_files.is_empty()
+    }
+
+    pub fn missing_file_count(&self) -> usize {
+        self.missing_files.len()
+    }
+
+    pub fn corrupt_file_count(&self) -> usize {
+        self.corrupt_files.len()
+    }
+
+    pub fn extra_file_count(&self) -> usize {
+        self.extra_files.len()
+    }
+
     pub(crate) fn push(&mut self, issue: InstallationIssue) {
         match issue.kind {
             InstallationIssueKind::Missing => self.missing_files.push(issue),

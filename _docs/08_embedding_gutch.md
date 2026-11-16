@@ -58,7 +58,12 @@ receives preview events, is passed beside the request. Simple lookups, such as
 | Remote | `push_repo`, `plan_push_repo`, `pull_repo`, `plan_pull_repo`, `bind_remote_repo`, `create_remote_repo`, `unbind_remote_repo` | `RepoPushRequest`, `RepoPushPlan`, `RepoPushResult`, `RepoPullRequest`, ... |
 
 See the crate documentation (`cargo doc -p gutch --open`) for the rest. Results
-are plain structs, the same data the CLI prints with `--json`. Errors are
+are plain structs, the same data the CLI prints with `--json`: for example
+`reconstruct_installation` returns `reused_chunk_count` directly, and
+`verify_installation` returns `issues`, whose `matches_snapshot()` is true when
+nothing is missing or corrupt. A preview defaults to what a repair would do;
+set `publication: InstallationPublication::ReplaceDirectory` to preview a
+reconstruction. Errors are
 `gutch::api::Error`; `error.exit_code()` gives the status the CLI would exit
 with.
 

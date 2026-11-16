@@ -172,13 +172,10 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
     }
 
     Ok(InstallationRepairOutcome {
-        snapshot_id: snapshot_manifest.snapshot_id.clone(),
-        destination_dir: destination_dir.to_path_buf(),
         missing_file_count: repair_plan.missing_file_count,
         corrupt_file_count: repair_plan.corrupt_file_count,
         extra_file_count: repair_plan.extra_file_count,
         removed_extra_file_count,
-        reconstruct_result: None,
     })
 }
 

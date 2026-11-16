@@ -146,7 +146,7 @@ fn reconstruction_salvages_healthy_files_from_a_partially_damaged_source() {
     fs::write(request.destination_dir.join("damaged"), b"broken").unwrap();
     request.reuse_snapshot_id = Some(request.snapshot_id.clone());
     let result = reconstruct_installation(&request).unwrap();
-    assert!(result.reconstruct_result.reused_source_chunk_count > 0);
+    assert!(result.reused_chunk_count > 0);
     assert_eq!(
         fs::read(request.destination_dir.join("damaged")).unwrap(),
         b"original content"
