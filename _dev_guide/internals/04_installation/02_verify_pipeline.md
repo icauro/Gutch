@@ -148,5 +148,5 @@ and `src/04_artifact/integrity.rs` for full-file hash-mode selection.
   — install and repair lifecycle around classification.
 - [`04_path_safety_and_conflicts.md`](04_path_safety_and_conflicts.md) — safe
   path resolution and destructive-action boundaries.
-- [`01_performance_and_benchmarks.md`](../06_development/01_performance_and_benchmarks.md) —
+- [`01_performance_and_benchmarks.md`](../../04_performance_and_benchmarks.md) —
   profiling and interpretation of wall versus worker time.

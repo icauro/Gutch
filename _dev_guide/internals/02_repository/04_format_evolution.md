@@ -93,12 +93,12 @@ exist for superseded prerelease layouts.
 
 ## Schemas and frozen evidence
 
-[`schemas/current/`](../../schemas/README.md) holds JSON Schemas generated from
+[`schemas/current/`](../../../schemas/README.md) holds JSON Schemas generated from
 the document types; a unit test fails when they drift. The parsers stay
 authoritative for rules a schema cannot express. Each frozen corpus repository
 under `tests/datasets/corpus/*/repository/format-v<N>/` is parsed by the current
 readers in unit tests and exercised end to end by the frozen scenario
-([correctness testing](../06_development/02_correctness_testing.md)).
+([correctness testing](../../05_correctness_testing.md)).
 
 `tests/harness_tests/test_release_freeze.py` compares the working tree with the
 latest `v<major>.<minor>.<patch>` tag. A file changed, added or removed inside a

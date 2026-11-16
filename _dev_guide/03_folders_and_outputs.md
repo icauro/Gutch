@@ -2,8 +2,8 @@
 
 | Folder | Holds |
 | --- | --- |
-| `_dev_guide/` | This guide: how to work on Gutch |
-| `_docs/` | How Gutch works, by topic |
+| `_dev_guide/` | This guide: how to work on Gutch, and the engine internals |
+| `_docs/` | The user guide: how to use Gutch |
 | `_tools/` | Maintained developer scripts |
 | `.artifacts/` | Generated test, benchmark, tool and experiment output |
 | `.builds/` | Compiler caches and build output |

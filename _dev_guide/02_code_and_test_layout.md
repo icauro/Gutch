@@ -1,5 +1,17 @@
 # Code and test layout
 
+## Source navigation
+
+Start with [the public API](../src/11_api.rs). [Capture](../src/08_capture) owns source
+selection through packing; [installation](../src/09_installation) owns inspection,
+change planning, execution and publication. [Transfer](../src/05_transfer) supplies
+artifact readiness, with separate scheduling, adaptive-policy and feedback owners.
+[Repository](../src/07_repo) owns acquisition, guarded readers, persistence, index
+recovery and synchronization. Installation coordinates combined fetch and
+reconstruction; [artifact](../src/04_artifact) owns the binary codecs. The
+[module map](internals/01_overview/01_operation_ownership.md#crate-and-module-map) records dependency boundaries.
+Runnable library examples live in `examples/`.
+
 ## Where work belongs
 
 | Work | Location |

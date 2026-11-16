@@ -11,4 +11,4 @@ GUTCH_UPDATE_SCHEMAS=1 cargo test --lib document_schemas
 The Gutch parsers are authoritative. They also enforce rules a schema cannot
 express, such as valid packaging pairs and tag formats. Each release copies
 `current/` to `v<major>/`, which is never changed afterwards. See
-`_docs/02_repository/04_format_evolution.md`.
+`_dev_guide/internals/02_repository/04_format_evolution.md`.

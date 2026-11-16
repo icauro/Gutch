@@ -87,7 +87,7 @@ its repository is captured per run and must match the pinned snapshot IDs.
 New frozen binary format generations get new folders; existing synthetic
 repositories are never automatically rebuilt. Once a release tag exists,
 `test_release_freeze.py` fails if a folder that tag holds changes; see
-[format evolution](../02_repository/04_format_evolution.md).
+[format evolution](internals/02_repository/04_format_evolution.md).
 
 The default frozen scenario runs the shared lifecycle over all small corpus
 repositories. `--dataset blender --steps 0 --timeout 1800` selects the full real-world
@@ -95,7 +95,7 @@ case and automatically prepares missing downloads before its scenario deadline.
 This tests current-engine capture and reconstruction against pinned expectations;
 the small frozen synthetic cases retain historical format coverage.
 `--repository-version` selects a repository recipe (a frozen binary-format folder
-for synthetic cases). See [dataset corpus](../../tests/datasets/README.md) for preparation,
+for synthetic cases). See [dataset corpus](../tests/datasets/README.md) for preparation,
 byte-driven fuzz generation, size limits and the explicit freezing command.
 
 `tests/repository_suite.py` runs the same lifecycle for the frozen fixture,

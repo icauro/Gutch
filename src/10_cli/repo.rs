@@ -64,7 +64,15 @@ pub(crate) fn run(
             on_conflict,
             prune,
             confirm,
-        } => repo_remote::pull(repo, remote_repo_id, on_conflict, prune, confirm, host, profile),
+        } => repo_remote::pull(
+            repo,
+            remote_repo_id,
+            on_conflict,
+            prune,
+            confirm,
+            host,
+            profile,
+        ),
         RepoCommands::Remote { command } => match command {
             RemoteCommands::List => repo_remote::list(host),
             RemoteCommands::TagReferences { repo } => tag_references(repo, host),

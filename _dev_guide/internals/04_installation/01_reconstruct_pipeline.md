@@ -344,5 +344,5 @@ and positioned writes belong to `09_installation/execute/handles.rs`.
   — install lifecycle and repair behavior around the engine.
 - [`04_path_safety_and_conflicts.md`](04_path_safety_and_conflicts.md) — path
   containment, staging, and overwrite rules.
-- [`01_performance_and_benchmarks.md`](../06_development/01_performance_and_benchmarks.md) —
+- [`01_performance_and_benchmarks.md`](../../04_performance_and_benchmarks.md) —
   runtime, transfer, tracing, and throughput interpretation.

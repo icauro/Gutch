@@ -211,7 +211,7 @@ manifest finalization, `src/04_artifact/chunk.rs` for shared chunk scanning, and
   selection and snapshot identity before scanning.
 - [`04_packaging_and_bundles.md`](04_packaging_and_bundles.md) — artifact and
   storage contracts after the scan plan.
-- [`01_performance_and_benchmarks.md`](../06_development/01_performance_and_benchmarks.md) —
+- [`01_performance_and_benchmarks.md`](../../04_performance_and_benchmarks.md) —
   runtime overrides, profiling, and benchmark interpretation.
 
 ## Bundle sizing target and probe

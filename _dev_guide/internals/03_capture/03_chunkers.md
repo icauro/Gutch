@@ -72,4 +72,4 @@ with a directory containing the builds. The fixture compares FastCDC 128 KiB,
 JC 256 KiB, and VRAM-256 with a 128 KiB window, using zstd 3 and 8 MiB bundles.
 It runs three repetitions with reconstruction and corruption repair. Targets do
 not normalize actual chunk counts or reuse. See the implementation's
-[reference and provenance](../../src/04_artifact/ram/README.md).
+[reference and provenance](../../../src/04_artifact/ram/README.md).

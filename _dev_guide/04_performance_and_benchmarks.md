@@ -150,8 +150,8 @@ authority for success or failure.
 
 ## Correctness and Benchmark Datasets
 
-[Correctness testing](02_correctness_testing.md) uses the shared immutable
-[dataset corpus](../../tests/datasets/README.md). Benchmarks can select the same
+[Correctness testing](05_correctness_testing.md) uses the shared immutable
+[dataset corpus](../tests/datasets/README.md). Benchmarks can select the same
 case with `--dataset` after its source has been prepared. Both consumers own their
 working copies and result directories. Ordinary tests stay offline; explicitly
 selecting Blender prepares missing downloads automatically.
@@ -225,7 +225,7 @@ The opt-in `08_gutch_default_memory_with_corrupt_repair` fixture records streame
 process-memory samples at a requested 2 ms interval beside each command, plus peak summaries and phase
 traces. Unsupported counters remain null. These measurements include mapped
 pages and worker stacks; they are not allocation accounting. Sampling and traces
-are disabled in off and summary modes. See the [benchmark instructions](../../tests/benchmarks/README.md#process-memory-profiling).
+are disabled in off and summary modes. See the [benchmark instructions](../tests/benchmarks/README.md#process-memory-profiling).
 
 Manifests, indexes, classifications, and job plans still grow with input size.
 The shared installation executor and artifact admission budget do not establish
@@ -240,9 +240,9 @@ fixed total process memory for arbitrarily large repositories.
 - Fixture regeneration replaces expected current-format artifacts and must be
   reviewed with the matching contract change.
 
-For stage-by-stage execution details, see [`02_scan_pipeline.md`](../03_capture/02_scan_pipeline.md),
-[`01_reconstruct_pipeline.md`](../04_installation/01_reconstruct_pipeline.md), and
-[`02_verify_pipeline.md`](../04_installation/02_verify_pipeline.md).
+For stage-by-stage execution details, see [`02_scan_pipeline.md`](internals/03_capture/02_scan_pipeline.md),
+[`01_reconstruct_pipeline.md`](internals/04_installation/01_reconstruct_pipeline.md), and
+[`02_verify_pipeline.md`](internals/04_installation/02_verify_pipeline.md).
 
 ## Binary metadata measurements
 

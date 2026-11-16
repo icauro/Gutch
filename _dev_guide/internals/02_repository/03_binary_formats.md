@@ -202,8 +202,8 @@ it replaces the map only after successful validation, and `--dry-run` only
 reports. Regeneration cannot
 recover missing blueprints, paths or payload bytes.
 
-Sources: [envelope](../../src/04_artifact/metadata.rs),
-[blueprint columns](../../src/05_manifest/blueprint_columns.rs),
-[map codec](../../src/07_repo/index/binary_codec.rs),
-[bundle codec](../../src/04_artifact/bundle.rs), [loose codec](../../src/04_artifact/loose.rs),
-[identity](../../src/06_snapshot/identity.rs), [recovery](../../src/07_repo/recovery.rs).
+Sources: [envelope](../../../src/04_artifact/metadata.rs),
+[blueprint columns](../../../src/05_manifest/blueprint_columns.rs),
+[map codec](../../../src/07_repo/index/binary_codec.rs),
+[bundle codec](../../../src/04_artifact/bundle.rs), [loose codec](../../../src/04_artifact/loose.rs),
+[identity](../../../src/06_snapshot/identity.rs), [recovery](../../../src/07_repo/recovery.rs).

@@ -2,7 +2,7 @@
 //!
 //! The three groups are paths, entry metadata, and explicit chunk sequences.
 //! Each group stores whole columns consecutively, not one record at a time.
-//! See _docs/02_repository/03_binary_formats.md for the exact v1 wire layout.
+//! See _dev_guide/internals/02_repository/03_binary_formats.md for the exact v1 wire layout.
 //!
 //! Path rows contain sorted ancestor directories followed by sorted entries.
 //! Directory IDs are one-based; zero denotes the implicit root. Entry IDs are
