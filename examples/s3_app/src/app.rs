@@ -63,43 +63,97 @@ pub struct App {
     status_is_error: bool,
 }
 
+/// What the app remembers between runs, in eframe's settings file
+/// (`app.ron` in the platform's app data folder). The secret key is left out
+/// on purpose: it comes from `AWS_SECRET_ACCESS_KEY` or is typed each run.
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+struct Saved {
+    endpoint: String,
+    region: String,
+    bucket: String,
+    prefix: String,
+    path_style: bool,
+    access_key_id: String,
+    cache_dir: String,
+    new_scope: String,
+    tags: String,
+    source: Option<PathBuf>,
+    destination: Option<PathBuf>,
+}
+
+impl Default for Saved {
+    /// The first run starts from the usual AWS variables.
+    fn default() -> Self {
+        let region = variable("AWS_REGION").unwrap_or_else(|| "us-east-1".into());
+        Self {
+            endpoint: variable("AWS_ENDPOINT_URL")
+                .unwrap_or_else(|| format!("https://s3.{region}.amazonaws.com")),
+            region,
+            bucket: String::new(),
+            prefix: "gutch".into(),
+            path_style: false,
+            access_key_id: String::new(),
+            cache_dir: default_cache_dir().display().to_string(),
+            new_scope: "team".into(),
+            tags: "version=1.0".into(),
+            source: None,
+            destination: None,
+        }
+    }
+}
+
+const SAVED_KEY: &str = "settings";
+
 impl App {
-    /// Fills the connection from the usual AWS variables. The secret is never saved.
-    pub fn new() -> Self {
-        let variable = |name: &str| std::env::var(name).unwrap_or_default();
-        let region = Some(variable("AWS_REGION"))
-            .filter(|region| !region.is_empty())
-            .unwrap_or_else(|| "us-east-1".into());
+    /// Restores the last run's settings. The key pair from the environment,
+    /// when set, wins over the saved key ID so the two always match.
+    pub fn new(storage: Option<&dyn eframe::Storage>) -> Self {
+        let saved: Saved = storage
+            .and_then(|storage| eframe::get_value(storage, SAVED_KEY))
+            .unwrap_or_default();
         Self {
             settings: S3Settings {
-                endpoint: Some(variable("AWS_ENDPOINT_URL"))
-                    .filter(|endpoint| !endpoint.is_empty())
-                    .unwrap_or_else(|| format!("https://s3.{region}.amazonaws.com")),
-                region,
-                bucket: String::new(),
-                prefix: "gutch".into(),
-                path_style: false,
-                access_key_id: variable("AWS_ACCESS_KEY_ID"),
-                secret_access_key: variable("AWS_SECRET_ACCESS_KEY"),
+                endpoint: saved.endpoint,
+                region: saved.region,
+                bucket: saved.bucket,
+                prefix: saved.prefix,
+                path_style: saved.path_style,
+                access_key_id: variable("AWS_ACCESS_KEY_ID").unwrap_or(saved.access_key_id),
+                secret_access_key: variable("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
             },
-            cache_dir: std::env::temp_dir()
-                .join("gutch-s3-app")
-                .display()
-                .to_string(),
+            cache_dir: saved.cache_dir,
             remote: None,
             repos: Vec::new(),
             repo_id: None,
-            new_scope: "team".into(),
+            new_scope: saved.new_scope,
             new_name: String::new(),
             snapshots: Vec::new(),
             snapshot_id: None,
-            source: None,
-            tags: "version=1.0".into(),
-            destination: None,
+            source: saved.source,
+            tags: saved.tags,
+            destination: saved.destination,
             installed_snapshot_id: None,
             job: None,
             status: "Fill in the bucket and connect.".into(),
             status_is_error: false,
+        }
+    }
+
+    fn saved(&self) -> Saved {
+        let settings = &self.settings;
+        Saved {
+            endpoint: settings.endpoint.clone(),
+            region: settings.region.clone(),
+            bucket: settings.bucket.clone(),
+            prefix: settings.prefix.clone(),
+            path_style: settings.path_style,
+            access_key_id: settings.access_key_id.clone(),
+            cache_dir: self.cache_dir.clone(),
+            new_scope: self.new_scope.clone(),
+            tags: self.tags.clone(),
+            source: self.source.clone(),
+            destination: self.destination.clone(),
         }
     }
 
@@ -200,32 +254,68 @@ impl App {
         ui.heading("Bucket");
         egui::Grid::new("connection").num_columns(2).show(ui, |ui| {
             let settings = &mut self.settings;
-            ui.label("Endpoint");
-            ui.text_edit_singleline(&mut settings.endpoint);
-            ui.end_row();
-            ui.label("Region");
-            ui.text_edit_singleline(&mut settings.region);
-            ui.end_row();
-            ui.label("Bucket");
-            ui.text_edit_singleline(&mut settings.bucket);
-            ui.end_row();
-            ui.label("Key prefix");
-            ui.text_edit_singleline(&mut settings.prefix);
-            ui.end_row();
+            field(
+                ui,
+                "Endpoint",
+                "The S3 service address, for example https://s3.eu-central-1.amazonaws.com, \
+                 or http://localhost:9000 for a local MinIO server.",
+                egui::TextEdit::singleline(&mut settings.endpoint),
+            );
+            field(
+                ui,
+                "Region",
+                "The bucket's region, for example eu-central-1. \
+                 MinIO and most other servers accept us-east-1.",
+                egui::TextEdit::singleline(&mut settings.region),
+            );
+            field(
+                ui,
+                "Bucket",
+                "An existing bucket. The app does not create buckets.",
+                egui::TextEdit::singleline(&mut settings.bucket),
+            );
+            field(
+                ui,
+                "Key prefix",
+                "The folder in the bucket that holds Gutch's objects, such as gutch. \
+                 Leave it empty to use the bucket root.",
+                egui::TextEdit::singleline(&mut settings.prefix),
+            );
             ui.label("");
-            ui.checkbox(&mut settings.path_style, "Path-style URLs (MinIO)");
+            ui.checkbox(&mut settings.path_style, "Path-style URLs (MinIO)")
+                .on_hover_text(
+                    "Address objects as endpoint/bucket/key instead of bucket.endpoint/key. \
+                     Turn it on for MinIO and other servers without bucket subdomains.",
+                );
             ui.end_row();
-            ui.label("Access key ID");
-            ui.text_edit_singleline(&mut settings.access_key_id);
-            ui.end_row();
-            ui.label("Secret key");
-            ui.add(egui::TextEdit::singleline(&mut settings.secret_access_key).password(true));
-            ui.end_row();
-            ui.label("Local cache");
-            ui.text_edit_singleline(&mut self.cache_dir);
-            ui.end_row();
+            field(
+                ui,
+                "Access key ID",
+                "The ID of an access key that may read, write, list and delete objects \
+                 below the prefix. Filled in from AWS_ACCESS_KEY_ID when it is set.",
+                egui::TextEdit::singleline(&mut settings.access_key_id),
+            );
+            field(
+                ui,
+                "Secret key",
+                "The access key's secret. It is kept in memory only and never saved; \
+                 set AWS_SECRET_ACCESS_KEY to avoid typing it each time.",
+                egui::TextEdit::singleline(&mut settings.secret_access_key).password(true),
+            );
+            field(
+                ui,
+                "Local cache",
+                "Where the app keeps a local copy of each repository it opens. \
+                 Captures go into it before upload, and installs read from it. \
+                 Deleting it is safe: the app downloads again what it needs.",
+                egui::TextEdit::singleline(&mut self.cache_dir),
+            );
         });
-        if ui.button("Connect").clicked() {
+        if ui
+            .button("Connect")
+            .on_hover_text("Sign in to the bucket and list its repositories.")
+            .clicked()
+        {
             self.connect(ui.ctx());
         }
     }
@@ -235,7 +325,11 @@ impl App {
         let mut opened = None;
         for repo in &self.repos {
             let selected = self.repo_id.as_deref() == Some(&repo.repository_id);
-            if ui.selectable_label(selected, &repo.repository_id).clicked() {
+            if ui
+                .selectable_label(selected, &repo.repository_id)
+                .on_hover_text("Open this repository and list its snapshots.")
+                .clicked()
+            {
                 opened = Some(repo.repository_id.clone());
             }
         }
@@ -249,14 +343,23 @@ impl App {
                 egui::TextEdit::singleline(&mut self.new_scope)
                     .hint_text("scope")
                     .desired_width(70.0),
+            )
+            .on_hover_text(
+                "Groups repositories, for example by team or product. \
+                 The repository ID becomes SCOPE--NAME.",
             );
             ui.add(
                 egui::TextEdit::singleline(&mut self.new_name)
                     .hint_text("name")
                     .desired_width(110.0),
-            );
+            )
+            .on_hover_text("The repository's name within the scope.");
         });
-        if ui.button("Create").clicked() {
+        if ui
+            .button("Create")
+            .on_hover_text("Create an empty repository in the bucket.")
+            .clicked()
+        {
             let (scope, name) = (self.new_scope.clone(), self.new_name.clone());
             self.start(ui.ctx(), "Create", move |remote, control| {
                 let repo_id = remote.create_repo(&scope, &name, control)?;
@@ -293,14 +396,21 @@ impl App {
                     .num_columns(3)
                     .striped(true)
                     .show(ui, |ui| {
-                        ui.strong("Snapshot");
+                        ui.strong("Snapshot").on_hover_text(
+                            "A snapshot is a captured folder. Its ID is a hash of the \
+                             content, so the same content always has the same ID.",
+                        );
                         ui.strong("Tags");
                         ui.strong("Created");
                         ui.end_row();
                         for snapshot in &self.snapshots {
                             let id = &snapshot.snapshot_id;
                             let selected = self.snapshot_id.as_ref() == Some(id);
-                            if ui.selectable_label(selected, short(id)).clicked() {
+                            if ui
+                                .selectable_label(selected, short(id))
+                                .on_hover_text(id)
+                                .clicked()
+                            {
                                 self.snapshot_id = Some(id.clone());
                             }
                             ui.label(snapshot.tags.join(" "));
@@ -314,18 +424,30 @@ impl App {
     fn capture_section(&mut self, ui: &mut egui::Ui, repo_id: &str) {
         ui.heading("Capture and push");
         ui.horizontal(|ui| {
-            if ui.button("Source folder…").clicked() {
+            if ui
+                .button("Source folder…")
+                .on_hover_text("The folder to capture, with everything in it.")
+                .clicked()
+            {
                 self.source = rfd::FileDialog::new().pick_folder().or(self.source.take());
             }
             ui.label(path_label(&self.source));
         });
         ui.horizontal(|ui| {
             ui.label("Tags");
-            ui.text_edit_singleline(&mut self.tags);
+            ui.text_edit_singleline(&mut self.tags).on_hover_text(
+                "key=value pairs that describe the snapshot, separated by spaces, \
+                 for example version=1.2 os=windows.",
+            );
         });
         let ready = self.source.is_some();
         if ui
             .add_enabled(ready, egui::Button::new("Capture and push"))
+            .on_hover_text(
+                "Capture the folder as a snapshot and upload it. Only content the \
+                 bucket does not already have is uploaded.",
+            )
+            .on_disabled_hover_text("Pick a source folder first.")
             .clicked()
         {
             let (repo_id, tags) = (repo_id.to_owned(), self.tags.clone());
@@ -343,7 +465,11 @@ impl App {
     fn install_section(&mut self, ui: &mut egui::Ui, repo_id: &str) {
         ui.heading("Install the selected snapshot");
         ui.horizontal(|ui| {
-            if ui.button("Destination folder…").clicked() {
+            if ui
+                .button("Destination folder…")
+                .on_hover_text("The folder to install into, verify or repair.")
+                .clicked()
+            {
                 self.destination = rfd::FileDialog::new()
                     .pick_folder()
                     .or(self.destination.take());
@@ -351,7 +477,11 @@ impl App {
             ui.label(path_label(&self.destination));
         });
         ui.horizontal(|ui| {
-            ui.label("Already installed there");
+            ui.label("Already installed there").on_hover_text(
+                "The snapshot the destination holds now. Installing a newer snapshot \
+                 then keeps the files that did not change and only writes the rest. \
+                 Choose nothing for an empty folder.",
+            );
             egui::ComboBox::from_id_salt("installed")
                 .selected_text(
                     self.installed_snapshot_id
@@ -375,7 +505,14 @@ impl App {
         };
         let repo_id = repo_id.to_owned();
         ui.horizontal(|ui| {
-            if ui.button("Install").clicked() {
+            if ui
+                .button("Install")
+                .on_hover_text(
+                    "Make the destination match the selected snapshot, downloading \
+                     what is missing from the bucket.",
+                )
+                .clicked()
+            {
                 let installed = self.installed_snapshot_id.clone();
                 let (repo_id, snapshot_id, destination) =
                     (repo_id.clone(), snapshot_id.clone(), destination.clone());
@@ -394,7 +531,14 @@ impl App {
                     })
                 });
             }
-            if ui.button("Verify").clicked() {
+            if ui
+                .button("Verify")
+                .on_hover_text(
+                    "Check the destination against the selected snapshot and count \
+                     missing, changed (corrupt) and extra files. Changes nothing.",
+                )
+                .clicked()
+            {
                 let (repo_id, snapshot_id, destination) =
                     (repo_id.clone(), snapshot_id.clone(), destination.clone());
                 self.start(ui.ctx(), "Verify", move |remote, control| {
@@ -404,7 +548,14 @@ impl App {
                     })
                 });
             }
-            if ui.button("Repair").clicked() {
+            if ui
+                .button("Repair")
+                .on_hover_text(
+                    "Restore missing and changed files from the selected snapshot. \
+                     Files the snapshot does not have are left alone.",
+                )
+                .clicked()
+            {
                 self.start(ui.ctx(), "Repair", move |remote, control| {
                     Ok(Outcome {
                         message: remote.repair(&repo_id, &snapshot_id, &destination, control)?,
@@ -418,7 +569,11 @@ impl App {
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         if let Some(job) = &self.job {
             ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
+                if ui
+                    .button("Cancel")
+                    .on_hover_text("Stop the operation as soon as it can stop safely.")
+                    .clicked()
+                {
                     job.cancel.cancel();
                 }
                 let (fraction, text) = match &job.last_event {
@@ -440,6 +595,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, SAVED_KEY, &self.saved());
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.receive_updates();
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
@@ -468,6 +627,27 @@ impl eframe::App for App {
             });
         });
     }
+}
+
+/// One labelled row of a grid. The tooltip shows on both label and field.
+fn field(ui: &mut egui::Ui, label: &str, tooltip: &str, widget: impl egui::Widget) {
+    ui.label(label).on_hover_text(tooltip);
+    ui.add(widget).on_hover_text(tooltip);
+    ui.end_row();
+}
+
+fn variable(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+/// The platform's cache folder: `%LOCALAPPDATA%` on Windows,
+/// `~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or `~/.cache` on Linux.
+fn default_cache_dir() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Gutch S3")
 }
 
 /// Bytes when the phase moves data, otherwise items.

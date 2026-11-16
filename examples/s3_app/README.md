@@ -31,10 +31,26 @@ Gutch's own builds and tests. Run its tests with `cargo test` in this folder.
 | Path-style URLs | On for MinIO and other servers without bucket subdomains |
 | Access key ID, secret key | Credentials allowed to read, write, list and delete objects below the prefix |
 
-The app fills in the credentials from `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY` when they are set, and the endpoint and region from
-`AWS_ENDPOINT_URL` and `AWS_REGION`. It never saves the secret; it is kept in
-memory only while the app runs.
+Hover over a field or button to see what it does.
+
+On the first run the app fills in the endpoint and region from
+`AWS_ENDPOINT_URL` and `AWS_REGION`. When `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` are set, it always uses them.
+
+## Settings and cache
+
+The app remembers the connection fields, the cache folder, the tags and the
+last folders you picked. It never saves the secret key: set
+`AWS_SECRET_ACCESS_KEY`, or type the key each time you start the app.
+
+| | Settings (`app.ron`) | Default cache folder |
+| --- | --- | --- |
+| Windows | `%APPDATA%\Gutch S3\data` | `%LOCALAPPDATA%\Gutch S3` |
+| macOS | `~/Library/Application Support/Gutch-S3` | `~/Library/Caches/Gutch S3` |
+| Linux | `$XDG_DATA_HOME/gutchs3` or `~/.local/share/gutchs3` | `$XDG_CACHE_HOME/Gutch S3` or `~/.cache/Gutch S3` |
+
+You can delete the cache folder at any time; the app downloads again what it
+needs.
 
 The bucket must support conditional writes (`If-None-Match: *`), which Gutch
 uses to allow only one push to a repository at a time. AWS S3, MinIO and R2 do.
@@ -47,7 +63,7 @@ described in
 [Storage remotes](../../_docs/08_embedding_gutch.md#storage-remotes).
 
 The app keeps a full copy of each repository it opens in the local cache folder
-(`CACHE/SCOPE/NAME`; the default is a folder in the system temp directory).
+(`CACHE/SCOPE/NAME`).
 Before each operation it pulls new snapshots from the bucket into that copy.
 A capture goes into the copy and is then pushed; installs, verifies and repairs
 read from the copy. [`src/ops.rs`](src/ops.rs) has these operations without the

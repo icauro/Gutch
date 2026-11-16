@@ -16,6 +16,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Gutch S3",
         options,
-        Box::new(|_| Ok(Box::new(app::App::new()))),
+        Box::new(|creation| Ok(Box::new(app::App::new(creation.storage)))),
     )
 }
