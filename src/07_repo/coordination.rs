@@ -141,24 +141,13 @@ fn with_repository_transaction<T>(
     DEFERRED_ARTIFACT_DELETIONS.with(|paths| paths.borrow_mut().remove(&root));
     match work().and_then(|value| {
         control.checkpoint()?;
-        if root.join("repo_metadata.json").exists() {
-            let (_, repository) = super::paths::load_gutch_repo_manifest(&root)?;
-            if let Some(constraints) = repository.constraints {
-                super::updates::validate_repository_tag_constraints(&root, &constraints)?;
-            }
-        }
+        validate_committable(&root)?;
         Ok(value)
     }) {
         Ok(value) => {
             publish_generation(&root, &journal)?;
             fs::remove_file(&pending)?;
-            let paths = DEFERRED_ARTIFACT_DELETIONS
-                .with(|paths| paths.borrow_mut().remove(&root).unwrap_or_default());
-            for path in paths {
-                // Metadata is committed. Locked obsolete artifacts remain
-                // orphans for a later cleanup; they cannot undo this mutation.
-                let _ = fs::remove_file(path);
-            }
+            delete_deferred_artifacts(&root);
             Ok(value)
         }
         Err(error) => {
@@ -173,6 +162,44 @@ fn with_repository_transaction<T>(
             fs::remove_file(&pending)?;
             Err(error)
         }
+    }
+}
+
+/// Commit the metadata changed so far by the write transaction this thread
+/// holds on `root`. A later failure in the same transaction restores this
+/// point instead of the transaction's start. The commit covers every change
+/// made under the held lock, including those of enclosing operations.
+pub(crate) fn commit_completed_changes(root: &Path) -> Result<()> {
+    let root = fs::canonicalize(root)?;
+    if HELD_REPOSITORY_LOCKS.with(|held| held.borrow().get(&root).copied()) != Some(true) {
+        return Err(Error::repository(
+            "committing completed changes needs the repository write lock",
+        ));
+    }
+    validate_committable(&root)?;
+    publish_generation(&root, &root.join(TRANSACTIONS_DIR))?;
+    delete_deferred_artifacts(&root);
+    Ok(())
+}
+
+/// Checks that need the complete metadata of a write before it is committed.
+fn validate_committable(root: &Path) -> Result<()> {
+    if root.join("repo_metadata.json").exists() {
+        let (_, repository) = super::paths::load_gutch_repo_manifest(root)?;
+        if let Some(constraints) = repository.constraints {
+            super::updates::validate_repository_tag_constraints(root, &constraints)?;
+        }
+    }
+    Ok(())
+}
+
+fn delete_deferred_artifacts(root: &Path) {
+    let paths = DEFERRED_ARTIFACT_DELETIONS
+        .with(|paths| paths.borrow_mut().remove(root).unwrap_or_default());
+    for path in paths {
+        // Metadata is committed. Locked obsolete artifacts remain orphans for
+        // a later cleanup; they cannot undo this mutation.
+        let _ = fs::remove_file(path);
     }
 }
 

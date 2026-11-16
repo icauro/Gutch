@@ -100,6 +100,31 @@ fn failed_mutation_restores_all_metadata_and_retains_artifacts() {
 }
 
 #[test]
+fn a_later_failure_restores_the_last_completed_changes() {
+    let root = tempfile::tempdir().unwrap();
+    crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
+    let chunk_map = root.path().join("chunk_map.gtcbin");
+    let result: Result<()> = write(root.path(), || {
+        std::fs::write(&chunk_map, b"completed")?;
+        commit_completed_changes(root.path())?;
+        std::fs::write(&chunk_map, b"partial")?;
+        Err(Error::repository("injected later failure"))
+    });
+    assert!(result.is_err());
+    assert_eq!(std::fs::read(&chunk_map).unwrap(), b"completed");
+    assert!(!root.path().join(".gutch-transactions/pending").exists());
+}
+
+#[test]
+fn completed_changes_need_the_write_lock() {
+    let root = tempfile::tempdir().unwrap();
+    crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
+    assert!(commit_completed_changes(root.path()).is_err());
+    let nested = read(root.path(), || commit_completed_changes(root.path()));
+    assert!(nested.is_err());
+}
+
+#[test]
 fn interrupted_publication_is_rejected_by_readers_and_recovered_by_writer() {
     let root = tempfile::tempdir().unwrap();
     crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();

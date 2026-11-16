@@ -31,6 +31,7 @@ use crate::capture::scan::validate_source_inventory;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
+use crate::repo::coordination::commit_completed_changes;
 use crate::repo::coordination::write_with_control;
 use crate::repo::index::required_bundle_ids;
 use crate::repo::index::required_chunk_hashes;
@@ -115,6 +116,8 @@ fn capture_repository_group(
                 &build_pool,
             )?);
             write_gutch_repo_manifest(&repo_paths, &manifest)?;
+            // A later failure in this batch keeps the snapshots captured so far.
+            commit_completed_changes(&repo_root)?;
         }
         Ok(results)
     })
