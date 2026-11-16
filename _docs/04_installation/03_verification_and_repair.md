@@ -127,9 +127,9 @@ files and unrelated destination entries.
 
 The execution graph, artifact/source reuse, output-handle cache, and remote
 download overlap are detailed in
-[`reconstruct_pipeline.md`](reconstruct_pipeline.md). Verification lane
+[`01_reconstruct_pipeline.md`](01_reconstruct_pipeline.md). Verification lane
 scheduling and hash modes are detailed in
-[`verify_pipeline.md`](verify_pipeline.md).
+[`02_verify_pipeline.md`](02_verify_pipeline.md).
 
 Selective repair stages and verifies required bytes before publishing entries.
 Publication is not an atomic multi-file transaction. An I/O failure during

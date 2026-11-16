@@ -85,7 +85,7 @@ errors are accepted; process crashes are failures. This is mutation testing, not
 coverage-guided fuzzing or automatic failure minimization. No extra suite folders
 are needed for these input strategies.
 
-See [the correctness contract](../_docs/development/correctness_testing.md)
+See [the correctness contract](../_docs/06_development/02_correctness_testing.md)
 for supported assertions, fixture policy and evidence details.
 
 Progress announces each selected scenario before execution. Commands and scenario

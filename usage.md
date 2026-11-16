@@ -18,7 +18,7 @@ The standalone executable runs local artifact commands directly. Embedded hosts
 can supply a remote command provider for `repo remote bind`, `repo remote create`, `repo push`,
 `repo pull`, `repo remote list`, `repo remote unbind`, and `repo tags references`.
 The generic `--scope-id` is opaque to Gutch; the provider defines its meaning.
-See the [provider integration contract](_docs/integration/cli_and_app_integration.md).
+See the [provider integration contract](_docs/05_integration/01_cli_and_app_integration.md).
 
 `repo rename` changes the local `repository_name` in `repo_metadata.json`; it
 does not rename the filesystem directory or a linked remote repo.
@@ -48,7 +48,7 @@ FastCDC at 128 KiB and JC at 256 KiB, including reconstruction and corruption re
 ## Launch options
 
 The JSON formats and inheritance behavior are defined in
-[`snapshot_runtime_metadata.md`](_docs/repository/snapshot_runtime_metadata.md).
+[`02_snapshot_runtime_metadata.md`](_docs/02_repository/02_snapshot_runtime_metadata.md).
 
 ## Preview installation changes
 

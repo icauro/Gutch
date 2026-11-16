@@ -11,7 +11,7 @@ manifest, chunk references, and new repo artifacts. It owns filesystem
 enumeration, file and chunk hashing, previous-snapshot reuse, global chunk
 deduplication, bundle or loose-chunk packaging, and snapshot-manifest
 finalization. Source selection and tag identity are defined in
-[`source_ingestion.md`](source_ingestion.md).
+[`01_source_ingestion.md`](01_source_ingestion.md).
 
 The pipeline reads source content and writes repo artifacts. It does not decide
 creator access, authorize remote storage, or commit app install metadata.
@@ -200,11 +200,11 @@ manifest finalization, `src/04_artifact/chunk.rs` for shared chunk scanning, and
 
 ## Related pages
 
-- [`source_ingestion.md`](source_ingestion.md) — source
+- [`01_source_ingestion.md`](01_source_ingestion.md) — source
   selection and snapshot identity before scanning.
-- [`packaging_and_bundles.md`](packaging_and_bundles.md) — artifact and
+- [`04_packaging_and_bundles.md`](04_packaging_and_bundles.md) — artifact and
   storage contracts after the scan plan.
-- [`performance_and_benchmarks.md`](../development/performance_and_benchmarks.md) —
+- [`01_performance_and_benchmarks.md`](../06_development/01_performance_and_benchmarks.md) —
   runtime overrides, profiling, and benchmark interpretation.
 
 ## Bundle sizing target and probe

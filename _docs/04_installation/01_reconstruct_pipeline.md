@@ -12,7 +12,7 @@ reuse a verified source snapshot, or consume bundles downloaded by the remote
 fetch path. Required content is written through local staging. Reconstruction publishes the
 completed tree through a locked, recoverable backup-and-rename sequence. Repair
 uses the same executor with selective entry publication; its failure boundary is
-described in [installation policies](verification_and_repair.md).
+described in [installation policies](03_verification_and_repair.md).
 
 In the current remote flow, “remote reconstruction” means remote artifacts are
 made available to the local engine; Gutch does not reconstruct into a remote
@@ -152,7 +152,7 @@ writing during destruction. Positional writes and worker-local handles remain
 with the handle/I/O owner, independently of decoding and scheduling.
 
 Artifact work uses the automatic/explicit working-memory budget policy described
-for [capture](../capture/scan_pipeline.md#parallelization-and-resource-limits). The
+for [capture](../03_capture/02_scan_pipeline.md#parallelization-and-resource-limits). The
 coordinator admits jobs only when both a worker slot and their memory reservation
 are available. Waiting jobs stay queued; eligible verification and smaller jobs
 can proceed. Artifact jobs reserve 136 MiB for the bounded decoder window and
@@ -274,7 +274,7 @@ so verified chunks at their planned offsets reproduce the expected file. After
 all producing jobs for a file finish, its final check confirms only that the
 completed output has the expected size. Damage after a successful write, such
 as a storage fault, is outside this check; explicit verification
-([`verify_pipeline.md`](verify_pipeline.md)) reads and hashes the
+([`02_verify_pipeline.md`](02_verify_pipeline.md)) reads and hashes the
 installed files.
 
 ## Timeline and diagnostic evidence
@@ -319,13 +319,13 @@ and positioned writes belong to `09_installation/execute/handles.rs`.
 
 ## Related pages
 
-- [`packaging_and_bundles.md`](../capture/packaging_and_bundles.md) — blueprint,
+- [`04_packaging_and_bundles.md`](../03_capture/04_packaging_and_bundles.md) — blueprint,
   chunk-map, bundle, and loose-chunk contracts.
-- [`verify_pipeline.md`](verify_pipeline.md) — file verification and
+- [`02_verify_pipeline.md`](02_verify_pipeline.md) — file verification and
   classification after reconstruction.
-- [`verification_and_repair.md`](verification_and_repair.md)
+- [`03_verification_and_repair.md`](03_verification_and_repair.md)
   — install lifecycle and repair behavior around the engine.
-- [`path_safety_and_conflicts.md`](path_safety_and_conflicts.md) — path
+- [`04_path_safety_and_conflicts.md`](04_path_safety_and_conflicts.md) — path
   containment, staging, and overwrite rules.
-- [`performance_and_benchmarks.md`](../development/performance_and_benchmarks.md) —
+- [`01_performance_and_benchmarks.md`](../06_development/01_performance_and_benchmarks.md) —
   runtime, transfer, tracing, and throughput interpretation.

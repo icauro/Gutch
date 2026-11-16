@@ -140,7 +140,7 @@ authority for success or failure.
 
 ## Correctness and Benchmark Datasets
 
-[Correctness testing](correctness_testing.md) uses the shared immutable
+[Correctness testing](02_correctness_testing.md) uses the shared immutable
 [dataset corpus](../../tests/datasets/README.md). Benchmarks can select the same
 case with `--dataset` after its source has been prepared. Both consumers own their
 working copies and result directories. Ordinary tests stay offline; explicitly
@@ -230,9 +230,9 @@ fixed total process memory for arbitrarily large repositories.
 - Fixture regeneration replaces expected current-format artifacts and must be
   reviewed with the matching contract change.
 
-For stage-by-stage execution details, see [`scan_pipeline.md`](../capture/scan_pipeline.md),
-[`reconstruct_pipeline.md`](../installation/reconstruct_pipeline.md), and
-[`verify_pipeline.md`](../installation/verify_pipeline.md).
+For stage-by-stage execution details, see [`02_scan_pipeline.md`](../03_capture/02_scan_pipeline.md),
+[`01_reconstruct_pipeline.md`](../04_installation/01_reconstruct_pipeline.md), and
+[`02_verify_pipeline.md`](../04_installation/02_verify_pipeline.md).
 
 ## Binary metadata measurements
 

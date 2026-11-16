@@ -70,7 +70,7 @@ A directory promotion cleanup failure is reported as an
 include `committed: true`. The CLI prints the warning and its JSON on stderr.
 It does not change the exit status or the selected success result. Normal successful promotion emits no diagnostic
 warning. Failure diagnostics and JSON export are documented in
-[CLI integration](../integration/cli_and_app_integration.md).
+[CLI integration](../05_integration/01_cli_and_app_integration.md).
 
 A retained owned directory backup is excluded from snapshot listings and its removal is retried
 before the next promotion. Its owner marker is removed once the backup is

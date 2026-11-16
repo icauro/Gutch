@@ -5,7 +5,7 @@ All commands below run from this directory; no containing project is required.
 
 1. Run `python gutch.py test` to establish a baseline. It runs Python tooling,
    Rust tests and local CLI scenarios. S3 is an explicit additional suite.
-2. Find the owner in the [module map](_docs/overview/operation_ownership.md#crate-and-module-map). Public contracts live in
+2. Find the owner in the [module map](_docs/01_overview/01_operation_ownership.md#crate-and-module-map). Public contracts live in
    `src/11_api.rs`; algorithm tests stay beside the Rust implementation.
 3. Find a relevant scenario with `python gutch.py test --list`. A case such as
    `repository/deletion_preserves_shared_artifacts` maps directly to

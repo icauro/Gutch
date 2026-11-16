@@ -34,9 +34,9 @@ summaries are assembled inside Gutch.
 
 Host adapters own remote routes, authentication, response decoding and translation
 into provider contracts. Gutch owns generic remote command syntax and local
-repository operations. See the [provider integration contract](integration/cli_and_app_integration.md).
+repository operations. See the [provider integration contract](05_integration/01_cli_and_app_integration.md).
 Tracked-repo config persistence receives an explicit path from the caller.
-The [operation and module map](overview/operation_ownership.md) records integration
+The [operation and module map](01_overview/01_operation_ownership.md) records integration
 boundaries and implementation ownership.
 
 ## Component Responsibilities
@@ -92,46 +92,47 @@ A progress event describes operation phase and presentation detail. The final
 
 ## Pages
 
-Read the overview first; the topic folders follow the order of an operation.
+Folder and page numbers give the reading order: the overview first, then the
+topics in the order an operation runs.
 
 - **Overview**
-  - [Operation ownership](overview/operation_ownership.md) — operations,
+  - [Operation ownership](01_overview/01_operation_ownership.md) — operations,
     integration boundaries and the module map.
-  - [Limitations](overview/limitations.md) — unsupported capabilities, current
+  - [Limitations](01_overview/02_limitations.md) — unsupported capabilities, current
     boundaries and established reasons.
 - **Repository**
-  - [Repositories, snapshots and tags](repository/repositories_snapshots_and_tags.md)
+  - [Repositories, snapshots and tags](02_repository/01_repositories_snapshots_and_tags.md)
     — repository metadata, tags and snapshot identity.
-  - [Snapshot runtime metadata](repository/snapshot_runtime_metadata.md) —
+  - [Snapshot runtime metadata](02_repository/02_snapshot_runtime_metadata.md) —
     runtime and launch behavior stored with a snapshot.
-  - [Binary file layouts](repository/binary_formats.md) — serialized fields,
+  - [Binary file layouts](02_repository/03_binary_formats.md) — serialized fields,
     arrays, storage modes and exact byte-size formulas.
-  - [Format evolution](repository/format_evolution.md) — repository, document,
+  - [Format evolution](02_repository/04_format_evolution.md) — repository, document,
     binary and output versions, refusal rules and the release checklist.
 - **Capture**
-  - [Source ingestion](capture/source_ingestion.md) — source selection and
+  - [Source ingestion](03_capture/01_source_ingestion.md) — source selection and
     snapshot identity.
-  - [Scan pipeline](capture/scan_pipeline.md) — source inventory, chunking,
+  - [Scan pipeline](03_capture/02_scan_pipeline.md) — source inventory, chunking,
     reuse and capture parallelism.
-  - [Chunkers](capture/chunkers.md) — selectable chunking algorithms and their
+  - [Chunkers](03_capture/03_chunkers.md) — selectable chunking algorithms and their
     comparison tools.
-  - [Packaging and bundles](capture/packaging_and_bundles.md) — bundle and
+  - [Packaging and bundles](03_capture/04_packaging_and_bundles.md) — bundle and
     loose-chunk artifact contracts.
 - **Installation**
-  - [Reconstruct pipeline](installation/reconstruct_pipeline.md) —
+  - [Reconstruct pipeline](04_installation/01_reconstruct_pipeline.md) —
     reconstruction jobs, staging, cache and remote fetch overlap.
-  - [Verify pipeline](installation/verify_pipeline.md) — verification modes,
+  - [Verify pipeline](04_installation/02_verify_pipeline.md) — verification modes,
     hashing and worker scheduling.
-  - [Verification and repair](installation/verification_and_repair.md) —
+  - [Verification and repair](04_installation/03_verification_and_repair.md) —
     installation policies, change previews and repair.
-  - [Path safety and conflicts](installation/path_safety_and_conflicts.md) —
+  - [Path safety and conflicts](04_installation/04_path_safety_and_conflicts.md) —
     path ownership, filename limits and conflict policies.
 - **Integration**
-  - [CLI and application integration](integration/cli_and_app_integration.md) —
+  - [CLI and application integration](05_integration/01_cli_and_app_integration.md) —
     the CLI, the public API, providers and structured output.
 - **Development**
-  - [Performance and benchmarks](development/performance_and_benchmarks.md) —
+  - [Performance and benchmarks](06_development/01_performance_and_benchmarks.md) —
     runtime planning, profiling and benchmark execution.
-  - [Correctness testing](development/correctness_testing.md) — the test
+  - [Correctness testing](06_development/02_correctness_testing.md) — the test
     runner, scenarios and the frozen corpus.
-  - [CLI builds](development/cli_builds.md) — release builds in GitHub Actions.
+  - [CLI builds](06_development/03_cli_builds.md) — release builds in GitHub Actions.

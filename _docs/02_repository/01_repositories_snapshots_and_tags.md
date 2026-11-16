@@ -79,7 +79,7 @@ Already sorted entries avoid a second allocation and sort.
 
 Repository, snapshot and product runtime metadata are at `document_version`
 `1.0.0`, and repositories declare format 1; see
-[format evolution](format_evolution.md) for markers and refusal rules. Binary
+[format evolution](04_format_evolution.md) for markers and refusal rules. Binary
 format versions are unchanged. During prerelease, identity changes are applied
 directly without a format bump or compatibility layer.
 Repositories captured with the previous identity algorithm must be recaptured
