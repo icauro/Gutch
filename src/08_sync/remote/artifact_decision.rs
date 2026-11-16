@@ -16,7 +16,9 @@ pub(super) enum ArtifactDecision {
     KeepLocal,
 }
 
-pub(super) fn repo_file_hash(bytes: &[u8]) -> String {
+/// The hash a provider reports for a stored remote file (`RemoteRepo` and
+/// `RemoteSnapshot` `*_hash_b3` fields): lowercase BLAKE3 hex of its bytes.
+pub fn remote_artifact_hash(bytes: &[u8]) -> String {
     hash_hex(&blake3::hash(bytes))
 }
 
@@ -28,7 +30,7 @@ pub(super) fn verify_remote_artifact(bytes: &[u8], expected_hash: &str, label: &
             "remote did not record a hash for the {label}"
         )));
     }
-    let actual_hash = repo_file_hash(bytes);
+    let actual_hash = remote_artifact_hash(bytes);
     if actual_hash != expected_hash {
         return Err(Error::HashMismatch {
             expected: format!("{label} {expected_hash}"),

@@ -184,6 +184,7 @@ pub use crate::sync::remote::plan_pull_repo;
 pub use crate::sync::remote::plan_push_repo;
 pub use crate::sync::remote::pull_repo;
 pub use crate::sync::remote::push_repo;
+pub use crate::sync::remote::remote_artifact_hash;
 pub use crate::sync::remote::remote_tag_references;
 pub use crate::sync::remote::unbind_remote_repo;
 

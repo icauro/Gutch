@@ -28,7 +28,7 @@ use rayon::prelude::*;
 use crate::repo::paths::RepoPaths;
 
 /// The repository whose chunk index to rebuild from its stored artifacts.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RepoIndexRebuildRequest {
     pub repo_root: PathBuf,
     pub control: OperationControl,

@@ -17,7 +17,7 @@ use crate::repo::summarize_snapshot_tags;
 pub(crate) fn plan_capture_source(
     repo_root: &Path,
     source_dir: &Path,
-    explicit_tags: &SnapshotTagSet,
+    tags: &SnapshotTagSet,
     control: &OperationControl,
 ) -> Result<SnapshotCapturePlan> {
     let _plan_span = control.profile_span("capture.prepare_source.plan_snapshot");
@@ -25,9 +25,9 @@ pub(crate) fn plan_capture_source(
     repository
         .constraints
         .unwrap_or_default()
-        .validate_snapshot_tags(explicit_tags, &source_dir.display().to_string())?;
+        .validate_snapshot_tags(tags, &source_dir.display().to_string())?;
 
-    let snapshot_tags = explicit_tags.normalized()?;
+    let snapshot_tags = tags.normalized()?;
     let folder_name = source_dir
         .file_name()
         .and_then(|value| value.to_str())

@@ -130,8 +130,8 @@ fn apply_snapshot_ops_reuses_verified_source_destination() {
         snapshot_id: v2.snapshot_manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir.clone()),
-        source_snapshot_id: Some(v1.snapshot_manifest.snapshot_id.clone()),
-        source_dir: Some(destination_dir.clone()),
+        reuse_snapshot_id: Some(v1.snapshot_manifest.snapshot_id.clone()),
+        reuse_from: Some(destination_dir.clone()),
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
@@ -365,8 +365,8 @@ fn large_game_build_200mb() {
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         destination_dir: out_dir.clone(),
         staging_dir: None,
-        source_snapshot_id: None,
-        source_dir: None,
+        reuse_snapshot_id: None,
+        reuse_from: None,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })

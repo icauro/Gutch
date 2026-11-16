@@ -112,7 +112,7 @@ pub(crate) struct ReconstructArgs {
     pub(crate) staging_dir: Option<PathBuf>,
     /// Installed snapshot whose content may be reused.
     #[arg(long = "reuse-snapshot", value_name = "ID")]
-    pub(crate) source_snapshot_id: Option<String>,
+    pub(crate) reuse_snapshot_id: Option<String>,
     /// Directory holding the reusable installed snapshot.
     #[arg(long = "reuse-from", value_name = "DIR", value_parser = parse_cli_path)]
     pub(crate) source_dir: Option<PathBuf>,

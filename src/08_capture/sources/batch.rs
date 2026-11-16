@@ -24,7 +24,7 @@ pub fn plan_capture_snapshots(
             plan_capture_source(
                 &request.repo_root,
                 &request.source_dir,
-                &request.explicit_tags,
+                &request.tags,
                 &request.control,
             )
         })

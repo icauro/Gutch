@@ -16,7 +16,7 @@ struct EmptyReader;
 impl RemoteRepoReader for EmptyReader {
     fn resolve_repo(
         &self,
-        _remote_spec: Option<&str>,
+        _remote_repo_id: Option<&str>,
         _bound_remote_repo_id: Option<&str>,
     ) -> Result<RemoteRepo> {
         Ok(RemoteRepo {
@@ -99,7 +99,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
             &crate::capture::contracts::SnapshotCaptureRequest {
                 repo_root: repo.clone(),
                 source_dir: source.clone(),
-                explicit_tags: Default::default(),
+                tags: Default::default(),
                 chunk_profile,
                 chunker: crate::artifact::profiles::Chunker::FastCdc,
                 bundle_profile: Default::default(),

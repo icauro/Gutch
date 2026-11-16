@@ -12,6 +12,7 @@ mod provider;
 mod pull;
 mod push;
 
+pub use artifact_decision::remote_artifact_hash;
 pub use link::RemoteRepoBindRequest;
 pub use link::RemoteRepoBindResult;
 pub use link::RemoteRepoCreateRequest;

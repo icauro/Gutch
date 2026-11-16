@@ -20,7 +20,7 @@ fn fixture() -> (tempfile::TempDir, InstallationReconstructRequest) {
     let capture = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source,
-        explicit_tags: SnapshotTagSet::default(),
+        tags: SnapshotTagSet::default(),
         chunk_profile: Default::default(),
         chunker: gutch::api::Chunker::FastCdc,
         bundle_profile: Default::default(),
@@ -39,8 +39,8 @@ fn fixture() -> (tempfile::TempDir, InstallationReconstructRequest) {
         snapshot_id: capture.snapshot_id,
         destination_dir: root.path().join("installed"),
         staging_dir: None,
-        source_snapshot_id: None,
-        source_dir: None,
+        reuse_snapshot_id: None,
+        reuse_from: None,
         runtime_hints: RuntimeResourceHints {
             jobs: Some(2),
             ..Default::default()
@@ -63,8 +63,8 @@ fn preview(
             snapshot_id: request.snapshot_id.clone(),
             destination_dir: request.destination_dir.clone(),
             staging_dir: request.staging_dir.clone(),
-            source_snapshot_id: request.source_snapshot_id.clone(),
-            source_dir: request.source_dir.clone(),
+            reuse_snapshot_id: request.reuse_snapshot_id.clone(),
+            reuse_from: request.reuse_from.clone(),
             publication,
             inspection,
             runtime_hints: request.runtime_hints,
@@ -144,7 +144,7 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
 fn reconstruction_salvages_healthy_files_from_a_partially_damaged_source() {
     let (_root, mut request) = fixture();
     fs::write(request.destination_dir.join("damaged"), b"broken").unwrap();
-    request.source_snapshot_id = Some(request.snapshot_id.clone());
+    request.reuse_snapshot_id = Some(request.snapshot_id.clone());
     let result = reconstruct_installation(&request).unwrap();
     assert!(result.reconstruct_result.reused_source_chunk_count > 0);
     assert_eq!(

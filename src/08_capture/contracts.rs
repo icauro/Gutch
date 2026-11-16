@@ -23,11 +23,11 @@ pub struct SnapshotCapturePlan {
     pub snapshot_tags: SnapshotTagSet,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SnapshotCaptureRequest {
     pub repo_root: PathBuf,
     pub source_dir: PathBuf,
-    pub explicit_tags: SnapshotTagSet,
+    pub tags: SnapshotTagSet,
     pub chunk_profile: ChunkSizingPreset,
     pub chunker: Chunker,
     pub bundle_profile: BundleSizingPreset,

@@ -106,8 +106,7 @@ fn assert_api_and_cli_capture_equivalent(
     let captured = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source.clone(),
-        explicit_tags: SnapshotTagSet::from_compact_strings(&["version=1.0.0".to_string()])
-            .unwrap(),
+        tags: SnapshotTagSet::from_compact_strings(&["version=1.0.0".to_string()]).unwrap(),
         chunk_profile: Default::default(),
         chunker,
         bundle_profile: Default::default(),
@@ -187,8 +186,8 @@ fn assert_api_and_cli_capture_equivalent(
             snapshot_id: captured.snapshot_id.clone(),
             destination_dir: destination.clone(),
             staging_dir: None,
-            source_snapshot_id: None,
-            source_dir: None,
+            reuse_snapshot_id: None,
+            reuse_from: None,
             runtime_hints: RuntimeResourceHints {
                 jobs: Some(1),
                 ..Default::default()
@@ -225,8 +224,8 @@ fn cancelled_reconstruction_preserves_destination_and_does_not_create_staging() 
         snapshot_id: "a".repeat(64),
         destination_dir: destination.clone(),
         staging_dir: Some(staging.clone()),
-        source_snapshot_id: None,
-        source_dir: None,
+        reuse_snapshot_id: None,
+        reuse_from: None,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default().with_cancellation(Arc::new(Cancelled)),
     });

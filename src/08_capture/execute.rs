@@ -136,7 +136,7 @@ pub(crate) fn execute_repo_snapshot_capture(
     validate_source_inventory(&source_inventory, &constraints)?;
     let snapshot_tags = {
         let _span = control.profile_span("capture.prepare_source.resolve_tags");
-        let snapshot_tags = request.explicit_tags.normalized()?;
+        let snapshot_tags = request.tags.normalized()?;
         constraints
             .validate_snapshot_tags(&snapshot_tags, &request.source_dir.display().to_string())?;
         snapshot_tags

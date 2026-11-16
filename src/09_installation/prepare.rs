@@ -29,15 +29,15 @@ impl LoadedSnapshotSource {
     /// Loads the source snapshot when one is named; its files default to the destination.
     pub(super) fn load(
         repo_paths: &RepoPaths,
-        source_snapshot_id: Option<&str>,
+        reuse_snapshot_id: Option<&str>,
         source_dir: Option<&Path>,
         destination_dir: &Path,
     ) -> Result<Option<Self>> {
-        let Some(source_snapshot_id) = source_snapshot_id else {
+        let Some(reuse_snapshot_id) = reuse_snapshot_id else {
             return Ok(None);
         };
         Ok(Some(Self {
-            snapshot_manifest: load_snapshot_manifest(repo_paths, source_snapshot_id)?,
+            snapshot_manifest: load_snapshot_manifest(repo_paths, reuse_snapshot_id)?,
             directory: source_dir.unwrap_or(destination_dir).to_path_buf(),
         }))
     }

@@ -22,8 +22,9 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum InstallationInspection {
+    #[default]
     Content,
     MetadataOnly,
 }
@@ -68,14 +69,14 @@ pub struct InstallationPreviewSummary {
 }
 
 /// What to preview: the reconstruct inputs plus how the result would be published.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InstallationPreviewRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
-    pub source_snapshot_id: Option<String>,
-    pub source_dir: Option<PathBuf>,
+    pub reuse_snapshot_id: Option<String>,
+    pub reuse_from: Option<PathBuf>,
     pub publication: InstallationPublication,
     pub inspection: InstallationInspection,
     pub runtime_hints: RuntimeResourceHints,
@@ -126,7 +127,7 @@ pub fn preview_installation(
             &target_manifest
         };
         let source_manifest = request
-            .source_snapshot_id
+            .reuse_snapshot_id
             .as_ref()
             .map(|id| load_snapshot_manifest(&repo_paths, id))
             .transpose()?;
@@ -137,7 +138,7 @@ pub fn preview_installation(
                     .map(|manifest| SnapshotReconstructSource {
                         snapshot_manifest: manifest,
                         destination_dir: request
-                            .source_dir
+                            .reuse_from
                             .as_deref()
                             .unwrap_or(&request.destination_dir),
                     }),

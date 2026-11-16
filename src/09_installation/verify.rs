@@ -30,7 +30,7 @@ pub fn verify_installation(
         Ok(InstallationVerifyResult {
             repo_root: repo_paths.repo_root,
             snapshot_manifest,
-            classification,
+            issues: classification,
             verify_timings,
         })
     })

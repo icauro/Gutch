@@ -125,7 +125,7 @@ pub(crate) struct SnapshotReconstructStats {
     pub(crate) snapshot_id: String,
     pub(crate) destination_dir: String,
     pub(crate) staging_dir: String,
-    pub(crate) source_snapshot_id: Option<String>,
+    pub(crate) reuse_snapshot_id: Option<String>,
     pub(crate) source_destination_dir: Option<String>,
     pub(crate) file_count: usize,
     pub(crate) required_chunk_count: usize,
@@ -147,7 +147,7 @@ pub(crate) struct SnapshotReconstructStats {
 impl SnapshotReconstructStats {
     pub(crate) fn new(
         execution: &InstallationReconstructResult,
-        source_snapshot_id: Option<String>,
+        reuse_snapshot_id: Option<String>,
         fetch: Option<SnapshotFetchStats>,
         profile: Option<&Profiler>,
     ) -> Self {
@@ -159,9 +159,9 @@ impl SnapshotReconstructStats {
             snapshot_id: result.snapshot_id.clone(),
             destination_dir: result.destination_dir.display().to_string(),
             staging_dir: result.staging_dir.display().to_string(),
-            source_snapshot_id,
+            reuse_snapshot_id,
             source_destination_dir: execution
-                .source_destination_dir
+                .reuse_from
                 .as_ref()
                 .map(|path| path.display().to_string()),
             file_count: manifest.file_count(),

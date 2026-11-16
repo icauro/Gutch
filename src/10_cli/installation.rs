@@ -48,7 +48,7 @@ pub(crate) struct ReconstructCommand {
     pub(crate) snapshot_id: String,
     pub(crate) destination: PathBuf,
     pub(crate) staging_dir: Option<PathBuf>,
-    pub(crate) source_snapshot_id: Option<String>,
+    pub(crate) reuse_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime: RuntimeArgs,
     pub(crate) dry_run: bool,
@@ -246,7 +246,7 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
         snapshot_id,
         destination,
         staging_dir,
-        source_snapshot_id,
+        reuse_snapshot_id,
         source_dir,
         runtime,
         dry_run,
@@ -263,7 +263,7 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
                 snapshot_id,
                 destination,
                 staging_dir,
-                source_snapshot_id,
+                reuse_snapshot_id,
                 source_dir,
                 runtime,
                 dry_run,
@@ -283,7 +283,7 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
             },
             destination,
             staging_dir,
-            source_snapshot_id,
+            reuse_snapshot_id,
             source_dir,
             runtime_hints: runtime.hints(),
         },
@@ -314,8 +314,8 @@ fn preview(arguments: PreviewArgs, profile: &Profile) -> crate::Result<()> {
         snapshot_id: arguments.snapshot_id,
         destination_dir: arguments.destination,
         staging_dir: arguments.staging_dir,
-        source_snapshot_id: arguments.source_snapshot,
-        source_dir: arguments.source_dir,
+        reuse_snapshot_id: arguments.source_snapshot,
+        reuse_from: arguments.source_dir,
         publication,
         inspection,
         runtime_hints: arguments.runtime.hints(),
@@ -356,7 +356,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
                 publication: PreviewPublication::ReplaceDirectory,
                 remove_extra_files: true,
                 metadata_only: false,
-                source_snapshot: command.source_snapshot_id,
+                source_snapshot: command.reuse_snapshot_id,
                 source_dir: command.source_dir,
                 runtime: command.runtime,
             },
@@ -368,14 +368,14 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),
         staging_dir: command.staging_dir.clone(),
-        source_snapshot_id: command.source_snapshot_id.clone(),
-        source_dir: command.source_dir.clone(),
+        reuse_snapshot_id: command.reuse_snapshot_id.clone(),
+        reuse_from: command.source_dir.clone(),
         runtime_hints: command.runtime.hints(),
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
     })?;
     SnapshotReconstructStats::new(
         &execution,
-        command.source_snapshot_id,
+        command.reuse_snapshot_id,
         None,
         profile.as_deref(),
     )
@@ -394,7 +394,7 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
     })?;
     let repo_root = execution.repo_root;
     let snapshot_manifest = execution.snapshot_manifest;
-    let classification = execution.classification;
+    let classification = execution.issues;
     let timings = execution.verify_timings;
     let missing_file_count = classification.missing_files.len();
     let corrupt_file_count = classification.corrupt_files.len();

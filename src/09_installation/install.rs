@@ -19,11 +19,14 @@ use crate::repo::coordination::read_with_control;
 use crate::repo::index::load_chunk_index;
 use crate::transfer::types::TransferConcurrencyPolicy;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InstallationPublication {
+    #[default]
     ReplaceDirectory,
-    Selective { extra_files: ExtraFilePolicy },
+    Selective {
+        extra_files: ExtraFilePolicy,
+    },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,8 +100,8 @@ pub(crate) fn install_snapshot_from_repo(
             .collect();
         let source = LoadedSnapshotSource::load(
             &repo_paths,
-            request.source_snapshot_id.as_deref(),
-            request.source_dir.as_deref(),
+            request.reuse_snapshot_id.as_deref(),
+            request.reuse_from.as_deref(),
             &request.destination_dir,
         )?;
         let prepared = prepare_reconstruction(ReconstructInputs {

@@ -28,7 +28,7 @@ pub(crate) const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metada
 pub(crate) const SNAPSHOT_BLUEPRINT_FILE: &str = "snapshot_blueprint.gtcbin";
 
 /// Two snapshots of one repository to compare.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SnapshotDiffRequest {
     pub repo_root: PathBuf,
     pub from_snapshot_id: String,

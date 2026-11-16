@@ -78,6 +78,7 @@ SCENARIOS = [
     Scenario("delivery.failed_downloads_preserve_installation", "local"),
     Scenario("delivery.interrupted_download_can_retry", "local"),
     Scenario("capture.concurrent_runs_are_isolated", "local"),
+    Scenario("library.examples_run", "local"),
     Scenario("delivery.s3_fetch_reconstruct_and_repair", "s3"),
 ]
 
@@ -110,6 +111,7 @@ def main(arguments=None):
             "reconstruction",
             "delivery",
             "repair",
+            "library",
         ),
         default="check",
         help="check: tooling, Rust and local scenarios; s3/all require Docker",
@@ -289,6 +291,20 @@ def main(arguments=None):
             REPOSITORY,
             environment,
             root / "build.log",
+            timeout=900,
+        )
+        execute(
+            [
+                "cargo",
+                "build",
+                "--locked",
+                "--examples",
+                "--manifest-path",
+                REPOSITORY / "Cargo.toml",
+            ],
+            REPOSITORY,
+            environment,
+            root / "examples-build.log",
             timeout=900,
         )
         executable = (

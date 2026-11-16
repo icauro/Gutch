@@ -1,7 +1,7 @@
 //! Hashes of the local repo files that a push or pull compares with the remote.
 //! A missing local file hashes to an empty string.
 
-use super::artifact_decision::repo_file_hash;
+use super::artifact_decision::remote_artifact_hash;
 use crate::Result;
 use crate::artifact::hash::hash_hex;
 use crate::artifact::integrity::hash_file;
@@ -30,9 +30,9 @@ pub(super) fn local_snapshot_metadata_hash_b3(
     let Some(manifest) = load_local_snapshot(repo_paths, snapshot_id)? else {
         return Ok(String::new());
     };
-    Ok(repo_file_hash(&serialize_snapshot_metadata_for_remote(
-        &manifest,
-    )?))
+    Ok(remote_artifact_hash(
+        &serialize_snapshot_metadata_for_remote(&manifest)?,
+    ))
 }
 
 pub(super) fn local_snapshot_product_metadata_hash_b3(
@@ -45,7 +45,7 @@ pub(super) fn local_snapshot_product_metadata_hash_b3(
     let Some(bytes) = serialize_snapshot_product_metadata_for_remote(&manifest)? else {
         return Ok(String::new());
     };
-    Ok(repo_file_hash(&bytes))
+    Ok(remote_artifact_hash(&bytes))
 }
 
 pub(super) fn local_snapshot_blueprint_hash_b3(
@@ -63,7 +63,7 @@ fn existing_file_hash(path: &Path) -> Result<String> {
     if !path.exists() {
         return Ok(String::new());
     }
-    Ok(repo_file_hash(&filesystem::read(path)?))
+    Ok(remote_artifact_hash(&filesystem::read(path)?))
 }
 
 /// Loads the snapshot only when both its metadata and blueprint exist locally.

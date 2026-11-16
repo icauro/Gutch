@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// One snapshot to delete.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SnapshotDeleteRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
@@ -40,7 +40,7 @@ pub struct SnapshotDeleteResult {
 }
 
 /// Complete replacement tag sets, keyed by exact snapshot ID.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SnapshotTagsReplaceRequest {
     pub repo_root: PathBuf,
     pub replacements: BTreeMap<String, SnapshotTagSet>,

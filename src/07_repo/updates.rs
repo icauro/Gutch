@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 /// The complete constraints that replace a repository's current ones.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RepoConstraintsSetRequest {
     pub repo_root: PathBuf,
     pub constraints: RepoConstraints,
@@ -36,7 +36,7 @@ pub struct RepoConstraintsSetResult {
 }
 
 /// The new display name for a repository.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RepoRenameRequest {
     pub repo_root: PathBuf,
     pub name: String,

@@ -83,7 +83,7 @@ pub enum RemoteArtifactTarget<'a> {
 pub trait RemoteRepoReader {
     fn resolve_repo(
         &self,
-        remote_spec: Option<&str>,
+        remote_repo_id: Option<&str>,
         bound_remote_repo_id: Option<&str>,
     ) -> Result<RemoteRepo>;
 

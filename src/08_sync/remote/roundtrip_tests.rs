@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Mutex;
 
-use super::artifact_decision::repo_file_hash;
+use super::artifact_decision::remote_artifact_hash;
 use super::pull::local_bundle_paths;
 use super::*;
 use crate::Result;
@@ -34,7 +34,7 @@ struct MemorySnapshot {
 struct MemoryProvider(Mutex<MemoryState>);
 
 fn hash(bytes: &[u8]) -> String {
-    repo_file_hash(bytes)
+    remote_artifact_hash(bytes)
 }
 
 impl MemoryProvider {
@@ -75,7 +75,7 @@ impl MemoryProvider {
 impl RemoteRepoReader for MemoryProvider {
     fn resolve_repo(
         &self,
-        _remote_spec: Option<&str>,
+        _remote_repo_id: Option<&str>,
         _bound_remote_repo_id: Option<&str>,
     ) -> Result<RemoteRepo> {
         let state = self.0.lock().unwrap();
@@ -242,7 +242,7 @@ fn capture(repo: &Path, source: &Path, content: &[u8]) -> String {
     crate::capture::sources::capture_snapshot(&crate::capture::contracts::SnapshotCaptureRequest {
         repo_root: repo.to_path_buf(),
         source_dir: source.to_path_buf(),
-        explicit_tags: Default::default(),
+        tags: Default::default(),
         chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk16KiB,
         chunker: crate::artifact::profiles::Chunker::FastCdc,
         bundle_profile: Default::default(),

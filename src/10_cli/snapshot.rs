@@ -175,7 +175,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         .map(|source| SnapshotCaptureRequest {
             repo_root: repo.clone(),
             source_dir: source.path.clone(),
-            explicit_tags: source.tags.clone(),
+            tags: source.tags.clone(),
             chunk_profile: build_profile.chunk_profile,
             chunker: build_profile.chunker,
             bundle_profile: build_profile.bundle_profile,

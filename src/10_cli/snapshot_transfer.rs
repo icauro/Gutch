@@ -136,7 +136,7 @@ pub(crate) struct FetchAndReconstructCommand {
     pub(crate) fetch: FetchArgs,
     pub(crate) destination: PathBuf,
     pub(crate) staging_dir: Option<PathBuf>,
-    pub(crate) source_snapshot_id: Option<String>,
+    pub(crate) reuse_snapshot_id: Option<String>,
     pub(crate) source_dir: Option<PathBuf>,
     pub(crate) runtime_hints: RuntimeResourceHints,
 }
@@ -149,7 +149,7 @@ pub(crate) fn fetch_and_reconstruct(
         fetch,
         destination,
         staging_dir,
-        source_snapshot_id,
+        reuse_snapshot_id,
         source_dir,
         runtime_hints,
     } = command;
@@ -160,8 +160,8 @@ pub(crate) fn fetch_and_reconstruct(
         fetch_request,
         destination_dir: destination,
         staging_dir,
-        source_snapshot_id: source_snapshot_id.clone(),
-        source_dir: source_dir.clone(),
+        reuse_snapshot_id: reuse_snapshot_id.clone(),
+        reuse_from: source_dir.clone(),
         runtime_hints,
     })?;
     let InstallationFetchAndReconstructResult {
@@ -170,7 +170,7 @@ pub(crate) fn fetch_and_reconstruct(
     } = result;
     SnapshotReconstructStats::new(
         &reconstruct_result,
-        source_snapshot_id,
+        reuse_snapshot_id,
         Some(SnapshotFetchStats::new(&fetch_result)),
         profile.as_deref(),
     )

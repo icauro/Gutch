@@ -134,7 +134,7 @@ pub(crate) fn apply_reconstruct_pipeline(
         reconstruct_result,
         resolved_bundle_file_count: required_bundle_count,
         resolved_artifact_file_count: required_artifact_count,
-        source_destination_dir: request.source_destination_dir.clone(),
+        reuse_from: request.source_destination_dir.clone(),
     };
     Ok((installation_result, repair_result))
 }

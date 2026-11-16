@@ -27,9 +27,10 @@ use std::collections::HashMap;
 use std::fs::File;
 
 /// `Fast` checks artifact structure; `Strict` also checks content-addressed identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RepoVerifyMode {
+    #[default]
     Fast,
     Strict,
 }
@@ -70,9 +71,8 @@ pub struct SnapshotVerifyOutcome {
     pub corrupt_artifacts: Vec<String>,
 }
 
-/// Verify repo artifact integrity. When `snapshot_id` is None, all repo snapshots are verified.
 /// A repository, optionally narrowed to one snapshot, and how deeply to check its artifacts.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RepoVerifyRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: Option<String>,

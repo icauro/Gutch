@@ -4,7 +4,7 @@ use crate::sync::remote::PullConflictPolicy;
 #[test]
 fn remote_artifact_hashes_are_verified_before_persistence() {
     let bytes = b"remote artifact";
-    let expected = repo_file_hash(bytes);
+    let expected = remote_artifact_hash(bytes);
     assert!(verify_remote_artifact(bytes, &expected, "metadata").is_ok());
     assert!(verify_remote_artifact(b"tampered", &expected, "metadata").is_err());
     assert!(verify_remote_artifact(bytes, "", "metadata").is_err());

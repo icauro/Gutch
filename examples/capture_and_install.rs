@@ -4,14 +4,13 @@
 //! WORK_DIR must not exist yet; the example creates `repo/` and `install/` in it.
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use gutch::api::{
-    ArtifactStorageMode, BundleSizingPreset, ChunkSizingPreset, Chunker, CompressionKind,
-    InstallationReconstructRequest, InstallationVerifyMode, InstallationVerifyRequest,
-    OperationControl, RepoInitRequest, Result, RuntimeResourceHints, SnapshotCaptureRequest,
-    SnapshotTagSet, capture_snapshot, init_repo, reconstruct_installation, verify_installation,
+    InstallationReconstructRequest, InstallationVerifyRequest, RepoInitRequest, Result,
+    SnapshotCaptureRequest, SnapshotTagSet, capture_snapshot, init_repo, reconstruct_installation,
+    verify_installation,
 };
 
 fn main() -> ExitCode {
@@ -20,7 +19,14 @@ fn main() -> ExitCode {
         eprintln!("usage: capture_and_install SOURCE_DIR WORK_DIR");
         return ExitCode::from(2);
     };
-    match run(source_dir.clone(), work_dir.clone()) {
+    if work_dir.exists() {
+        eprintln!(
+            "error: {} already exists; pick a new WORK_DIR",
+            work_dir.display()
+        );
+        return ExitCode::from(2);
+    }
+    match run(source_dir, work_dir) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");
@@ -29,7 +35,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
+fn run(source_dir: &Path, work_dir: &Path) -> Result<()> {
     let repo_root = work_dir.join("repo");
     let destination_dir = work_dir.join("install");
     init_repo(&RepoInitRequest {
@@ -41,16 +47,9 @@ fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
     tags.insert("version", "1.0.0")?;
     let captured = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
-        source_dir,
-        explicit_tags: tags,
-        chunk_profile: ChunkSizingPreset::default(),
-        chunker: Chunker::default(),
-        bundle_profile: BundleSizingPreset::default(),
-        compression_algorithm: CompressionKind::Zstd,
-        compression_level: None,
-        storage_mode: ArtifactStorageMode::Bundled,
-        runtime_hints: RuntimeResourceHints::default(),
-        control: OperationControl::default(),
+        source_dir: source_dir.to_path_buf(),
+        tags,
+        ..Default::default()
     })?;
     println!("captured snapshot {}", captured.snapshot_id);
 
@@ -58,22 +57,16 @@ fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
         repo_root: repo_root.clone(),
         snapshot_id: captured.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
-        staging_dir: None,
-        source_snapshot_id: None,
-        source_dir: None,
-        runtime_hints: RuntimeResourceHints::default(),
-        control: OperationControl::default(),
+        ..Default::default()
     })?;
 
     let verified = verify_installation(&InstallationVerifyRequest {
         repo_root,
         snapshot_id: captured.snapshot_id,
         destination_dir: destination_dir.clone(),
-        verify_mode: InstallationVerifyMode::Fast,
-        runtime_hints: RuntimeResourceHints::default(),
-        control: OperationControl::default(),
+        ..Default::default()
     })?;
-    let issues = &verified.classification;
+    let issues = &verified.issues;
     println!(
         "installed to {}: {} missing, {} corrupt, {} extra",
         destination_dir.display(),

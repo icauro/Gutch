@@ -15,6 +15,20 @@ the result:
 cargo run --example capture_and_install -- SOURCE_DIR WORK_DIR
 ```
 
+More examples in [`examples/`](../examples) each create their own data, so they
+need only a work folder that does not exist yet:
+
+| Example | Shows |
+| --- | --- |
+| [`update_installation`](../examples/update_installation.rs) | Listing what changed between two versions, previewing an update and updating in place while reusing installed content |
+| [`repair_installation`](../examples/repair_installation.rs) | Finding damage, planning and running a repair with a progress sink |
+| [`cancel_reconstruction`](../examples/cancel_reconstruction.rs) | Cancelling an update partway and keeping the old installation intact |
+| [`folder_remote`](../examples/folder_remote.rs) | A remote provider that stores repositories in a local folder, used to push and pull |
+
+```sh
+cargo run --example update_installation -- WORK_DIR
+```
+
 The library uses the same words as the command line for the same things: a
 snapshot, an installation, a repository, a remote. The command line is a layer
 on top of the library and may combine several calls into one command, so not
@@ -66,6 +80,10 @@ let control = OperationControl::default()
 - `CancellationHook::is_cancelled` is polled during the work. Once it returns
   `true`, the operation stops at the next safe point and returns an error.
   A cancelled reconstruction leaves the destination as it was.
+- When updating an installation, `reuse_snapshot_id` names the snapshot that
+  is already installed, and `reuse_from` points to another folder holding it
+  if that is not the destination. Content already there is reused instead of
+  read from the repository.
 - `.with_warnings(...)` collects non-fatal conditions, and `.with_profiler(...)`
   records timings, as `--profile` does.
 
@@ -89,7 +107,10 @@ host application implements:
 | `RemoteRepoService` | List, create and delete remote repositories, report tag references, and optionally check a push before it starts (`prepare_push`) or a new binding (`configure_binding`) |
 
 The service owns sign-in and server configuration; Gutch only asks it for
-files and repository operations.
+files and repository operations. The `*_hash_b3` fields a provider reports for
+stored files are computed with `remote_artifact_hash`.
+[`examples/folder_remote.rs`](../examples/folder_remote.rs) is a complete
+provider backed by a local folder.
 
 To offer the full command line inside your application, with remote commands
 connected to your service, pass a factory to `run_command_line`:

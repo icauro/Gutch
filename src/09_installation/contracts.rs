@@ -65,14 +65,14 @@ pub struct InstallationReconstructOutcome {
     pub(crate) verify_timings: VerifyTimings,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InstallationReconstructRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
-    pub source_snapshot_id: Option<String>,
-    pub source_dir: Option<PathBuf>,
+    pub reuse_snapshot_id: Option<String>,
+    pub reuse_from: Option<PathBuf>,
     pub runtime_hints: RuntimeResourceHints,
     pub control: OperationControl,
 }
@@ -84,10 +84,10 @@ pub struct InstallationReconstructResult {
     pub reconstruct_result: InstallationReconstructOutcome,
     pub resolved_bundle_file_count: usize,
     pub resolved_artifact_file_count: usize,
-    pub source_destination_dir: Option<PathBuf>,
+    pub reuse_from: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InstallationVerifyRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
@@ -101,7 +101,7 @@ pub struct InstallationVerifyRequest {
 pub struct InstallationVerifyResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
-    pub classification: InstallationIssues,
+    pub issues: InstallationIssues,
     pub(crate) verify_timings: VerifyTimings,
 }
 
@@ -109,7 +109,7 @@ pub struct InstallationVerifyResult {
 ///
 /// Paths are always interpreted relative to the reconstructed destination root. The command
 /// adapter requires explicit confirmation before applying a plan.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallationCorruptPlan {
     pub operations: Vec<InstallationCorruptOperation>,
@@ -141,7 +141,7 @@ fn default_corruption_mask() -> u8 {
     1
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InstallationCorruptRequest {
     pub destination_dir: PathBuf,
     pub plan: InstallationCorruptPlan,
@@ -165,7 +165,7 @@ pub struct InstallationRepairOutcome {
     pub reconstruct_result: Option<InstallationReconstructOutcome>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InstallationRepairRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: String,

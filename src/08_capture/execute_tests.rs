@@ -110,7 +110,7 @@ fn test_capture(
     capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.to_path_buf(),
         source_dir: source_dir.to_path_buf(),
-        explicit_tags: tags.clone(),
+        tags: tags.clone(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
         bundle_profile: BundleSizingPreset::Bundle8MiB,
@@ -144,8 +144,8 @@ fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
         snapshot_id: snapshot_id.to_string(),
         destination_dir: destination.clone(),
         staging_dir: None,
-        source_snapshot_id: None,
-        source_dir: None,
+        reuse_snapshot_id: None,
+        reuse_from: None,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
@@ -181,7 +181,7 @@ fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
     let second = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source,
-        explicit_tags: test_tags(),
+        tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::Jc,
         bundle_profile: BundleSizingPreset::Bundle8MiB,
@@ -273,7 +273,7 @@ fn cancelled_capture_retains_first_snapshot() {
     let failed = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source_b,
-        explicit_tags: test_tags(),
+        tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
         bundle_profile: BundleSizingPreset::Bundle8MiB,
@@ -343,7 +343,7 @@ fn same_id_different_tags_returns_metadata_conflict() {
     let conflict = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source,
-        explicit_tags: other_tags,
+        tags: other_tags,
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
         bundle_profile: BundleSizingPreset::Bundle8MiB,
@@ -542,7 +542,7 @@ fn tampered_blueprint_returns_integrity_conflict() {
     let conflict = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source,
-        explicit_tags: test_tags(),
+        tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
         bundle_profile: BundleSizingPreset::Bundle8MiB,
@@ -625,7 +625,7 @@ fn failed_artifact_write_publishes_no_snapshot() {
     let failed = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source_b,
-        explicit_tags: test_tags(),
+        tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
         bundle_profile: BundleSizingPreset::Bundle8MiB,
@@ -661,7 +661,7 @@ fn capture_bundle_counts_include_each_referenced_bundle_once() {
             capture_snapshot(&SnapshotCaptureRequest {
                 repo_root: repo_root.clone(),
                 source_dir: source_dir.clone(),
-                explicit_tags: test_tags(),
+                tags: test_tags(),
                 chunk_profile: ChunkSizingPreset::Chunk128KiB,
                 chunker: Chunker::FastCdc,
                 bundle_profile: BundleSizingPreset::Bundle8MiB,
@@ -726,7 +726,7 @@ fn batch_capture_reuses_chunks_from_earlier_sources_in_the_batch() {
     let request = |source_dir: &Path, version: &str| SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
         source_dir: source_dir.to_path_buf(),
-        explicit_tags: manifest::SnapshotTagSet::from_compact_strings(&[
+        tags: manifest::SnapshotTagSet::from_compact_strings(&[
             format!("version={version}"),
             "os=windows".to_string(),
         ])
