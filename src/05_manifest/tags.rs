@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 /// A snapshot has one value per key. The named collection is always serialized,
 /// including for tagless snapshots, so the wire shape stays explicit.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotTagSet {
     #[serde(default, deserialize_with = "deserialize_key_value_tags")]

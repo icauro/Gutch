@@ -59,7 +59,7 @@ fn capture_stats_from_engine_result(
         input_path: input_path.to_string(),
         snapshot_id: result.snapshot_id.clone(),
         manifest_path: result.manifest_path.display().to_string(),
-        repo_name: repository.name.clone(),
+        repo_name: repository.repository_name.clone(),
         remote_repo_id: repository.remote_repo_id.clone(),
         version_tag: result.version_tag.clone(),
         os: result.os.clone(),

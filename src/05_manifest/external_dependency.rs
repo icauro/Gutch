@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ExternalProductDependencyRequirement {
     pub dependency_id: String,

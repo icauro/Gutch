@@ -26,7 +26,7 @@ thread_local! {
 }
 const REPOSITORY_METADATA_ENTRIES: &[&str] = &[
     "repo_metadata.json",
-    "local_repo_config.json",
+    super::paths::LOCAL_REPO_CONFIG_FILE,
     "chunk_map.gtcbin",
     "snapshots",
 ];
@@ -132,6 +132,7 @@ fn with_repository_transaction<T>(
     if !write {
         return work();
     }
+    super::paths::ensure_repository_writable(&root)?;
     fs::create_dir_all(&journal)?;
     // Save a complete generation before any mutation, including repositories
     // whose metadata was created by initialization or explicit fixture setup.

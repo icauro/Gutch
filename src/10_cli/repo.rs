@@ -262,7 +262,7 @@ pub(crate) fn init_repo(
 
     output::line(format_args!(
         "created gutch repo '{}' at {}",
-        repository.name,
+        repository.repository_name,
         path.display()
     ));
     Ok(())

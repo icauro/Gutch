@@ -60,7 +60,8 @@ pub fn create_remote_repo(
         if scope_id.is_empty() {
             return Err(Error::repository("remote repo scope is required"));
         }
-        let remote_repo_id = provider.create_remote_repository(scope_id, &manifest.name)?;
+        let remote_repo_id =
+            provider.create_remote_repository(scope_id, &manifest.repository_name)?;
         if remote_repo_id.trim().is_empty() {
             return Err(Error::repository(
                 "remote provider returned an empty repo ID",

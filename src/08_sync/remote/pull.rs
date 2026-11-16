@@ -23,8 +23,8 @@ use super::provider::RepoPullStats;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle::BundleIdentityWriter;
-use crate::filesystem::from_json_bytes;
 use crate::filesystem::write_atomic_with;
+use crate::manifest::RepositoryAccess;
 use crate::manifest::SnapshotProductMetadata;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -45,6 +45,7 @@ use crate::repo::paths::bundle_path;
 use crate::repo::paths::ensure_gutch_repo_layout;
 use crate::repo::paths::load_gutch_repo_manifest;
 use crate::repo::paths::write_gutch_repo_manifest;
+use crate::repo::snapshot_manifests::SNAPSHOT_PRODUCT_METADATA_FILE;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_parts;
@@ -431,7 +432,10 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
             MAX_METADATA_BYTES,
         )?;
         verify_remote_artifact(&bytes, &self.repository.metadata_hash_b3, "repo metadata")?;
-        let mut manifest: RepoManifest = from_json_bytes(&bytes)?;
+        let mut manifest = RepoManifest::from_json_bytes("remote repo_metadata.json", &bytes)?;
+        // The remote metadata replaces the local copy, so this release must be
+        // able to write what it describes.
+        manifest.repository_format.check(RepositoryAccess::Write)?;
         let local_constraints = load_gutch_repo_manifest(self.repo)?
             .1
             .constraints
@@ -476,7 +480,10 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
                     &snapshot.product_metadata_hash_b3,
                     "snapshot product metadata",
                 )?;
-                Some(SnapshotProductMetadata::from_json_bytes(&bytes)?)
+                Some(SnapshotProductMetadata::from_json_bytes(
+                    SNAPSHOT_PRODUCT_METADATA_FILE,
+                    &bytes,
+                )?)
             }
             None => None,
         };

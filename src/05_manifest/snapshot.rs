@@ -4,9 +4,10 @@ use crate::artifact::profiles::Chunker;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::format::{DocumentType, DocumentVersion, VersionedDocument, parse_document};
 use super::{
-    ExternalProductDependencyRequirement, FileManifest, PUBLIC_METADATA_FORMAT_VERSION,
-    SnapshotEntry, SnapshotTagSet, launch, validate_external_product_dependency_requirements,
+    ExternalProductDependencyRequirement, FileManifest, SnapshotEntry, SnapshotTagSet, launch,
+    validate_external_product_dependency_requirements,
 };
 use std::collections::HashSet;
 use std::env::consts::ARCH;
@@ -14,13 +15,21 @@ use std::env::consts::OS;
 use std::slice::from_ref;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotProductMetadata {
-    pub document_version: String,
+    pub document_type: DocumentType<SnapshotProductMetadata>,
+    pub document_version: DocumentVersion<SnapshotProductMetadata>,
     pub runtime: SnapshotRuntimeMetadata,
 }
 
+impl VersionedDocument for SnapshotProductMetadata {
+    const DOCUMENT_TYPE: &'static str = "gutch_snapshot_product";
+    const DOCUMENT_VERSION: &'static str = "1.0.0";
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum SnapshotRuntimeMetadata {
     Direct(SnapshotDirectRuntimeMetadata),
@@ -28,6 +37,7 @@ pub enum SnapshotRuntimeMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotDirectRuntimeMetadata {
     pub launch_actions: Vec<SnapshotLaunchAction>,
@@ -35,12 +45,14 @@ pub struct SnapshotDirectRuntimeMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotHostVariantRuntimeMetadata {
     pub host_variants: Vec<SnapshotHostVariant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotHostVariant {
     pub variant_id: String,
@@ -50,6 +62,7 @@ pub struct SnapshotHostVariant {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotLaunchAction {
     pub action_name: String,
@@ -61,19 +74,23 @@ pub struct SnapshotLaunchAction {
 }
 
 impl SnapshotProductMetadata {
+    pub fn new(runtime: SnapshotRuntimeMetadata) -> Self {
+        Self {
+            document_type: DocumentType::default(),
+            document_version: DocumentVersion::default(),
+            runtime,
+        }
+    }
+
     /// Parses a product metadata document and rejects structurally invalid ones.
-    pub(crate) fn from_json_bytes(bytes: &[u8]) -> crate::Result<Self> {
-        let metadata: Self = crate::filesystem::from_json_bytes(bytes)?;
+    /// `source` names the document in errors.
+    pub(crate) fn from_json_bytes(source: &str, bytes: &[u8]) -> crate::Result<Self> {
+        let metadata: Self = parse_document(source, bytes)?;
         metadata.validate_structure()?;
         Ok(metadata)
     }
 
     pub fn validate_structure(&self) -> crate::Result<()> {
-        if self.document_version != PUBLIC_METADATA_FORMAT_VERSION {
-            return Err(crate::Error::manifest(
-                "snapshot product metadata document_version is unsupported",
-            ));
-        }
         match &self.runtime {
             SnapshotRuntimeMetadata::Direct(runtime) => {
                 validate_runtime_actions(&runtime.launch_actions, true)?;
@@ -126,9 +143,8 @@ impl SnapshotProductMetadata {
         launch: &launch::ResolvedLaunchConfiguration,
         dependencies: Vec<ExternalProductDependencyRequirement>,
     ) -> Self {
-        Self {
-            document_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
-            runtime: SnapshotRuntimeMetadata::Direct(SnapshotDirectRuntimeMetadata {
+        Self::new(SnapshotRuntimeMetadata::Direct(
+            SnapshotDirectRuntimeMetadata {
                 launch_actions: launch
                     .actions
                     .iter()
@@ -140,8 +156,8 @@ impl SnapshotProductMetadata {
                     })
                     .collect(),
                 external_dependencies: dependencies,
-            }),
-        }
+            },
+        ))
     }
 
     pub fn launch_for_host_tags(
@@ -319,20 +335,23 @@ pub(crate) fn current_host_tags() -> SnapshotTagSet {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SnapshotMetadata {
+    pub document_type: DocumentType<SnapshotMetadata>,
+    pub document_version: DocumentVersion<SnapshotMetadata>,
     #[serde(default)]
     pub chunker: Chunker,
-    #[serde(
-        rename = "snapshot_metadata_version",
-        deserialize_with = "super::deserialize_document_version"
-    )]
-    pub metadata_version: String,
     #[serde(skip)]
     pub snapshot_id: String,
     pub captured_at: String,
-    #[serde(default, rename = "tags")]
-    pub snapshot_tags: SnapshotTagSet,
+    #[serde(default)]
+    pub tags: SnapshotTagSet,
+}
+
+impl VersionedDocument for SnapshotMetadata {
+    const DOCUMENT_TYPE: &'static str = "gutch_snapshot";
+    const DOCUMENT_VERSION: &'static str = "1.0.0";
 }
 
 #[derive(Debug, Clone)]
@@ -343,7 +362,6 @@ pub(crate) struct SnapshotBlueprint {
 #[derive(Debug, Clone)]
 pub struct SnapshotManifest {
     pub chunker: Chunker,
-    pub metadata_version: String,
     pub snapshot_id: String,
     pub captured_at: String,
     /// Max source file mtime (UTC) recorded when this snapshot was last captured from a source folder.
@@ -360,7 +378,6 @@ impl SnapshotManifest {
     pub fn new(snapshot_id: String, snapshot_tags: SnapshotTagSet) -> Self {
         SnapshotManifest {
             chunker: Chunker::default(),
-            metadata_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
             snapshot_id,
             captured_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             source_modified_at: String::new(),
@@ -375,11 +392,12 @@ impl SnapshotManifest {
 
     pub(crate) fn metadata(&self) -> SnapshotMetadata {
         SnapshotMetadata {
+            document_type: DocumentType::default(),
+            document_version: DocumentVersion::default(),
             chunker: self.chunker,
-            metadata_version: self.metadata_version.clone(),
             snapshot_id: self.snapshot_id.clone(),
             captured_at: self.captured_at.clone(),
-            snapshot_tags: self.snapshot_tags.clone(),
+            tags: self.snapshot_tags.clone(),
         }
     }
 
@@ -392,13 +410,12 @@ impl SnapshotManifest {
     pub(crate) fn from_metadata(metadata: SnapshotMetadata) -> Self {
         Self {
             chunker: metadata.chunker,
-            metadata_version: metadata.metadata_version,
             snapshot_id: metadata.snapshot_id,
             captured_at: metadata.captured_at,
             source_modified_at: String::new(),
             total_logical_size: 0,
             total_compressed_size_estimate: 0,
-            snapshot_tags: metadata.snapshot_tags,
+            snapshot_tags: metadata.tags,
             launch: None,
             product_metadata: None,
             entries: Vec::new(),

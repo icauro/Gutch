@@ -90,7 +90,7 @@ pub fn rename_repo(repo_root: &Path, name: &str) -> Result<()> {
     coordination::write(repo_root, || {
         let name = validated_repo_name(name)?;
         let (repo_paths, mut repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-        repo_manifest.name = name;
+        repo_manifest.repository_name = name;
         write_gutch_repo_manifest(&repo_paths, &repo_manifest)
     })
 }

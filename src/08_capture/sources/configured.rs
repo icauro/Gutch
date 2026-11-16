@@ -174,7 +174,7 @@ pub fn capture_snapshot_sources(
         let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, control)?;
         drop(_existing_state_span);
         let (_, repo_manifest) = load_gutch_repo_manifest(repo_root)?;
-        let profile = repo_manifest.artifact_profile;
+        let profile = repo_manifest.content_packaging_profile;
 
         let mut captured_count = 0usize;
         for (step_index, candidate) in plan.to_capture.iter().enumerate() {

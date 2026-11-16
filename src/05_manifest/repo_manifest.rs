@@ -7,11 +7,16 @@ use crate::artifact::profiles::{
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::{CONTENT_REPO_FORMAT, PUBLIC_METADATA_FORMAT_VERSION};
+use super::format::{
+    DocumentType, DocumentVersion, RepositoryAccess, RepositoryFormat, VersionedDocument,
+    check_document_markers,
+};
+use crate::Result;
 use crate::artifact::compression::validate_profile;
 use crate::artifact::profiles::validate_packaging_sizes;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactProfile {
     #[serde(default)]
@@ -62,7 +67,7 @@ impl Default for ArtifactProfile {
     }
 }
 
-fn deserialize_artifact_profile<'de, D: serde::Deserializer<'de>>(
+fn deserialize_content_packaging_profile<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<ArtifactProfile, D::Error> {
     let profile = ArtifactProfile::deserialize(deserializer)?;
@@ -76,55 +81,59 @@ fn deserialize_artifact_profile<'de, D: serde::Deserializer<'de>>(
     Ok(profile)
 }
 
-fn deserialize_document_type<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> std::result::Result<String, D::Error> {
-    super::deserialize_schema_marker(deserializer, "document type", CONTENT_REPO_FORMAT)
-}
-
+/// The shared repository metadata document, `repo_metadata.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct RepoManifest {
-    #[serde(
-        rename = "document_type",
-        deserialize_with = "deserialize_document_type"
-    )]
-    pub format: String,
-    #[serde(
-        rename = "document_version",
-        deserialize_with = "super::deserialize_document_version"
-    )]
-    pub format_version: String,
-    #[serde(rename = "repository_name")]
-    #[serde(default)]
-    pub name: String,
+    pub document_type: DocumentType<RepoManifest>,
+    pub document_version: DocumentVersion<RepoManifest>,
+    pub repository_format: RepositoryFormat,
+    pub repository_name: String,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constraints: Option<super::constraints::RepositoryConstraints>,
-    #[serde(
-        rename = "content_packaging_profile",
-        deserialize_with = "deserialize_artifact_profile"
-    )]
-    pub artifact_profile: ArtifactProfile,
+    #[serde(deserialize_with = "deserialize_content_packaging_profile")]
+    pub content_packaging_profile: ArtifactProfile,
     /// Local link to a remote repository; stored outside the shared metadata.
     #[serde(skip)]
     pub remote_repo_id: Option<String>,
 }
 
+impl VersionedDocument for RepoManifest {
+    const DOCUMENT_TYPE: &'static str = "gutch_repo";
+    const DOCUMENT_VERSION: &'static str = "1.0.0";
+}
+
 impl RepoManifest {
-    pub fn new(name: String) -> Self {
+    pub fn new(repository_name: String) -> Self {
         Self {
-            format: CONTENT_REPO_FORMAT.to_string(),
-            format_version: PUBLIC_METADATA_FORMAT_VERSION.to_string(),
-            name,
+            document_type: DocumentType::default(),
+            document_version: DocumentVersion::default(),
+            repository_format: RepositoryFormat::default(),
+            repository_name,
             constraints: None,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-            artifact_profile: ArtifactProfile::default(),
+            content_packaging_profile: ArtifactProfile::default(),
             remote_repo_id: None,
         }
     }
 
-    pub fn set_artifact_profile(
+    /// Parse `repo_metadata.json` for reading. A document or repository format
+    /// from another release fails before the exact parse. `source` names the
+    /// document in errors.
+    pub(crate) fn from_json_bytes(source: &str, bytes: &[u8]) -> Result<Self> {
+        check_document_markers::<Self>(source, bytes)?;
+        RepositoryFormat::from_repo_metadata(bytes)?.check(RepositoryAccess::Read)?;
+        let manifest: Self = serde_json::from_slice(bytes)?;
+        manifest.repository_format.validate()?;
+        if let Some(constraints) = &manifest.constraints {
+            constraints.validate_definition()?;
+        }
+        Ok(manifest)
+    }
+
+    pub fn set_content_packaging_profile(
         &mut self,
         chunk: ChunkSizingPreset,
         compression: CompressionKind,
@@ -132,7 +141,7 @@ impl RepoManifest {
         bundle: BundleSizingPreset,
         storage: ArtifactStorageMode,
     ) {
-        self.artifact_profile =
+        self.content_packaging_profile =
             ArtifactProfile::for_presets(chunk, compression, compression_level, bundle, storage);
     }
 

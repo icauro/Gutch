@@ -51,6 +51,19 @@ pub enum Error {
     #[error("Manifest error: {0}")]
     Manifest(String),
 
+    /// A stored document or repository uses a format this release does not
+    /// read or write.
+    #[error(
+        "Unsupported format: {subject} uses {found}; this Gutch release supports {supported}{}",
+        if *needs_newer_gutch { ". Use a newer Gutch release." } else { "." }
+    )]
+    UnsupportedFormat {
+        subject: String,
+        found: String,
+        supported: String,
+        needs_newer_gutch: bool,
+    },
+
     /// Repository layout, metadata, coordination or synchronization failed.
     #[error("Repository error: {0}")]
     Repository(String),
@@ -142,6 +155,18 @@ impl Error {
                 ..
             } => serde_json::json!({
                 "code": "directory_promotion_failed", "message": self.to_string(), "details": details,
+            }),
+            Self::UnsupportedFormat {
+                subject,
+                found,
+                supported,
+                needs_newer_gutch,
+            } => serde_json::json!({
+                "code": "unsupported_format", "message": self.to_string(),
+                "details": {
+                    "subject": subject, "found": found, "supported": supported,
+                    "needs_newer_gutch": needs_newer_gutch,
+                },
             }),
             _ => serde_json::json!({"code": "operation_failed", "message": self.to_string()}),
         }

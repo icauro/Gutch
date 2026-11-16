@@ -162,7 +162,7 @@ fn ensure_gutch_repo_layout_writes_repo_manifest() {
 
     let repo_manifest = ensure_gutch_repo_layout(&paths, "base").unwrap();
 
-    assert_eq!(repo_manifest.name, "base");
+    assert_eq!(repo_manifest.repository_name, "base");
     assert!(paths.repo_metadata_path.exists());
     assert!(paths.snapshots_root.exists());
     assert!(paths.bundles_root.exists());

@@ -61,6 +61,7 @@ sysinfo = { version = "0.39.6", default-features = false, features = ["system"] 
 # Independent boundary oracle for the Gutch-owned FastCDC implementation.
 fastcdc = "=5.0.0"
 bolero = "0.13"
+schemars = "1"
 
 [profile.fuzz]
 inherits = "release"

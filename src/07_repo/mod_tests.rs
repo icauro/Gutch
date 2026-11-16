@@ -88,7 +88,8 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
         temp.path(),
         &snapshot_ids,
         Some(manifest::SnapshotProductMetadata {
-            document_version: manifest::PUBLIC_METADATA_FORMAT_VERSION.to_string(),
+            document_type: Default::default(),
+            document_version: Default::default(),
             runtime: manifest::SnapshotRuntimeMetadata::HostVariants(
                 manifest::SnapshotHostVariantRuntimeMetadata {
                     host_variants: [("windows-x64", "os=windows"), ("linux-x64", "os=linux")]
@@ -163,7 +164,14 @@ fn local_repo_config_contains_only_the_remote_link() {
 
     let local_config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&paths.local_repo_config_path).unwrap()).unwrap();
-    assert_eq!(local_config, serde_json::json!({"remote_repo_id": "99"}));
+    assert_eq!(
+        local_config,
+        serde_json::json!({
+            "document_type": "gutch_local_repo_config",
+            "document_version": "1.0.0",
+            "remote_repo_id": "99",
+        })
+    );
 
     let repo_metadata: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&paths.repo_metadata_path).unwrap()).unwrap();
@@ -359,7 +367,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     fs::write(&chunk_path, &compressed_bytes).unwrap();
 
     let mut repo_manifest = load_gutch_repo_manifest(temp.path()).unwrap().1;
-    repo_manifest.set_artifact_profile(
+    repo_manifest.set_content_packaging_profile(
         ChunkSizingPreset::Chunk128KiB,
         CompressionKind::Zstd,
         Some(3),
@@ -684,4 +692,30 @@ fn deleting_a_missing_snapshot_reports_not_found() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("snapshot not found"), "{error}");
+}
+
+#[test]
+fn a_newer_repository_format_is_refused_for_reading_and_writing() {
+    let temp = tempfile::tempdir().unwrap();
+    crate::repo::init_policy::initialize_repo(temp.path(), Default::default()).unwrap();
+    let path = temp.path().join(crate::manifest::REPO_METADATA_FILE);
+    let mut metadata: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    metadata["repository_format"]["version"] = 2.into();
+    fs::write(&path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+    let is_unsupported = |error: crate::Error| {
+        matches!(
+            error,
+            crate::Error::UnsupportedFormat {
+                needs_newer_gutch: true,
+                ..
+            }
+        )
+    };
+    assert!(is_unsupported(
+        load_gutch_repo_manifest(temp.path()).unwrap_err()
+    ));
+    assert!(is_unsupported(
+        crate::repo::coordination::write(temp.path(), || Ok(())).unwrap_err()
+    ));
 }

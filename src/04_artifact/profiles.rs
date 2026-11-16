@@ -6,6 +6,7 @@ use serde::Serialize;
 
 /// CLI names are short; serialized names pin the exact boundary algorithm.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum Chunker {
     #[default]
     #[serde(rename = "fastcdc-v2020")]
@@ -20,6 +21,7 @@ pub enum Chunker {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum ArtifactStorageMode {
     #[serde(rename = "bundled")]
     #[value(name = "bundled")]
@@ -31,6 +33,7 @@ pub enum ArtifactStorageMode {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CompressionKind {
     #[serde(rename = "none")]
@@ -46,6 +49,7 @@ pub enum CompressionKind {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CompressionUnit {
     #[default]
@@ -64,6 +68,7 @@ impl ArtifactStorageMode {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum ChunkSizingPreset {
     #[serde(rename = "chunk_512B")]
     #[value(name = "512B")]
@@ -111,6 +116,7 @@ pub enum ChunkSizingPreset {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum BundleSizingPreset {
     #[serde(rename = "bundle_4MiB")]
     #[value(name = "4MiB")]
@@ -134,6 +140,7 @@ pub enum BundleSizingPreset {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub(crate) struct ChunkSizingProfile {
     pub preset: ChunkSizingPreset,
     pub chunker: Chunker,
@@ -188,6 +195,7 @@ impl ChunkSizingProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub(crate) struct BundleSizingProfile {
     pub preset: BundleSizingPreset,
     pub bundle_max_mib: u64,
@@ -228,6 +236,7 @@ impl Default for BundleSizingProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub(crate) struct CompressionProfile {
     pub compression: CompressionKind,
     pub compression_unit: CompressionUnit,

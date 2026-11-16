@@ -110,9 +110,12 @@ fn assert_api_and_cli_capture_equivalent(
     })
     .unwrap();
     let (_, manifest) = load_gutch_repo_manifest(&repo).unwrap();
-    assert_eq!(manifest.artifact_profile.compression, CompressionKind::Lz4);
     assert_eq!(
-        manifest.artifact_profile.storage,
+        manifest.content_packaging_profile.compression,
+        CompressionKind::Lz4
+    );
+    assert_eq!(
+        manifest.content_packaging_profile.storage,
         ArtifactStorageMode::LooseChunks
     );
     let cli_repo = root.path().join("cli-repo");
@@ -140,8 +143,8 @@ fn assert_api_and_cli_capture_equivalent(
     .unwrap();
     let (_, cli_manifest) = load_gutch_repo_manifest(&cli_repo).unwrap();
     assert_eq!(
-        serde_json::to_value(&manifest.artifact_profile).unwrap(),
-        serde_json::to_value(&cli_manifest.artifact_profile).unwrap()
+        serde_json::to_value(&manifest.content_packaging_profile).unwrap(),
+        serde_json::to_value(&cli_manifest.content_packaging_profile).unwrap()
     );
     let metadata_path = |repository: &std::path::Path| {
         repository

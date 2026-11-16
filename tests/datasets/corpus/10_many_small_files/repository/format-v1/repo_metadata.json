@@ -1,6 +1,12 @@
 {
   "document_type": "gutch_repo",
   "document_version": "1.0.0",
+  "repository_format": {
+    "version": 1,
+    "features_required_to_read": [],
+    "features_required_to_write": [],
+    "optional_features": []
+  },
   "repository_name": "repo",
   "created_at": "2026-09-12T15:42:09Z",
   "content_packaging_profile": {

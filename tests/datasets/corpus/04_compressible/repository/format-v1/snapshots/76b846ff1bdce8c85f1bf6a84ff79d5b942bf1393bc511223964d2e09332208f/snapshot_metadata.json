@@ -1,5 +1,6 @@
 {
-  "snapshot_metadata_version": "1.0.0",
+  "document_type": "gutch_snapshot",
+  "document_version": "1.0.0",
   "captured_at": "2026-09-12T15:42:07Z",
   "tags": {
     "key_value": {

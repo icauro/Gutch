@@ -54,6 +54,7 @@ pub(crate) fn windows_name_reason(name: &str) -> Option<&'static str> {
 ///
 /// `as_str` is the one spelling: serde and the CLI both use it.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum FilesystemTarget {
     WindowsNtfs,

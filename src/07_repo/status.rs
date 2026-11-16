@@ -126,7 +126,7 @@ fn check_gutch_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
         exists: true,
         is_repo: true,
         repo_path: repo_path_display,
-        name: repo_manifest.name.clone(),
+        name: repo_manifest.repository_name.clone(),
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
         repo_manifest: Some(serde_json::to_value(&repo_manifest)?),
         snapshots,

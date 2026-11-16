@@ -17,7 +17,7 @@ fn committed_mutation_survives_locked_obsolete_artifact() {
     let result = write(root.path(), || {
         crate::filesystem::write(
             &root.path().join("local_repo_config.json"),
-            br#"{"remote_repo_id":"test"}"#,
+            br#"{"document_type":"gutch_local_repo_config","document_version":"1.0.0","remote_repo_id":"test"}"#,
         )?;
         assert!(defer_artifact_deletion(&artifact)?);
         Ok(())
@@ -27,7 +27,7 @@ fn committed_mutation_survives_locked_obsolete_artifact() {
     read(root.path(), || {
         assert_eq!(
             std::fs::read(root.path().join("local_repo_config.json"))?,
-            br#"{"remote_repo_id":"test"}"#
+            br#"{"document_type":"gutch_local_repo_config","document_version":"1.0.0","remote_repo_id":"test"}"#
         );
         Ok(())
     })
@@ -58,7 +58,7 @@ fn locked_previous_generation_does_not_fail_metadata_publication() {
     let result = write(root.path(), || {
         crate::filesystem::write(
             &root.path().join("local_repo_config.json"),
-            br#"{"remote_repo_id":"test"}"#,
+            br#"{"document_type":"gutch_local_repo_config","document_version":"1.0.0","remote_repo_id":"test"}"#,
         )
     });
     drop(lock);
@@ -68,7 +68,7 @@ fn locked_previous_generation_does_not_fail_metadata_publication() {
     read(root.path(), || {
         assert_eq!(
             std::fs::read(root.path().join("local_repo_config.json"))?,
-            br#"{"remote_repo_id":"test"}"#
+            br#"{"document_type":"gutch_local_repo_config","document_version":"1.0.0","remote_repo_id":"test"}"#
         );
         Ok(())
     })

@@ -5,7 +5,7 @@ pub(crate) mod blueprint_columns;
 pub(crate) mod constraints;
 mod content;
 pub(crate) mod external_dependency;
-mod format;
+pub(crate) mod format;
 pub(crate) mod launch;
 pub(crate) mod repo_manifest;
 pub(crate) mod snapshot;
@@ -20,9 +20,11 @@ pub use content::SymlinkManifest;
 pub(crate) use content::validate_snapshot_entries;
 pub use external_dependency::ExternalProductDependencyRequirement;
 pub(crate) use external_dependency::validate_external_product_dependency_requirements;
-pub(crate) use format::deserialize_document_version;
-use format::deserialize_schema_marker;
-pub use format::{CONTENT_REPO_FORMAT, PUBLIC_METADATA_FORMAT_VERSION, REPO_METADATA_FILE};
+pub use format::{
+    DocumentType, DocumentVersion, REPO_METADATA_FILE, REPOSITORY_FORMAT_VERSION, RepositoryFormat,
+    VersionedDocument,
+};
+pub(crate) use format::{RepositoryAccess, check_document_markers, parse_document};
 pub use snapshot::SnapshotDirectRuntimeMetadata;
 pub use snapshot::SnapshotHostVariant;
 pub use snapshot::SnapshotHostVariantRuntimeMetadata;

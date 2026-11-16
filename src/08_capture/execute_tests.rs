@@ -390,7 +390,8 @@ fn recapture_after_product_metadata_edit_is_unchanged() {
         OperationControl::default(),
     );
     let metadata = manifest::SnapshotProductMetadata {
-        document_version: manifest::PUBLIC_METADATA_FORMAT_VERSION.into(),
+        document_type: Default::default(),
+        document_version: Default::default(),
         runtime: manifest::SnapshotRuntimeMetadata::Direct(
             manifest::SnapshotDirectRuntimeMetadata {
                 launch_actions: vec![manifest::SnapshotLaunchAction {

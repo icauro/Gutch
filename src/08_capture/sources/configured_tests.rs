@@ -171,7 +171,7 @@ fn sources_capture_uses_the_repository_artifact_profile() {
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_gutch_repo_layout(&repo_paths, "base").unwrap();
     let (_, mut repo_manifest) = load_gutch_repo_manifest(&repo_root).unwrap();
-    repo_manifest.set_artifact_profile(
+    repo_manifest.set_content_packaging_profile(
         ChunkSizingPreset::Chunk128KiB,
         CompressionKind::Lz4,
         None,

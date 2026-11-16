@@ -36,7 +36,6 @@ pub use crate::manifest::DirectoryManifest;
 pub use crate::manifest::Estimate;
 pub use crate::manifest::ExternalProductDependencyRequirement;
 pub use crate::manifest::FileManifest;
-pub use crate::manifest::PUBLIC_METADATA_FORMAT_VERSION;
 pub use crate::manifest::SnapshotDirectRuntimeMetadata;
 pub use crate::manifest::SnapshotEntry;
 pub use crate::manifest::SnapshotHostVariant;
@@ -55,6 +54,9 @@ pub use crate::manifest::launch::ResolvedLaunchAction;
 pub use crate::manifest::launch::ResolvedLaunchConfiguration;
 pub use crate::manifest::repo_manifest::ArtifactProfile;
 pub use crate::manifest::repo_manifest::RepoManifest;
+pub use crate::manifest::{
+    DocumentType, DocumentVersion, REPOSITORY_FORMAT_VERSION, RepositoryFormat, VersionedDocument,
+};
 pub use crate::path_compare::PathComparisonResult;
 pub use crate::path_compare::compare_paths;
 pub use crate::snapshot::diff::{SnapshotChangeKind, SnapshotDiff, SnapshotEntryChange};

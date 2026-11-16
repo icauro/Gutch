@@ -14,6 +14,10 @@
         "binary_version": 1,
         "source_commit": "49e554d1f"
       },
+      "json_documents_rewritten": {
+        "change": "document markers and repository_format; binary files and snapshot IDs unchanged",
+        "crate_version": "1.0.0"
+      },
       "snapshots": {
         "48112c8c3fb1b3831a0777820ad629b2be8b4f2a709b459ed57a3b588fce62f2": "v1",
         "9b85cf377e7150e0e1d16ce8d835d0ab30463cdb187de91aba9f4a4c6a3ffde4": "v2"

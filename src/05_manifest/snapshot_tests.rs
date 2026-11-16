@@ -10,7 +10,6 @@ fn snapshot_manifest_new() {
     let m = SnapshotManifest::new("abc123def".into(), tags.clone());
     assert_eq!(m.snapshot_id, "abc123def");
     assert_eq!(m.snapshot_tags.get("os"), Some("windows"));
-    assert_eq!(m.metadata_version, PUBLIC_METADATA_FORMAT_VERSION);
     assert!(!m.captured_at.is_empty());
 }
 
@@ -41,7 +40,7 @@ fn manifest_serialization_roundtrip() {
     let m2: SnapshotMetadata = serde_json::from_str(&json).unwrap();
     assert!(m2.snapshot_id.is_empty());
     assert_eq!(m.captured_at, m2.captured_at);
-    assert_eq!(m.snapshot_tags, m2.snapshot_tags);
+    assert_eq!(m.snapshot_tags, m2.tags);
 }
 
 #[test]
@@ -71,7 +70,8 @@ fn host_variant_runtime_uses_launcher_host_tags() {
         format!("arch={}", host_tags.get("arch").unwrap()),
     ];
     let metadata = SnapshotProductMetadata {
-        document_version: PUBLIC_METADATA_FORMAT_VERSION.into(),
+        document_type: Default::default(),
+        document_version: Default::default(),
         runtime: SnapshotRuntimeMetadata::HostVariants(SnapshotHostVariantRuntimeMetadata {
             host_variants: vec![SnapshotHostVariant {
                 variant_id: "current-host".into(),
@@ -96,7 +96,8 @@ fn host_variant_runtime_uses_launcher_host_tags() {
 fn host_variant_rejects_requirements_that_could_never_match() {
     for requirement in ["OS=windows", "os = windows", "os"] {
         let metadata = SnapshotProductMetadata {
-            document_version: PUBLIC_METADATA_FORMAT_VERSION.into(),
+            document_type: Default::default(),
+            document_version: Default::default(),
             runtime: SnapshotRuntimeMetadata::HostVariants(SnapshotHostVariantRuntimeMetadata {
                 host_variants: vec![SnapshotHostVariant {
                     variant_id: "windows".into(),
@@ -129,7 +130,8 @@ fn host_variants_that_can_match_one_host_are_rejected() {
         external_dependencies: Vec::new(),
     };
     let metadata = |variants| SnapshotProductMetadata {
-        document_version: PUBLIC_METADATA_FORMAT_VERSION.into(),
+        document_type: Default::default(),
+        document_version: Default::default(),
         runtime: SnapshotRuntimeMetadata::HostVariants(SnapshotHostVariantRuntimeMetadata {
             host_variants: variants,
         }),
@@ -157,6 +159,6 @@ fn snapshot_metadata_rejects_an_unsupported_version() {
         SnapshotManifest::new("id".into(), SnapshotTagSet::default()).metadata(),
     )
     .unwrap();
-    value["snapshot_metadata_version"] = "9.0.0".into();
+    value["document_version"] = "9.0.0".into();
     assert!(serde_json::from_value::<SnapshotMetadata>(value).is_err());
 }

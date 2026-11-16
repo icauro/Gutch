@@ -74,6 +74,9 @@ The CLI selector remains `--repository-version v1`; source `v1` and `v2`
 identify product snapshots, and `generator_version` identifies the generator algorithm.
 For each frozen repository, creator metadata records the
 actual crate version (currently 0.2.0). No Cargo version is inferred from the folder.
+Before the first release, `json_documents_rewritten` records one deliberate in-place
+rewrite of the JSON documents to the 1.0.0 markers; binary files and snapshot IDs
+were not changed. After a release, frozen folders are never rewritten.
 Normal tests only mutate copies under `.artifacts/tests/runs/`. Preserve old synthetic
 major folders and add new ones; never rebuild frozen fixtures automatically to fix
 a failing test. Blender capture preparation does not rewrite tracked expectations.

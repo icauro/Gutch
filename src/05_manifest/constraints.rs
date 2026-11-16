@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 /// Optional repository invariants; an empty value imposes no constraints.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct RepositoryConstraints {
     #[serde(default)]
@@ -29,6 +30,7 @@ impl PartialEq for RepositoryConstraints {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotTagConstraints {
     #[serde(default, deserialize_with = "deserialize_tag_rules")]
@@ -36,6 +38,7 @@ pub struct SnapshotTagConstraints {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotTagRule {
     #[serde(default)]
@@ -45,6 +48,7 @@ pub struct SnapshotTagRule {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum SnapshotTagValueFormat {
     #[serde(rename = "u32.u32.u32.u32")]
     FourPartVersion,

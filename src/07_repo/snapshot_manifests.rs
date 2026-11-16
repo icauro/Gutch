@@ -158,6 +158,7 @@ pub(crate) fn load_snapshot_product_metadata(
         return Ok(None);
     }
     Ok(Some(SnapshotProductMetadata::from_json_bytes(
+        SNAPSHOT_PRODUCT_METADATA_FILE,
         &filesystem::read(&metadata_path)?,
     )?))
 }
@@ -295,7 +296,8 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
     snapshot_id: &str,
     metadata_json: &str,
 ) -> Result<SnapshotManifest> {
-    let mut metadata: SnapshotMetadata = serde_json::from_str(metadata_json)?;
+    let mut metadata: SnapshotMetadata =
+        crate::manifest::parse_document(SNAPSHOT_METADATA_FILE, metadata_json.as_bytes())?;
     metadata.snapshot_id = snapshot_id.to_string();
     Ok(SnapshotManifest::from_metadata(metadata))
 }

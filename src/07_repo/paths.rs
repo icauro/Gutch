@@ -13,12 +13,18 @@ use crate::filesystem;
 use crate::filesystem::write_json;
 use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::repo_manifest::RepoManifest;
+use crate::manifest::{
+    DocumentType, DocumentVersion, RepositoryAccess, RepositoryFormat, VersionedDocument,
+    check_document_markers, parse_document,
+};
 use std::fs;
 
 /// Coordination lock file at the repository root.
 pub(crate) const LOCK_FILE: &str = ".gutch-lock";
 /// Transaction journal directory at the repository root.
 pub(crate) const TRANSACTIONS_DIR: &str = ".gutch-transactions";
+/// Machine-local repository settings beside the shared metadata.
+pub(crate) const LOCAL_REPO_CONFIG_FILE: &str = "local_repo_config.json";
 
 #[derive(Debug, Clone)]
 pub struct RepoPaths {
@@ -56,7 +62,7 @@ impl RepoPaths {
         Self {
             repo_root: repo_root.to_path_buf(),
             repo_metadata_path: repo_root.join(REPO_METADATA_FILE),
-            local_repo_config_path: repo_root.join("local_repo_config.json"),
+            local_repo_config_path: repo_root.join(LOCAL_REPO_CONFIG_FILE),
             chunk_map_path: repo_root.join("chunk_map.gtcbin"),
             snapshots_root: repo_root.join("snapshots"),
             bundles_root: repo_root.join("bundles"),
@@ -92,9 +98,7 @@ pub(crate) fn ensure_gutch_repo_layout(paths: &RepoPaths, name: &str) -> Result<
     filesystem::create_dir_all(&paths.chunks_root)?;
 
     let repo_manifest = if paths.repo_metadata_path.exists() {
-        let mut manifest: RepoManifest = filesystem::read_json(&paths.repo_metadata_path)?;
-        apply_local_repo_config(paths, &mut manifest)?;
-        manifest
+        read_gutch_repo_manifest(paths)?
     } else {
         let repo_manifest = RepoManifest::new(name.to_string());
         write_json(&paths.repo_metadata_path, &repo_manifest)?;
@@ -112,12 +116,36 @@ pub fn load_gutch_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoMani
             paths.repo_metadata_path.display()
         )));
     }
-    let mut repo_manifest: RepoManifest = filesystem::read_json(&paths.repo_metadata_path)?;
-    if let Some(constraints) = &repo_manifest.constraints {
-        constraints.validate_definition()?;
-    }
-    apply_local_repo_config(&paths, &mut repo_manifest)?;
+    let repo_manifest = read_gutch_repo_manifest(&paths)?;
     Ok((paths, repo_manifest))
+}
+
+fn read_gutch_repo_manifest(paths: &RepoPaths) -> Result<RepoManifest> {
+    let mut manifest = RepoManifest::from_json_bytes(
+        REPO_METADATA_FILE,
+        &filesystem::read(&paths.repo_metadata_path)?,
+    )?;
+    apply_local_repo_config(paths, &mut manifest)?;
+    Ok(manifest)
+}
+
+/// Refuse to change a repository whose format this release cannot write.
+/// A missing or malformed manifest is left to the operation itself: one is
+/// still being created, and forced initialization replaces the other.
+pub(crate) fn ensure_repository_writable(repo_root: &Path) -> Result<()> {
+    let path = repo_root.join(REPO_METADATA_FILE);
+    if !path.exists() {
+        return Ok(());
+    }
+    let bytes = filesystem::read(&path)?;
+    let checked =
+        check_document_markers::<RepoManifest>(REPO_METADATA_FILE, &bytes).and_then(|()| {
+            RepositoryFormat::from_repo_metadata(&bytes)?.check(RepositoryAccess::Write)
+        });
+    match checked {
+        Err(error @ Error::UnsupportedFormat { .. }) => Err(error),
+        _ => Ok(()),
+    }
 }
 
 pub(crate) fn write_gutch_repo_manifest(
@@ -134,6 +162,8 @@ pub(crate) fn write_gutch_repo_manifest(
         Some(remote_repo_id) => write_json(
             &paths.local_repo_config_path,
             &LocalRepoConfig {
+                document_type: DocumentType::default(),
+                document_version: DocumentVersion::default(),
                 remote_repo_id: remote_repo_id.clone(),
             },
         )?,
@@ -141,17 +171,28 @@ pub(crate) fn write_gutch_repo_manifest(
     Ok(())
 }
 
+/// Machine-local repository settings, kept out of the shared metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LocalRepoConfig {
+    document_type: DocumentType<LocalRepoConfig>,
+    document_version: DocumentVersion<LocalRepoConfig>,
     remote_repo_id: String,
+}
+
+impl VersionedDocument for LocalRepoConfig {
+    const DOCUMENT_TYPE: &'static str = "gutch_local_repo_config";
+    const DOCUMENT_VERSION: &'static str = "1.0.0";
 }
 
 fn apply_local_repo_config(paths: &RepoPaths, manifest: &mut RepoManifest) -> Result<()> {
     if !paths.local_repo_config_path.exists() {
         return Ok(());
     }
-    let config: LocalRepoConfig = filesystem::read_json(&paths.local_repo_config_path)?;
+    let config: LocalRepoConfig = parse_document(
+        LOCAL_REPO_CONFIG_FILE,
+        &filesystem::read(&paths.local_repo_config_path)?,
+    )?;
     let remote_repo_id = config.remote_repo_id.trim();
     if remote_repo_id.is_empty() {
         return Err(Error::repository(format!(

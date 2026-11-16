@@ -3,14 +3,25 @@ use super::*;
 #[test]
 fn repo_manifest_new() {
     let repo = RepoManifest::new("base".into());
-    assert_eq!(repo.format, CONTENT_REPO_FORMAT);
-    assert_eq!(repo.format_version, PUBLIC_METADATA_FORMAT_VERSION);
-    assert_eq!(repo.name, "base");
-    assert_eq!(repo.artifact_profile.chunk, ChunkSizingPreset::Chunk128KiB);
-    assert_eq!(repo.artifact_profile.compression, CompressionKind::Zstd);
-    assert_eq!(repo.artifact_profile.compression_level, Some(3));
-    assert_eq!(repo.artifact_profile.bundle, BundleSizingPreset::Bundle8MiB);
-    assert_eq!(repo.artifact_profile.storage, ArtifactStorageMode::Bundled);
+    assert_eq!(repo.repository_format, RepositoryFormat::default());
+    assert_eq!(repo.repository_name, "base");
+    assert_eq!(
+        repo.content_packaging_profile.chunk,
+        ChunkSizingPreset::Chunk128KiB
+    );
+    assert_eq!(
+        repo.content_packaging_profile.compression,
+        CompressionKind::Zstd
+    );
+    assert_eq!(repo.content_packaging_profile.compression_level, Some(3));
+    assert_eq!(
+        repo.content_packaging_profile.bundle,
+        BundleSizingPreset::Bundle8MiB
+    );
+    assert_eq!(
+        repo.content_packaging_profile.storage,
+        ArtifactStorageMode::Bundled
+    );
 }
 
 #[test]
@@ -36,24 +47,18 @@ fn artifact_profile_expands_presets_for_the_engine() {
 }
 
 #[test]
-fn repo_manifest_serializes_the_compact_artifact_profile() {
+fn repo_manifest_serializes_the_compact_content_packaging_profile() {
     let json = serde_json::to_value(RepoManifest::new("base".into())).unwrap();
-    let artifact_profile = json
+    let profile = json
         .get("content_packaging_profile")
         .and_then(serde_json::Value::as_object)
-        .expect("artifact_profile must be serialized as an object");
+        .expect("content_packaging_profile must be serialized as an object");
 
-    assert_eq!(
-        artifact_profile.get("chunk_size_profile").unwrap(),
-        "chunk_128KiB"
-    );
-    assert_eq!(artifact_profile.get("compression_profile").unwrap(), "zstd");
-    assert_eq!(artifact_profile.get("compression_level").unwrap(), 3);
-    assert_eq!(
-        artifact_profile.get("bundle_size_profile").unwrap(),
-        "bundle_8MiB"
-    );
-    assert_eq!(artifact_profile.get("storage_mode").unwrap(), "bundled");
+    assert_eq!(profile.get("chunk_size_profile").unwrap(), "chunk_128KiB");
+    assert_eq!(profile.get("compression_profile").unwrap(), "zstd");
+    assert_eq!(profile.get("compression_level").unwrap(), 3);
+    assert_eq!(profile.get("bundle_size_profile").unwrap(), "bundle_8MiB");
+    assert_eq!(profile.get("storage_mode").unwrap(), "bundled");
     assert!(json.get("artifact_profile").is_none());
 }
 
@@ -79,15 +84,4 @@ fn persisted_packaging_rejects_invalid_pairs_and_unknown_presets() {
     let mut invalid_compression = original;
     invalid_compression["content_packaging_profile"]["compression_level"] = 100.into();
     assert!(serde_json::from_value::<RepoManifest>(invalid_compression).is_err());
-}
-
-#[test]
-fn repo_manifest_rejects_unknown_document_type_and_version() {
-    let original = serde_json::to_value(RepoManifest::new("base".into())).unwrap();
-    let mut wrong_type = original.clone();
-    wrong_type["document_type"] = "other_repo".into();
-    assert!(serde_json::from_value::<RepoManifest>(wrong_type).is_err());
-    let mut wrong_version = original;
-    wrong_version["document_version"] = "2.0.0".into();
-    assert!(serde_json::from_value::<RepoManifest>(wrong_version).is_err());
 }

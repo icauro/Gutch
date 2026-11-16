@@ -101,14 +101,14 @@ fn capture_repository_group(
         let mut results = Vec::with_capacity(group.len());
         for request in group {
             let (_, mut manifest) = load_gutch_repo_manifest(&repo_root)?;
-            manifest.set_artifact_profile(
+            manifest.set_content_packaging_profile(
                 request.chunk_profile,
                 request.compression_algorithm,
                 request.compression_level,
                 request.bundle_profile,
                 request.storage_mode,
             );
-            manifest.artifact_profile.chunker = request.chunker;
+            manifest.content_packaging_profile.chunker = request.chunker;
             results.push(execute_repo_snapshot_capture(
                 request,
                 &mut reuse_state,

@@ -134,11 +134,6 @@ pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T
     Ok(serde_json::from_str(&read_to_string(path)?)?)
 }
 
-/// Parse JSON from bytes.
-pub(crate) fn from_json_bytes<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
-    Ok(serde_json::from_slice(bytes)?)
-}
-
 #[cfg(test)]
 #[path = "files_tests.rs"]
 mod tests;
