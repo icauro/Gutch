@@ -149,7 +149,9 @@ and a total. `--json` emits one object:
     { "path": "assets/new.png", "change": "added", "delta_bytes": 4096 },
     { "path": "config.json", "change": "modified", "delta_bytes": 0 }
   ],
-  "delta_bytes": 4096
+  "delta_bytes": 4096,
+  "ok": true,
+  "output_version": "1.0.0"
 }
 ```
 
@@ -198,6 +200,9 @@ observation has a `state` of `present` (with `read_only` and `is_directory`),
 `missing`, or `unknown` (with its `inspection_error`). `committed` is true only
 for the post-commit phases `remove_backup_marker` and `remove_backup`. Rollback
 and staging-cleanup attempts retain their own success or error results.
+Unsupported repository formats or document versions use
+`code: unsupported_format` with `subject`, `found`, `supported` and
+`needs_newer_gutch` details.
 Diagnostics are captured before rollback or subsequent staging cleanup;
 observations of multiple paths are best-effort, not an atomic filesystem view.
 Failure to save the error report is reported separately on stderr and never
@@ -227,6 +232,12 @@ summary. Structured output holds readable plans back, so a command that would
 prompt fails instead and asks for `--yes`; review the plan with `--dry-run`
 first. Failures after dispatch return structured error information and a
 nonzero status; parser failures print Clap diagnostics and exit with status 2.
+
+Every `--json` object, every `--json-lines` line, and the `--error-json-out`
+report carry `output_version: "1.0.0"`. The version follows semantic
+versioning: added fields raise the minor version, and removed or changed fields
+raise the major version. Nested objects are covered by the top-level version.
+Profile reports (`--profile-dir`) are diagnostic and not versioned.
 
 `--dry-run` supports repository init, rename, constraints, index rebuild, push
 and pull; snapshot capture, delete and tag replacement; installation preview,

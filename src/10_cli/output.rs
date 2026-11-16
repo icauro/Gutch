@@ -6,6 +6,18 @@ use std::io;
 use std::io::Write;
 use std::mem;
 
+/// The version of every structured object Gutch prints: each `--json` result,
+/// each `--json-lines` line, and the `--error-json-out` report.
+pub(crate) const OUTPUT_VERSION: &str = "1.0.0";
+
+/// Add [`OUTPUT_VERSION`] to a structured object.
+pub(crate) fn versioned(mut value: serde_json::Value) -> serde_json::Value {
+    if let Some(fields) = value.as_object_mut() {
+        fields.insert("output_version".into(), OUTPUT_VERSION.into());
+    }
+    value
+}
+
 #[derive(Default)]
 struct OutputState {
     json: bool,
@@ -80,7 +92,7 @@ pub(crate) fn event(value: &impl serde::Serialize) -> crate::Result<()> {
         let mut state = state.borrow_mut();
         if state.json_lines {
             if let Some(writer) = &mut state.writer {
-                serde_json::to_writer(&mut *writer, value)?;
+                serde_json::to_writer(&mut *writer, &versioned(serde_json::to_value(value)?))?;
                 writeln!(writer)?;
             }
         } else {
@@ -132,10 +144,10 @@ pub(crate) fn finish(result: &crate::Result<()>) -> crate::Result<()> {
                 if state.json_lines {
                     serde_json::to_writer(
                         &mut *writer,
-                        &serde_json::json!({"kind": "summary", "summary": value}),
+                        &versioned(serde_json::json!({"kind": "summary", "summary": value})),
                     )?;
                 } else {
-                    serde_json::to_writer_pretty(&mut *writer, &value)?;
+                    serde_json::to_writer_pretty(&mut *writer, &versioned(value))?;
                 }
                 writeln!(writer)?;
             }

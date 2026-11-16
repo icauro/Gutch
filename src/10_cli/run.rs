@@ -110,7 +110,7 @@ where
     let output_result = output::finish(&command_result);
     let command_result = command_result.and(output_result);
     if let (Err(error), Some(path)) = (&command_result, error_json_out) {
-        let details = error.diagnostic_report();
+        let details = output::versioned(error.diagnostic_report());
         if let Err(export_error) =
             reporting::ensure_parent_directory(&path).and_then(|_| write_json(&path, &details))
         {

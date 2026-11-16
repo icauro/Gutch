@@ -137,7 +137,6 @@ fn build_summary_separates_wall_phases_from_worker_details() {
 
     let summary = build_timings_summary(&timings, ProfileMode::Detailed);
 
-    assert_eq!(summary.schema_version, 1);
     assert_eq!(summary.scan_strategy, "single_pass");
     assert!((summary.unaccounted_seconds.unwrap() - 1.0).abs() < f64::EPSILON);
     assert_eq!(summary.phases.scan_chunk.wall_seconds, Some(4.0));

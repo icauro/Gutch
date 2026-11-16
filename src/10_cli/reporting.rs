@@ -190,7 +190,6 @@ fn wall_timing_fields(total: Duration, parts: &[Duration]) -> (f64, f64) {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct BuildTimingsSummary {
-    pub(crate) schema_version: u32,
     pub(crate) scan_strategy: String,
     pub(crate) runtime_plan: RuntimePlanSummary,
     pub(crate) total_seconds: Option<f64>,
@@ -273,7 +272,6 @@ pub(crate) struct BuildArtifactEncodeDetailsSummary {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ReconstructTimingsSummary {
-    pub(crate) schema_version: u32,
     pub(crate) runtime_plan: RuntimePlanSummary,
     pub(crate) total_seconds: Option<f64>,
     pub(crate) unaccounted_seconds: Option<f64>,
@@ -319,7 +317,6 @@ pub(crate) struct ReconstructDetailsSummary {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct VerifyTimingsSummary {
-    pub(crate) schema_version: u32,
     pub(crate) verify_mode: String,
     pub(crate) runtime_plan: RuntimePlanSummary,
     pub(crate) total_seconds: Option<f64>,
@@ -377,7 +374,6 @@ pub(crate) fn build_timings_summary(
     let bundled = timings.storage_mode == ArtifactStorageMode::Bundled;
 
     BuildTimingsSummary {
-        schema_version: 1,
         scan_strategy: "single_pass".to_string(),
         runtime_plan,
         total_seconds: detailed.then_some(total_seconds),
@@ -514,7 +510,6 @@ pub(crate) fn reconstruct_timings_summary(
     let runtime_plan = runtime_plan_summary(timings.runtime_plan.as_ref());
 
     ReconstructTimingsSummary {
-        schema_version: 1,
         runtime_plan,
         total_seconds: detailed.then_some(total_seconds),
         unaccounted_seconds: detailed.then_some(unaccounted_seconds),
@@ -594,7 +589,6 @@ pub(crate) fn verify_timings_summary(
     let checks_chunk_hashes = timings.verify_mode.checks_chunk_hashes();
 
     VerifyTimingsSummary {
-        schema_version: 1,
         verify_mode: timings.verify_mode.as_str().to_string(),
         runtime_plan,
         total_seconds: detailed.then_some(total_seconds),
