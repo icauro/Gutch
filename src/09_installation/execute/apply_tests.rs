@@ -887,6 +887,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
                 artifact,
                 encoded_size: encoded.len() as u32 + u32::from(wrong_size),
                 artifact_path,
+                decoded_size: 4,
                 chunks: vec![ReconstructArtifactChunk {
                     chunk_hash: hash,
                     raw_size: 4,

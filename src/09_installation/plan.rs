@@ -335,6 +335,7 @@ impl<'a> PipelinePlanBuilder<'a> {
                         artifact: artifact.clone(),
                         artifact_path: artifact.local_path(self.repo_paths)?,
                         encoded_size: entry.artifact_size,
+                        decoded_size: 0,
                         chunks: Vec::new(),
                         targets: Vec::new(),
                     }));
@@ -360,11 +361,27 @@ impl<'a> PipelinePlanBuilder<'a> {
 
     /// Moves each chunk's targets into its job, records which files wait on
     /// each missing artifact, and orders the jobs.
+    /// Sums each used artifact's chunks from the index; jobs list only the required ones.
+    fn resolve_decoded_sizes(&mut self) {
+        if self.artifact_job_indices.is_empty() {
+            return;
+        }
+        for (hash, entry) in self.chunk_index.entries.iter() {
+            let artifact = ArtifactRef::from_chunk_entry(hash, entry);
+            if let Some(&job_index) = self.artifact_job_indices.get(&artifact)
+                && let ReconstructJob::Artifact(job) = &mut self.jobs[job_index]
+            {
+                job.decoded_size += u64::from(entry.raw_size);
+            }
+        }
+    }
+
     fn finish(
         mut self,
         existing_artifacts: &HashSet<ArtifactRef>,
         required_chunk_count: usize,
     ) -> ReconstructPipelinePlan {
+        self.resolve_decoded_sizes();
         let file_count = self.files.len();
         let mut missing_artifact_counts = vec![0; file_count];
         let mut missing_artifact_to_file_indices = HashMap::new();

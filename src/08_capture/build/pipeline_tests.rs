@@ -546,7 +546,7 @@ fn streaming_bundle_admission_does_not_require_all_raw_chunks_at_once() {
     config.runtime_hints.jobs = Some(1);
     // Fits the six-byte largest chunk, but cannot admit the eleven-byte group.
     config.runtime_hints.memory_budget_bytes =
-        NonZeroU64::new(compress::ENCODE_WORKING_MEMORY_BYTES + 6);
+        NonZeroU64::new(compress::encode_working_memory_bytes(&config.compression_profile, 11) + 6);
     let (result, _) = build_directory(source.path(), &config).unwrap();
     assert_eq!(result.snapshot_manifest.file_count(), 2);
     assert_eq!(result.bundles.len(), 1);

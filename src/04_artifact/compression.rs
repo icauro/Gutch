@@ -10,11 +10,57 @@ use crate::artifact::profiles::CompressionProfile;
 use crate::error::Error;
 use crate::error::Result;
 
-// Admission estimates for codec work, not a bound on total process RSS.
-// Keep encoder and decoder reservations separate: their live buffers differ.
 pub(crate) const ZSTD_WINDOW_LOG: u32 = 27;
-pub(crate) const ENCODE_WORKING_MEMORY_BYTES: u64 = 1 << ZSTD_WINDOW_LOG;
-pub(crate) const DECODE_WORKING_MEMORY_BYTES: u64 = (1 << ZSTD_WINDOW_LOG) + 8 * 1024 * 1024;
+/// zstd never uses a window below 1 KiB.
+const ZSTD_MIN_WINDOW_LOG: u32 = 10;
+/// LZ4 frames hold at most 4 MiB blocks: one block in, one compressed block out,
+/// plus the linked-block dictionary and context.
+const LZ4_WORKING_MEMORY_BYTES: u64 = 16 * 1024 * 1024;
+
+// The working-memory functions below are admission estimates for codec work,
+// not a bound on total process RSS. Encoder and decoder buffers differ, so each
+// side has its own estimate.
+
+/// The window zstd uses for a frame of `raw_size` bytes: the encoder pledges the
+/// size, so zstd shrinks the configured window to fit the content.
+fn zstd_window_log(raw_size: u64) -> u32 {
+    let content_log = u64::BITS - raw_size.saturating_sub(1).leading_zeros();
+    content_log.clamp(ZSTD_MIN_WINDOW_LOG, ZSTD_WINDOW_LOG)
+}
+
+/// Memory one encoder needs for `raw_size` bytes under `profile`.
+pub(crate) fn encode_working_memory_bytes(profile: &CompressionProfile, raw_size: u64) -> u64 {
+    match profile.compression {
+        CompressionKind::None => 0,
+        CompressionKind::Lz4 => LZ4_WORKING_MEMORY_BYTES,
+        CompressionKind::Zstd => {
+            // An invalid level fails at encode time; estimate for the largest one meanwhile.
+            let level =
+                validate_profile(profile).unwrap_or_else(|_| zstd::zstd_safe::max_c_level());
+            use zstd::zstd_safe::zstd_sys;
+            // SAFETY: these zstd functions only compute values from their arguments.
+            let estimate = unsafe {
+                // Mirror the encoder: level parameters for the pledged size, the
+                // configured window, then zstd's own shrinking to that size.
+                let mut parameters = zstd_sys::ZSTD_getCParams(level, raw_size, 0);
+                parameters.windowLog = ZSTD_WINDOW_LOG;
+                let parameters = zstd_sys::ZSTD_adjustCParams(parameters, raw_size, 0);
+                zstd_sys::ZSTD_estimateCStreamSize_usingCParams(parameters)
+            };
+            estimate as u64 + zstd::zstd_safe::CCtx::out_size() as u64
+        }
+    }
+}
+
+/// Memory one decoder needs for an artifact holding `raw_size` bytes. The codec
+/// is known only once the artifact is open, so this covers any of them.
+pub(crate) fn decode_working_memory_bytes(raw_size: u64) -> u64 {
+    // SAFETY: this zstd function only computes a value from its argument.
+    let zstd = unsafe {
+        zstd::zstd_safe::zstd_sys::ZSTD_estimateDStreamSize(1 << zstd_window_log(raw_size))
+    };
+    (zstd as u64 + zstd::zstd_safe::DCtx::in_size() as u64).max(LZ4_WORKING_MEMORY_BYTES)
+}
 
 trait CompressionAdapter {
     fn default_level(&self) -> i32;

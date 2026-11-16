@@ -6,7 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::artifact::compression::DECODE_WORKING_MEMORY_BYTES;
+use crate::artifact::compression::decode_working_memory_bytes;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::reference::ArtifactRef;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -70,6 +70,9 @@ pub(crate) struct ReconstructArtifactJob {
     pub(crate) artifact_path: PathBuf,
     /// Complete encoded length declared by the index, including artifact framing.
     pub(crate) encoded_size: u32,
+    /// Raw size of every chunk the index places in the artifact, required or not:
+    /// decoding streams through all of them.
+    pub(crate) decoded_size: u64,
     pub(crate) chunks: Vec<ReconstructArtifactChunk>,
     pub(crate) targets: Vec<ReconstructTarget>,
 }
@@ -114,8 +117,9 @@ impl ReconstructJob {
     pub(crate) fn memory_reservation_bytes(&self) -> u64 {
         const SOURCE_COPY_BUFFER_BYTES: u64 = 1024 * 1024;
         match self {
-            Self::Artifact(_) => {
-                DECODE_WORKING_MEMORY_BYTES + super::handles::RECONSTRUCT_OUTPUT_BUFFER_BYTES as u64
+            Self::Artifact(job) => {
+                decode_working_memory_bytes(job.decoded_size)
+                    + super::handles::RECONSTRUCT_OUTPUT_BUFFER_BYTES as u64
             }
             Self::SourceChunk(chunk) => u64::from(chunk.raw_size) + SOURCE_COPY_BUFFER_BYTES,
             Self::CopySourceFile { .. } => SOURCE_COPY_BUFFER_BYTES,

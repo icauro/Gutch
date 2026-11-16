@@ -28,7 +28,7 @@ use crate::artifact::bundle::BundleTableEntry;
 use crate::artifact::bundle::encoded_metadata_size;
 use crate::artifact::bundle::write_bundle_to_staging;
 use crate::artifact::compression as compress;
-use crate::artifact::compression::ENCODE_WORKING_MEMORY_BYTES;
+use crate::artifact::compression::encode_working_memory_bytes;
 use crate::artifact::format::MAX_RAW_BUNDLE_SIZE;
 use crate::artifact::format::size_u32;
 use crate::artifact::hash::ChunkHash;
@@ -451,13 +451,11 @@ fn build_bundled_chunks(
         memory_budget,
         |bundle| {
             // Loading and encoding overlap: only the largest chunk is live,
-            // alongside the codec's own working-memory reservation.
-            bundle
-                .iter()
-                .map(|(_, payload)| payload.raw_size())
-                .max()
-                .unwrap_or(0)
-                + ENCODE_WORKING_MEMORY_BYTES
+            // alongside the codec's working memory. A group may split into
+            // several bundles; sizing the codec for the whole group covers each.
+            let sizes = bundle.iter().map(|(_, payload)| payload.raw_size());
+            sizes.clone().max().unwrap_or(0)
+                + encode_working_memory_bytes(compression_profile, sizes.sum())
         },
         move |planned_bundle, control| {
             build_bounded_bundle_groups(
@@ -495,7 +493,10 @@ fn build_loose_chunks(
         pool,
         control,
         memory_budget,
-        |(_, payload)| payload.raw_size() + ENCODE_WORKING_MEMORY_BYTES,
+        |(_, payload)| {
+            payload.raw_size()
+                + encode_working_memory_bytes(compression_profile, payload.raw_size())
+        },
         move |(chunk_hash, payload), control| {
             build_loose_chunk(
                 chunk_hash,

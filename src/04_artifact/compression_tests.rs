@@ -115,3 +115,115 @@ fn streaming_size_does_not_return_partial_counts_after_source_failure() {
         assert!(error.to_string().contains("sample source failed"));
     }
 }
+
+#[test]
+fn zstd_window_follows_content_size_within_supported_range() {
+    assert_eq!(zstd_window_log(0), ZSTD_MIN_WINDOW_LOG);
+    assert_eq!(zstd_window_log(1024), 10);
+    assert_eq!(zstd_window_log(1025), 11);
+    assert_eq!(zstd_window_log(8 << 20), 23);
+    assert_eq!(zstd_window_log((8 << 20) + 1), 24);
+    assert_eq!(zstd_window_log(u64::MAX), ZSTD_WINDOW_LOG);
+}
+
+/// Encode and decode like the artifact codecs do, then compare the memory the
+/// zstd contexts really hold with the admission estimates.
+#[test]
+fn zstd_working_memory_estimates_cover_real_contexts() {
+    use zstd::zstd_safe::CCtx;
+    use zstd::zstd_safe::CParameter;
+    use zstd::zstd_safe::DCtx;
+    use zstd::zstd_safe::DParameter;
+    use zstd::zstd_safe::InBuffer;
+    use zstd::zstd_safe::OutBuffer;
+    use zstd::zstd_safe::zstd_sys::ZSTD_EndDirective;
+
+    let mut state = 0x9e37_79b9_u32;
+    for raw_size in [1000, 300_000, (1 << 20) + 1] {
+        // Half noise, half repeats, so matches and literals both occur.
+        let raw: Vec<u8> = (0..raw_size)
+            .map(|index| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                if index % 2048 < 1024 {
+                    (state >> 24) as u8
+                } else {
+                    (index % 251) as u8
+                }
+            })
+            .collect();
+        for level in [1, 3, 19] {
+            let profile = CompressionProfile::for_algorithm(CompressionKind::Zstd, Some(level));
+            let mut encoder = CCtx::create();
+            encoder
+                .set_parameter(CParameter::CompressionLevel(level))
+                .unwrap();
+            encoder
+                .set_parameter(CParameter::WindowLog(ZSTD_WINDOW_LOG))
+                .unwrap();
+            encoder
+                .set_pledged_src_size(Some(raw.len() as u64))
+                .unwrap();
+            let mut encoded = vec![0; zstd::zstd_safe::compress_bound(raw.len())];
+            let mut output = OutBuffer::around(&mut encoded[..]);
+            for piece in raw.chunks(32 * 1024) {
+                let mut input = InBuffer::around(piece);
+                while input.pos() < piece.len() {
+                    encoder
+                        .compress_stream2(
+                            &mut output,
+                            &mut input,
+                            ZSTD_EndDirective::ZSTD_e_continue,
+                        )
+                        .unwrap();
+                }
+            }
+            let mut empty = InBuffer::around(&[][..]);
+            while encoder
+                .compress_stream2(&mut output, &mut empty, ZSTD_EndDirective::ZSTD_e_end)
+                .unwrap()
+                != 0
+            {}
+            let encoded_len = output.pos();
+            let encode_estimate = encode_working_memory_bytes(&profile, raw.len() as u64);
+            assert!(
+                encoder.sizeof() as u64 <= encode_estimate,
+                "level {level}, {raw_size} bytes: encoder holds {}, estimate {encode_estimate}",
+                encoder.sizeof()
+            );
+
+            let mut decoder = DCtx::create();
+            decoder
+                .set_parameter(DParameter::WindowLogMax(ZSTD_WINDOW_LOG))
+                .unwrap();
+            let mut decoded = vec![0; 64 * 1024];
+            let mut input = InBuffer::around(&encoded[..encoded_len]);
+            let mut decoded_len = 0;
+            loop {
+                let mut output = OutBuffer::around(&mut decoded[..]);
+                let remaining = decoder.decompress_stream(&mut output, &mut input).unwrap();
+                decoded_len += output.pos();
+                if remaining == 0 {
+                    break;
+                }
+            }
+            assert_eq!(decoded_len, raw.len());
+            let decode_estimate = decode_working_memory_bytes(raw.len() as u64);
+            assert!(
+                decoder.sizeof() as u64 <= decode_estimate,
+                "level {level}, {raw_size} bytes: decoder holds {}, estimate {decode_estimate}",
+                decoder.sizeof()
+            );
+        }
+    }
+}
+
+#[test]
+fn working_memory_estimates_shrink_for_small_artifacts() {
+    let profile = CompressionProfile::default();
+    let small = encode_working_memory_bytes(&profile, 8 << 20);
+    let largest = encode_working_memory_bytes(&profile, u64::MAX);
+    assert!(small * 4 < largest, "small {small}, largest {largest}");
+    assert!(largest >= 1 << ZSTD_WINDOW_LOG);
+    assert!(decode_working_memory_bytes(8 << 20) * 4 < decode_working_memory_bytes(u64::MAX));
+    assert!(decode_working_memory_bytes(u64::MAX) >= 1 << ZSTD_WINDOW_LOG);
+}

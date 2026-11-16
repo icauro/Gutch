@@ -112,8 +112,10 @@ present; failed RAM detection falls back to 512 MiB. Callers can override it wit
 The resolved byte budget is included in `RuntimePlan` and the detailed trace's
 `runtime.memory.budget` event. The caller reserves memory before dispatching
 encoding jobs, so pool workers do not block on memory admission. Jobs reserve
-the largest raw chunk in a bundle (or the single loose chunk) plus 128 MiB for
-codec work. Result collection preserves input
+the largest raw chunk in a bundle (or the single loose chunk) plus the codec's
+working memory for the job's raw size. For zstd that is zstd's own estimate for
+the configured level and the window it uses for that size, at most 128 MiB of
+window; LZ4 reserves 16 MiB and uncompressed output nothing extra. Result collection preserves input
 order regardless of completion order. This budget does not cap process RSS or
 change chunking, bundle grouping, or codec settings. A job exceeding the entire
 budget fails with its required and configured byte counts; allocations are not

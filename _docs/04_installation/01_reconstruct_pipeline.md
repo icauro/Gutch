@@ -155,9 +155,11 @@ Artifact work uses the automatic/explicit working-memory budget policy described
 for [capture](../03_capture/02_scan_pipeline.md#parallelization-and-resource-limits). The
 coordinator admits jobs only when both a worker slot and their memory reservation
 are available. Waiting jobs stay queued; eligible verification and smaller jobs
-can proceed. Artifact jobs reserve 136 MiB for the bounded decoder window and
-chunk buffer, plus 64 KiB for coalesced output. A budget exactly equal to the old
-136 MiB reservation therefore needs another 64 KiB. Source-copy work
+can proceed. Artifact jobs reserve decoder memory for the
+window the artifact's raw size needs, as zstd estimates it (at most a 128 MiB
+window, and never less than the 16 MiB an LZ4 frame can need), plus 64 KiB for
+coalesced output. The raw size sums every chunk the index places in the artifact,
+because decoding streams through unrequired chunks too. Source-copy work
 reserves only its I/O buffer. This limits admitted artifact work, not total
 process RSS, which also includes indexes, worker stacks, and other allocations.
 
