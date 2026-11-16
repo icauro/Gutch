@@ -175,7 +175,7 @@ paths are quoted and control characters escaped.
 
 Differences and identical trees both exit successfully. Missing or invalid
 snapshot metadata fails the command. The engine API is `diff_snapshots`,
-returning `SnapshotDiff`; both CLI formats render this same result.
+returning `SnapshotDiffResult`; both CLI formats render this same result.
 
 ## Filename compatibility policy
 

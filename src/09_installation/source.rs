@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::Result;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::installation::inspect::{
-    InspectionSpans, VerifyMode, VerifyRequest, classify_directory,
+    InspectionSpans, InstallationVerifyMode, VerifyRequest, classify_directory,
 };
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
@@ -37,7 +37,7 @@ pub(crate) fn resolve_verified_source<'a>(
     let (classification, _) = classify_directory(VerifyRequest {
         snapshot_manifest: source.snapshot_manifest,
         dir: source.destination_dir,
-        mode: VerifyMode::Fast,
+        mode: InstallationVerifyMode::Fast,
         runtime_hints,
         control: control.clone(),
         spans: &InspectionSpans::VERIFY,

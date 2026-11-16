@@ -1,16 +1,61 @@
 //! Repository rename and constraint updates, with tag validation.
 
 use std::path::Path;
+use std::path::PathBuf;
 
 use crate::Result;
 use crate::filesystem;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::constraints::RepoConstraints;
+use crate::progress::OperationControl;
 use crate::repo::coordination;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::write_repo_manifest;
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+
+/// The complete constraints that replace a repository's current ones.
+#[derive(Debug, Clone)]
+pub struct RepoConstraintsSetRequest {
+    pub repo_root: PathBuf,
+    pub constraints: RepoConstraints,
+    pub control: OperationControl,
+}
+
+/// The normalized constraints a replacement would store.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RepoConstraintsSetPlan {
+    pub constraints: RepoConstraints,
+}
+
+/// The normalized constraints that were stored.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RepoConstraintsSetResult {
+    pub constraints: RepoConstraints,
+}
+
+/// The new display name for a repository.
+#[derive(Debug, Clone)]
+pub struct RepoRenameRequest {
+    pub repo_root: PathBuf,
+    pub name: String,
+    pub control: OperationControl,
+}
+
+/// The validated name a rename would store.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RepoRenamePlan {
+    pub previous_name: String,
+    pub name: String,
+}
+
+/// The name a rename replaced and the name it stored.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RepoRenameResult {
+    pub previous_name: String,
+    pub name: String,
+}
 
 pub fn repo_constraints(repo_root: &Path) -> Result<RepoConstraints> {
     coordination::read(repo_root, || {
@@ -37,21 +82,35 @@ pub(crate) fn validate_existing_constraints(
 }
 
 pub fn plan_set_repo_constraints(
-    repo_root: &Path,
-    mut constraints: RepoConstraints,
-) -> Result<RepoConstraints> {
-    coordination::read(repo_root, || {
-        constraints.targets.sort();
-        constraints.targets.dedup();
-        validate_existing_constraints(repo_root, &constraints, "change constraints")?;
-        Ok(constraints)
+    request: &RepoConstraintsSetRequest,
+) -> Result<RepoConstraintsSetPlan> {
+    request.control.checkpoint()?;
+    coordination::read(&request.repo_root, || {
+        let constraints = normalized_constraints(&request.repo_root, &request.constraints)?;
+        Ok(RepoConstraintsSetPlan { constraints })
     })
 }
 
-pub fn plan_rename_repo(repo_root: &Path, name: &str) -> Result<String> {
-    coordination::read(repo_root, || {
-        load_repo_manifest(repo_root)?;
-        validated_repo_name(name)
+/// Sorts and deduplicates targets, then checks the result against every stored snapshot.
+fn normalized_constraints(
+    repo_root: &Path,
+    constraints: &RepoConstraints,
+) -> Result<RepoConstraints> {
+    let mut constraints = constraints.clone();
+    constraints.targets.sort();
+    constraints.targets.dedup();
+    validate_existing_constraints(repo_root, &constraints, "change constraints")?;
+    Ok(constraints)
+}
+
+pub fn plan_rename_repo(request: &RepoRenameRequest) -> Result<RepoRenamePlan> {
+    request.control.checkpoint()?;
+    coordination::read(&request.repo_root, || {
+        let (_, manifest) = load_repo_manifest(&request.repo_root)?;
+        Ok(RepoRenamePlan {
+            previous_name: manifest.repository_name,
+            name: validated_repo_name(&request.name)?,
+        })
     })
 }
 
@@ -68,27 +127,32 @@ fn validated_repo_name(name: &str) -> Result<String> {
     Ok(trimmed.to_owned())
 }
 
-pub fn set_repo_constraints(repo_root: &Path, mut constraints: RepoConstraints) -> Result<()> {
+pub fn set_repo_constraints(
+    request: &RepoConstraintsSetRequest,
+) -> Result<RepoConstraintsSetResult> {
+    request.control.checkpoint()?;
+    let repo_root = request.repo_root.as_path();
     coordination::write(repo_root, || {
-        constraints.targets.sort();
-        constraints.targets.dedup();
-        validate_existing_constraints(repo_root, &constraints, "change constraints")?;
+        let constraints = normalized_constraints(repo_root, &request.constraints)?;
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
-        manifest.constraints = if constraints.is_empty() {
-            None
-        } else {
-            Some(constraints)
-        };
-        write_repo_manifest(&paths, &manifest)
+        manifest.constraints = (!constraints.is_empty()).then(|| constraints.clone());
+        write_repo_manifest(&paths, &manifest)?;
+        Ok(RepoConstraintsSetResult { constraints })
     })
 }
 
-pub fn rename_repo(repo_root: &Path, name: &str) -> Result<()> {
+pub fn rename_repo(request: &RepoRenameRequest) -> Result<RepoRenameResult> {
+    request.control.checkpoint()?;
+    let repo_root = request.repo_root.as_path();
     coordination::write(repo_root, || {
-        let name = validated_repo_name(name)?;
+        let name = validated_repo_name(&request.name)?;
         let (repo_paths, mut repo_manifest) = load_repo_manifest(repo_root)?;
-        repo_manifest.repository_name = name;
-        write_repo_manifest(&repo_paths, &repo_manifest)
+        let previous_name = std::mem::replace(&mut repo_manifest.repository_name, name.clone());
+        write_repo_manifest(&repo_paths, &repo_manifest)?;
+        Ok(RepoRenameResult {
+            previous_name,
+            name,
+        })
     })
 }
 

@@ -20,6 +20,15 @@ use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::validate_snapshot_id;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+/// One snapshot to delete.
+#[derive(Debug, Clone)]
+pub struct SnapshotDeleteRequest {
+    pub repo_root: PathBuf,
+    pub snapshot_id: String,
+    pub control: OperationControl,
+}
 
 /// Result of deleting one snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,20 +39,41 @@ pub struct SnapshotDeleteResult {
     pub removed_artifact_count: usize,
 }
 
-/// Result of explicitly retagging one exact snapshot ID.
+/// Complete replacement tag sets, keyed by exact snapshot ID.
+#[derive(Debug, Clone)]
+pub struct SnapshotTagsReplaceRequest {
+    pub repo_root: PathBuf,
+    pub replacements: BTreeMap<String, SnapshotTagSet>,
+    pub control: OperationControl,
+}
+
+/// The tags of one snapshot before and after a replacement.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotTagsReplaceResult {
+pub struct SnapshotTagsChange {
     pub snapshot_id: String,
     pub previous_tags: SnapshotTagSet,
     pub new_tags: SnapshotTagSet,
 }
 
-pub fn delete_snapshot(
-    repo_root: &Path,
-    snapshot_id: &str,
-    control: &OperationControl,
-) -> Result<SnapshotDeleteResult> {
+/// The validated changes a tag replacement would make.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SnapshotTagsReplacePlan {
+    pub changes: Vec<SnapshotTagsChange>,
+}
+
+/// The changes a tag replacement made.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SnapshotTagsReplaceResult {
+    pub changes: Vec<SnapshotTagsChange>,
+}
+
+pub fn delete_snapshot(request: &SnapshotDeleteRequest) -> Result<SnapshotDeleteResult> {
+    let (repo_root, snapshot_id, control) = (
+        request.repo_root.as_path(),
+        request.snapshot_id.as_str(),
+        &request.control,
+    );
     coordination::write(repo_root, || {
         control.checkpoint()?;
         validate_snapshot_id(snapshot_id)?;
@@ -100,18 +130,19 @@ pub fn delete_snapshot(
 /// Preview complete replacement tag sets for selected snapshots. Untouched
 /// snapshots also participate in parity validation.
 pub fn plan_replace_snapshot_tags(
-    repo_root: &Path,
-    replacements: &BTreeMap<String, SnapshotTagSet>,
-) -> Result<Vec<SnapshotTagsReplaceResult>> {
+    request: &SnapshotTagsReplaceRequest,
+) -> Result<SnapshotTagsReplacePlan> {
+    let repo_root = request.repo_root.as_path();
+    request.control.checkpoint()?;
     coordination::read(repo_root, || {
         let (paths, repository) = load_repo_manifest(repo_root)?;
         let mut results = Vec::new();
         let mut normalized = BTreeMap::new();
-        for (id, tags) in replacements {
+        for (id, tags) in &request.replacements {
             let manifest = load_snapshot_manifest(&paths, id)?;
             let tags = tags.normalized()?;
             normalized.insert(id.clone(), tags.clone());
-            results.push(SnapshotTagsReplaceResult {
+            results.push(SnapshotTagsChange {
                 snapshot_id: id.clone(),
                 previous_tags: manifest.snapshot_tags,
                 new_tags: tags,
@@ -122,25 +153,24 @@ pub fn plan_replace_snapshot_tags(
             &repository.constraints.unwrap_or_default(),
             &normalized,
         )?;
-        Ok(results)
+        Ok(SnapshotTagsReplacePlan { changes: results })
     })
 }
 
 /// Replaces multiple snapshot tag sets in one recoverable repository transaction.
 /// A failing rule or write restores every snapshot's previous metadata.
 pub fn replace_snapshot_tags(
-    repo_root: &Path,
-    replacements: BTreeMap<String, SnapshotTagSet>,
-    control: &OperationControl,
-) -> Result<Vec<SnapshotTagsReplaceResult>> {
+    request: &SnapshotTagsReplaceRequest,
+) -> Result<SnapshotTagsReplaceResult> {
+    let repo_root = request.repo_root.as_path();
     coordination::write(repo_root, || {
-        let changes = plan_replace_snapshot_tags(repo_root, &replacements)?;
+        let SnapshotTagsReplacePlan { changes } = plan_replace_snapshot_tags(request)?;
         let (paths, _) = load_repo_manifest(repo_root)?;
         for change in &changes {
             let mut manifest = load_snapshot_manifest(&paths, &change.snapshot_id)?;
             manifest.snapshot_tags = change.new_tags.clone();
-            write_snapshot_manifest_artifacts(&paths, &manifest, control)?;
+            write_snapshot_manifest_artifacts(&paths, &manifest, &request.control)?;
         }
-        Ok(changes)
+        Ok(SnapshotTagsReplaceResult { changes })
     })
 }

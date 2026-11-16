@@ -14,7 +14,7 @@ use crate::repo::summarize_snapshot_tags;
 ///
 /// The CLI plans before it asks for confirmation, so the planning work is
 /// recorded in the same profile as the capture that follows.
-pub fn plan_capture_snapshot(
+pub(crate) fn plan_capture_source(
     repo_root: &Path,
     source_dir: &Path,
     explicit_tags: &SnapshotTagSet,

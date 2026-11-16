@@ -39,18 +39,24 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     crate::test_util::index_manifest(&paths, &unselected);
 
     for mode in [RepoVerifyMode::Fast, RepoVerifyMode::Strict] {
-        let result = verify_repo(
-            root.path(),
-            Some(&selected.snapshot_id),
+        let result = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+            repo_root: root.path().to_path_buf(),
+            snapshot_id: Some(selected.snapshot_id.clone()),
             mode,
-            &OperationControl::default(),
-        )
+            control: Default::default(),
+        })
         .unwrap();
         assert!(result.ok);
         assert_eq!(result.snapshot_count, 1);
         assert_eq!(result.snapshots[0].snapshot_id, selected.snapshot_id);
         assert_eq!(result.snapshots[0].required_artifact_count, 0);
-        let all = verify_repo(root.path(), None, mode, &OperationControl::default()).unwrap();
+        let all = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+            repo_root: root.path().to_path_buf(),
+            snapshot_id: None,
+            mode,
+            control: Default::default(),
+        })
+        .unwrap();
         assert!(!all.ok);
         assert_eq!(all.snapshot_count, 2);
         assert_eq!(all.snapshots_ok, 1);
@@ -69,23 +75,23 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     entry.raw_size += 1;
     index.entries.insert(chunk, entry);
     crate::repo::index::write_chunk_index(&paths, &index).unwrap();
-    let error = verify_repo(
-        root.path(),
-        Some(&selected.snapshot_id),
-        RepoVerifyMode::Fast,
-        &crate::progress::OperationControl::default(),
-    )
+    let error = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: root.path().to_path_buf(),
+        snapshot_id: Some(selected.snapshot_id.clone()),
+        mode: RepoVerifyMode::Fast,
+        control: Default::default(),
+    })
     .unwrap_err();
     assert!(error.to_string().contains("chunk index size disagrees"));
 
     crate::repo::index::write_chunk_index(&paths, &crate::repo::index::empty_chunk_index())
         .unwrap();
-    let error = verify_repo(
-        root.path(),
-        Some(&selected.snapshot_id),
-        RepoVerifyMode::Fast,
-        &crate::progress::OperationControl::default(),
-    )
+    let error = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: root.path().to_path_buf(),
+        snapshot_id: Some(selected.snapshot_id.clone()),
+        mode: RepoVerifyMode::Fast,
+        control: Default::default(),
+    })
     .unwrap_err();
     assert!(error.to_string().contains("missing chunk index entry"));
 
@@ -101,12 +107,12 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
         &crate::progress::OperationControl::default(),
     )
     .unwrap();
-    let error = verify_repo(
-        root.path(),
-        Some(&selected.snapshot_id),
-        RepoVerifyMode::Fast,
-        &crate::progress::OperationControl::default(),
-    )
+    let error = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: root.path().to_path_buf(),
+        snapshot_id: Some(selected.snapshot_id.clone()),
+        mode: RepoVerifyMode::Fast,
+        control: Default::default(),
+    })
     .unwrap_err();
     assert!(matches!(error, Error::SnapshotIntegrityMismatch { .. }));
 }
@@ -116,22 +122,22 @@ fn empty_repository_succeeds_but_unknown_snapshot_is_an_error() {
     let root = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(root.path());
     crate::repo::paths::ensure_repo_layout(&paths, "empty").unwrap();
-    let result = verify_repo(
-        root.path(),
-        None,
-        RepoVerifyMode::Fast,
-        &OperationControl::default(),
-    )
+    let result = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: root.path().to_path_buf(),
+        snapshot_id: None,
+        mode: RepoVerifyMode::Fast,
+        control: Default::default(),
+    })
     .unwrap();
     assert!(result.ok);
     assert_eq!(result.snapshot_count, 0);
     let unknown = "a".repeat(64);
-    let error = verify_repo(
-        root.path(),
-        Some(&unknown),
-        RepoVerifyMode::Fast,
-        &OperationControl::default(),
-    )
+    let error = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: root.path().to_path_buf(),
+        snapshot_id: Some(unknown.clone()),
+        mode: RepoVerifyMode::Fast,
+        control: Default::default(),
+    })
     .unwrap_err();
     assert!(error.to_string().contains("snapshot not found in repo"));
 }

@@ -9,9 +9,9 @@ use std::process::ExitCode;
 
 use gutch::api::{
     ArtifactStorageMode, BundleSizingPreset, ChunkSizingPreset, Chunker, CompressionKind,
-    InstallationRequest, InstallationVerifyRequest, OperationControl, RepoInitOptions, Result,
-    RuntimeResourceHints, SnapshotCaptureRequest, SnapshotTagSet, VerifyMode, capture_snapshot,
-    init_repo, reconstruct_installation, verify_installation,
+    InstallationReconstructRequest, InstallationVerifyMode, InstallationVerifyRequest,
+    OperationControl, RepoInitRequest, Result, RuntimeResourceHints, SnapshotCaptureRequest,
+    SnapshotTagSet, capture_snapshot, init_repo, reconstruct_installation, verify_installation,
 };
 
 fn main() -> ExitCode {
@@ -32,7 +32,10 @@ fn main() -> ExitCode {
 fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
     let repo_root = work_dir.join("repo");
     let destination_dir = work_dir.join("install");
-    init_repo(&repo_root, RepoInitOptions::default())?;
+    init_repo(&RepoInitRequest {
+        repo_root: repo_root.clone(),
+        ..Default::default()
+    })?;
 
     let mut tags = SnapshotTagSet::default();
     tags.insert("version", "1.0.0")?;
@@ -51,7 +54,7 @@ fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
     })?;
     println!("captured snapshot {}", captured.snapshot_id);
 
-    reconstruct_installation(&InstallationRequest {
+    reconstruct_installation(&InstallationReconstructRequest {
         repo_root: repo_root.clone(),
         snapshot_id: captured.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -66,7 +69,7 @@ fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
         repo_root,
         snapshot_id: captured.snapshot_id,
         destination_dir: destination_dir.clone(),
-        verify_mode: VerifyMode::Fast,
+        verify_mode: InstallationVerifyMode::Fast,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })?;

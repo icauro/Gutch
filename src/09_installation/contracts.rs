@@ -6,8 +6,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::installation::inspect::RepairClassification;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationIssues;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::inspect::VerifyTimings;
 use crate::manifest::ExternalProductDependencyRequirement;
 use crate::manifest::launch::ResolvedLaunchConfiguration;
@@ -66,7 +66,7 @@ pub struct InstallationReconstructOutcome {
 }
 
 #[derive(Debug, Clone)]
-pub struct InstallationRequest {
+pub struct InstallationReconstructRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
@@ -92,7 +92,7 @@ pub struct InstallationVerifyRequest {
     pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
-    pub verify_mode: VerifyMode,
+    pub verify_mode: InstallationVerifyMode,
     pub runtime_hints: RuntimeResourceHints,
     pub control: OperationControl,
 }
@@ -101,7 +101,7 @@ pub struct InstallationVerifyRequest {
 pub struct InstallationVerifyResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
-    pub classification: RepairClassification,
+    pub classification: InstallationIssues,
     pub(crate) verify_timings: VerifyTimings,
 }
 
@@ -177,16 +177,7 @@ pub struct InstallationRepairRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct InstallationRepairPlanRequest {
-    pub repo_root: PathBuf,
-    pub snapshot_id: String,
-    pub destination_dir: PathBuf,
-    pub runtime_hints: RuntimeResourceHints,
-    pub control: OperationControl,
-}
-
-#[derive(Debug, Clone)]
-pub struct InstallationRepairPlanResult {
+pub struct InstallationRepairPlan {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
     pub missing_file_count: usize,

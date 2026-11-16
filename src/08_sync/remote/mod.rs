@@ -12,6 +12,12 @@ mod provider;
 mod pull;
 mod push;
 
+pub use link::RemoteRepoBindRequest;
+pub use link::RemoteRepoBindResult;
+pub use link::RemoteRepoCreateRequest;
+pub use link::RemoteRepoCreateResult;
+pub use link::RemoteRepoUnbindRequest;
+pub use link::RemoteRepoUnbindResult;
 pub use link::bind_remote_repo;
 pub use link::create_remote_repo;
 pub use link::remote_tag_references;
@@ -34,8 +40,10 @@ pub use provider::RepoPullResult;
 pub use provider::RepoPushPlan;
 pub use provider::RepoPushResult;
 pub use provider::RepoPushSnapshotChange;
+pub use pull::RepoPullRequest;
 pub use pull::plan_pull_repo;
 pub use pull::pull_repo;
+pub use push::RepoPushRequest;
 pub use push::plan_push_repo;
 pub use push::push_repo;
 

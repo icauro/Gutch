@@ -5,10 +5,10 @@ use crate::artifact::hash::ChunkHash;
 use crate::capture::build::pipeline::build_directory;
 use crate::capture::build::types::BuildConfig;
 use crate::capture::reuse::add_built_bundles_to_chunk_index;
-use crate::installation::InstallationRequest;
+use crate::installation::InstallationReconstructRequest;
 use crate::installation::inspect::InspectionSpans;
-use crate::installation::inspect::RepairClassification;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationIssues;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory;
 use crate::installation::reconstruct_installation;
@@ -42,7 +42,7 @@ fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String>
     classify_directory(VerifyRequest {
         snapshot_manifest: manifest,
         dir,
-        mode: VerifyMode::Fast,
+        mode: InstallationVerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
         control: OperationControl::default(),
         spans: &InspectionSpans::VERIFY,
@@ -53,11 +53,11 @@ fn verify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> Vec<String>
     .into_messages()
 }
 
-fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> RepairClassification {
+fn classify_test_directory(manifest: &SnapshotManifest, dir: &Path) -> InstallationIssues {
     classify_directory(VerifyRequest {
         snapshot_manifest: manifest,
         dir,
-        mode: VerifyMode::Fast,
+        mode: InstallationVerifyMode::Fast,
         runtime_hints: &RuntimeResourceHints::default(),
         control: OperationControl::default(),
         spans: &InspectionSpans::VERIFY,
@@ -125,7 +125,7 @@ fn apply_snapshot_ops_reuses_verified_source_destination() {
     add_built_bundles_to_chunk_index(&mut chunk_index, &v2.bundles).unwrap();
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
-    let result = reconstruct_installation(&InstallationRequest {
+    let result = reconstruct_installation(&InstallationReconstructRequest {
         repo_root: repo_dir,
         snapshot_id: v2.snapshot_manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -360,7 +360,7 @@ fn large_game_build_200mb() {
     let t2 = Instant::now();
     let out_dir_temp = tempfile::tempdir().unwrap();
     let out_dir = out_dir_temp.path().join("test_200mb_reconstructed");
-    reconstruct_installation(&InstallationRequest {
+    reconstruct_installation(&InstallationReconstructRequest {
         repo_root: repo_root.clone(),
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         destination_dir: out_dir.clone(),

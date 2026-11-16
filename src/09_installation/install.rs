@@ -2,12 +2,12 @@
 
 use crate::Result;
 use crate::installation::contracts::{
-    InstallationReconstructResult, InstallationRepairOutcome, InstallationRequest,
+    InstallationReconstructRequest, InstallationReconstructResult, InstallationRepairOutcome,
 };
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
 use crate::installation::execute::publish::Publication;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::plan::inspect_installation_changes;
 use crate::installation::prepare::LoadedRepoSnapshot;
 use crate::installation::prepare::LoadedSnapshotSource;
@@ -32,21 +32,21 @@ pub enum ExtraFilePolicy {
     Remove,
 }
 #[derive(Debug, Clone)]
-pub struct InstallationResult {
-    pub reconstruction: InstallationReconstructResult,
-    pub repair: Option<InstallationRepairOutcome>,
+pub(crate) struct InstallationResult {
+    pub(crate) reconstruction: InstallationReconstructResult,
+    pub(crate) repair: Option<InstallationRepairOutcome>,
 }
 
 /// Full reconstruction: build in staging, then replace the destination.
 pub fn reconstruct_installation(
-    request: &InstallationRequest,
+    request: &InstallationReconstructRequest,
 ) -> Result<InstallationReconstructResult> {
     install_snapshot_from_repo(request, InstallationPublication::ReplaceDirectory)
         .map(|result| result.reconstruction)
 }
 
-pub fn install_snapshot_from_repo(
-    request: &InstallationRequest,
+pub(crate) fn install_snapshot_from_repo(
+    request: &InstallationReconstructRequest,
     publication: InstallationPublication,
 ) -> Result<InstallationResult> {
     request.control.checkpoint()?;
@@ -73,7 +73,7 @@ pub fn install_snapshot_from_repo(
                 &snapshot_manifest,
                 Some(&chunk_index),
                 &request.destination_dir,
-                VerifyMode::Fast,
+                InstallationVerifyMode::Fast,
                 &request.runtime_hints,
                 &request.control,
                 None,

@@ -2,7 +2,6 @@ use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::filesystem;
 use crate::filesystem::set_read_only;
-use crate::installation::InstallationRepairPlanRequest;
 use crate::installation::InstallationRepairRequest;
 use crate::installation::execute::entries::prepare_snapshot_entries;
 use crate::installation::repair::plan_repair_installation;
@@ -326,10 +325,12 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     fs::write(destination_dir.join("game.exe"), b"bad!").unwrap();
     fs::write(destination_dir.join("data.bin"), b"data").unwrap();
 
-    let plan = plan_repair_installation(&InstallationRepairPlanRequest {
+    let plan = plan_repair_installation(&InstallationRepairRequest {
         repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
+        staging_dir: None,
+        remove_extra_files: false,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })

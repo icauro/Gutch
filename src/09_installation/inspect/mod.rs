@@ -9,4 +9,7 @@ mod types;
 pub(crate) use classify::{
     InspectionSpans, VerifyRequest, classify_directory, classify_expected_entries,
 };
-pub use types::{RepairClassification, RepairIssue, RepairIssueKind, VerifyMode, VerifyTimings};
+pub use types::{
+    InstallationIssue, InstallationIssueKind, InstallationIssues, InstallationVerifyMode,
+    VerifyTimings,
+};

@@ -33,13 +33,11 @@ fn init_repo_without_force_rejects_existing_repo() {
     let repo_paths = RepoPaths::from_repo_root(&repo_root);
     ensure_repo_layout(&repo_paths, "base").unwrap();
 
-    let err = init_repo(
-        &repo_root,
-        RepoInitOptions {
-            force: false,
-            ..Default::default()
-        },
-    )
+    let err = init_repo(&RepoInitRequest {
+        repo_root: repo_root.clone(),
+        force: false,
+        ..Default::default()
+    })
     .unwrap_err();
     assert!(err.to_string().contains(REPO_INIT_NEEDS_CONFIRMATION));
 }
@@ -79,13 +77,11 @@ fn init_repo_with_force_replaces_existing_repo_artifacts() {
     std::fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     std::fs::write(bundle_path, b"bundle").unwrap();
 
-    init_repo(
-        &repo_root,
-        RepoInitOptions {
-            force: true,
-            ..Default::default()
-        },
-    )
+    init_repo(&RepoInitRequest {
+        repo_root: repo_root.clone(),
+        force: true,
+        ..Default::default()
+    })
     .unwrap();
 
     let status = repo_status(&repo_root).unwrap();
@@ -101,13 +97,11 @@ fn init_repo_with_force_keeps_unrelated_files_in_non_empty_path() {
     std::fs::create_dir_all(&repo_root).unwrap();
     std::fs::write(repo_root.join("notes.txt"), b"keep me").unwrap();
 
-    init_repo(
-        &repo_root,
-        RepoInitOptions {
-            force: true,
-            ..Default::default()
-        },
-    )
+    init_repo(&RepoInitRequest {
+        repo_root: repo_root.clone(),
+        force: true,
+        ..Default::default()
+    })
     .unwrap();
 
     assert!(repo_root.join("notes.txt").exists());

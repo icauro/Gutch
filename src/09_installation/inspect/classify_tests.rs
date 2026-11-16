@@ -23,7 +23,7 @@ fn empty_manifest() -> SnapshotManifest {
 fn verify_with<'a>(
     snapshot_manifest: &'a SnapshotManifest,
     dir: &'a Path,
-    mode: VerifyMode,
+    mode: InstallationVerifyMode,
     runtime_hints: &'a RuntimeResourceHints,
 ) -> Result<(Vec<String>, VerifyTimings)> {
     let (classification, timings) = classify_directory(VerifyRequest {
@@ -45,7 +45,7 @@ fn verify_fast(
     verify_with(
         snapshot_manifest,
         dir,
-        VerifyMode::Fast,
+        InstallationVerifyMode::Fast,
         default_runtime_hints(),
     )
 }
@@ -57,7 +57,7 @@ fn pre_cancelled_verify_returns_typed_cancellation_before_io() {
     let result = classify_directory(VerifyRequest {
         snapshot_manifest: &empty_manifest(),
         dir: &missing_dir,
-        mode: VerifyMode::Fast,
+        mode: InstallationVerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
         control: OperationControl::default()
             .with_cancellation(Arc::new(crate::test_util::TestCancellation::cancelled())),
@@ -162,7 +162,7 @@ fn verify_default_fast_mode_skips_chunk_hashing() {
 
     let (errors, timings) = verify_fast(&manifest, &dir).unwrap();
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-    assert_eq!(timings.verify_mode, VerifyMode::Fast);
+    assert_eq!(timings.verify_mode, InstallationVerifyMode::Fast);
     assert_eq!(timings.chunk_hash_bytes, 0);
 }
 
@@ -187,7 +187,7 @@ fn expected_entry_classification_ignores_unrelated_extra_files() {
     let (classification, _) = super::classify_expected_entries(super::VerifyRequest {
         snapshot_manifest: &manifest,
         dir: &dir,
-        mode: VerifyMode::Fast,
+        mode: InstallationVerifyMode::Fast,
         runtime_hints: default_runtime_hints(),
         control: OperationControl::default(),
         spans: &InspectionSpans::VERIFY,
@@ -240,9 +240,14 @@ fn verify_strict_mode_checks_chunk_hashing() {
     );
     assert_eq!(fast_timings.chunk_hash_bytes, 0);
 
-    let (strict_errors, strict_timings) =
-        verify_with(&manifest, &dir, VerifyMode::Strict, default_runtime_hints()).unwrap();
-    assert_eq!(strict_timings.verify_mode, VerifyMode::Strict);
+    let (strict_errors, strict_timings) = verify_with(
+        &manifest,
+        &dir,
+        InstallationVerifyMode::Strict,
+        default_runtime_hints(),
+    )
+    .unwrap();
+    assert_eq!(strict_timings.verify_mode, InstallationVerifyMode::Strict);
     assert_eq!(strict_timings.chunk_hash_bytes, full_file.len() as u64);
     assert!(
         strict_errors
@@ -297,7 +302,7 @@ fn verify_with_hints_records_runtime_plan() {
     let (_, timings) = verify_with(
         &manifest,
         &dir,
-        VerifyMode::Fast,
+        InstallationVerifyMode::Fast,
         &RuntimeResourceHints {
             jobs: Some(1),
             ..Default::default()
@@ -382,7 +387,7 @@ fn parallel_verification_preserves_issue_order_across_worker_counts() {
         let (classification, _) = classify_directory(VerifyRequest {
             snapshot_manifest: &manifest,
             dir: &dir,
-            mode: VerifyMode::Fast,
+            mode: InstallationVerifyMode::Fast,
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(workers),
                 ..Default::default()

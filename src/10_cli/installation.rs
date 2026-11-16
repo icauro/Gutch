@@ -25,14 +25,15 @@ use crate::cli::snapshot_transfer::fetch_and_reconstruct;
 use crate::cli::verbose_output_enabled;
 use crate::installation::InstallationCorruptPlan;
 use crate::installation::InstallationCorruptRequest;
+use crate::installation::InstallationReconstructRequest;
 use crate::installation::InstallationRepairRequest;
-use crate::installation::InstallationRequest;
 use crate::installation::InstallationVerifyRequest;
 use crate::installation::corrupt_installation;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::install::ExtraFilePolicy;
 use crate::installation::install::InstallationPublication;
 use crate::installation::preview::InstallationInspection;
+use crate::installation::preview::InstallationPreviewRequest;
 use crate::installation::preview::preview_installation;
 use crate::installation::reconstruct_installation;
 use crate::installation::repair_installation;
@@ -66,9 +67,9 @@ pub(crate) fn verify(
         snapshot_id,
         destination,
         verify_mode: if strict {
-            VerifyMode::Strict
+            InstallationVerifyMode::Strict
         } else {
-            VerifyMode::Fast
+            InstallationVerifyMode::Fast
         },
         runtime_hints: runtime.hints(),
         profile: profile.clone(),
@@ -308,19 +309,19 @@ fn preview(arguments: PreviewArgs, profile: &Profile) -> crate::Result<()> {
     } else {
         InstallationInspection::Content
     };
-    let request = InstallationRequest {
+    let request = InstallationPreviewRequest {
         repo_root: arguments.repo,
         snapshot_id: arguments.snapshot_id,
         destination_dir: arguments.destination,
         staging_dir: arguments.staging_dir,
         source_snapshot_id: arguments.source_snapshot,
         source_dir: arguments.source_dir,
+        publication,
+        inspection,
         runtime_hints: arguments.runtime.hints(),
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
     };
-    let summary = preview_installation(&request, publication, inspection, &mut |event| {
-        output::event(&event)
-    })?;
+    let summary = preview_installation(&request, &mut |event| output::event(&event))?;
     output::record(&summary)?;
     output::line(format_args!(
         "{}; {}; {} staging",
@@ -339,7 +340,7 @@ pub(crate) struct VerifyCommand {
     pub(crate) repo: PathBuf,
     pub(crate) snapshot_id: String,
     pub(crate) destination: PathBuf,
-    pub(crate) verify_mode: VerifyMode,
+    pub(crate) verify_mode: InstallationVerifyMode,
     pub(crate) runtime_hints: RuntimeResourceHints,
     pub(crate) profile: Profile,
 }
@@ -362,7 +363,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
             profile,
         );
     }
-    let execution = reconstruct_installation(&InstallationRequest {
+    let execution = reconstruct_installation(&InstallationReconstructRequest {
         repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),

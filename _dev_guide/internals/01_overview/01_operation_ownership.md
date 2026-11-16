@@ -33,7 +33,7 @@ implementation details and should not be reimplemented by adapters.
 The module map below records source navigation and import boundaries.
 Artifact mechanics own packaging profiles; repository and snapshot schemas
 consume those profiles without defining a separate codec policy.
-The shared installation entrypoint is `install_snapshot_from_repo`; reconstruction
+The shared crate-internal installation entrypoint is `install_snapshot_from_repo`; reconstruction
 and repair are presets. `preview_installation` streams change descriptions
 from the same classification and job-planning functions.
 

@@ -1,9 +1,8 @@
 //! Streamed installation change previews. Execution always reinspects its inputs.
 use crate::Result;
-use crate::installation::contracts::InstallationRequest;
 use crate::installation::contracts::SnapshotReconstructSource;
 use crate::installation::execute::jobs::{ReconstructJob, ReconstructPipelinePlan};
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::install::InstallationPublication;
 use crate::installation::plan::InstallationChanges;
 use crate::installation::plan::build_reconstruct_pipeline_plan;
@@ -13,12 +12,15 @@ use crate::installation::prepare::load_repo_snapshot_manifest;
 use crate::installation::source::resolve_verified_source;
 use crate::installation::staging::validate_installation_paths;
 use crate::manifest::snapshot::SnapshotManifest;
+use crate::progress::OperationControl;
 use crate::repo::artifacts::required_artifacts;
 use crate::repo::coordination::read_with_control;
 use crate::repo::index::load_chunk_index;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::runtime::RuntimeResourceHints;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallationInspection {
@@ -65,12 +67,25 @@ pub struct InstallationPreviewSummary {
     pub staging_file_bytes: u64,
 }
 
+/// What to preview: the reconstruct inputs plus how the result would be published.
+#[derive(Debug, Clone)]
+pub struct InstallationPreviewRequest {
+    pub repo_root: PathBuf,
+    pub snapshot_id: String,
+    pub destination_dir: PathBuf,
+    pub staging_dir: Option<PathBuf>,
+    pub source_snapshot_id: Option<String>,
+    pub source_dir: Option<PathBuf>,
+    pub publication: InstallationPublication,
+    pub inspection: InstallationInspection,
+    pub runtime_hints: RuntimeResourceHints,
+    pub control: OperationControl,
+}
+
 /// Inspect without changing the installation. Target entries, extras, and artifacts are each delivered in path/ID order.
 /// This is a preview, not a persisted authorization to execute a stale plan.
 pub fn preview_installation(
-    request: &InstallationRequest,
-    publication: InstallationPublication,
-    inspection: InstallationInspection,
+    request: &InstallationPreviewRequest,
     visitor: &mut dyn FnMut(InstallationPreviewEvent) -> Result<()>,
 ) -> Result<InstallationPreviewSummary> {
     read_with_control(&request.repo_root, &request.control, || {
@@ -85,25 +100,25 @@ pub fn preview_installation(
             snapshot_manifest: target_manifest,
         } = load_repo_snapshot_manifest(&request.repo_root, &request.snapshot_id)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
-        let content_inspected = inspection == InstallationInspection::Content;
+        let content_inspected = request.inspection == InstallationInspection::Content;
         let changes = inspect_installation_changes(
             &target_manifest,
             Some(&chunk_index),
             &request.destination_dir,
             if content_inspected {
-                VerifyMode::Fast
+                InstallationVerifyMode::Fast
             } else {
-                VerifyMode::MetadataOnly
+                InstallationVerifyMode::MetadataOnly
             },
             &request.runtime_hints,
             &request.control,
             None,
         )?;
-        let selective = publication.is_selective();
+        let selective = request.publication.is_selective();
         let entry_actions = EntryActions::new(&changes, selective, content_inspected);
         let retained_file_bytes =
             entry_actions.visit_target_entries(request, &target_manifest, visitor)?;
-        visit_extra_files(request, publication, &changes, visitor)?;
+        visit_extra_files(request, &changes, visitor)?;
 
         let execution_manifest = if selective {
             &changes.affected_manifest
@@ -227,7 +242,7 @@ impl<'a> EntryActions<'a> {
     /// files kept in place.
     fn visit_target_entries(
         &self,
-        request: &InstallationRequest,
+        request: &InstallationPreviewRequest,
         target_manifest: &SnapshotManifest,
         visitor: &mut dyn FnMut(InstallationPreviewEvent) -> Result<()>,
     ) -> Result<u64> {
@@ -261,12 +276,11 @@ impl<'a> EntryActions<'a> {
 
 /// Reports destination files that the target snapshot does not contain.
 fn visit_extra_files(
-    request: &InstallationRequest,
-    publication: InstallationPublication,
+    request: &InstallationPreviewRequest,
     changes: &InstallationChanges,
     visitor: &mut dyn FnMut(InstallationPreviewEvent) -> Result<()>,
 ) -> Result<()> {
-    let action = if publication.removes_extra_files() {
+    let action = if request.publication.removes_extra_files() {
         InstallationAction::Remove
     } else {
         InstallationAction::PreserveExtra

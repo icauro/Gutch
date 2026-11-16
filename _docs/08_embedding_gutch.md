@@ -15,29 +15,42 @@ the result:
 cargo run --example capture_and_install -- SOURCE_DIR WORK_DIR
 ```
 
-Library names follow the command words. A command `NOUN VERB` is the
-function `VERB_NOUN`; its types put the words in command order, and a command
-that shows its plan first has a `plan_` function:
+The library uses the same words as the command line for the same things: a
+snapshot, an installation, a repository, a remote. The command line is a layer
+on top of the library and may combine several calls into one command, so not
+every command is a single function.
 
-| Command | Function | Types |
+Operations share one shape. An operation takes a request and returns a result;
+an operation that can show what it would do first has a `plan_` function that
+takes the same request and returns a plan:
+
+```rust
+let request = SnapshotCaptureRequest { /* ... */ };
+let plan = plan_capture_snapshot(&request)?;   // SnapshotCapturePlan
+let result = capture_snapshot(&request)?;      // SnapshotCaptureResult
+```
+
+Requests own their inputs and include a `control` field for progress and
+cancellation, so most can be written with `..Default::default()`. Anything the
+host supplies at run time, such as a remote provider or a callback that
+receives preview events, is passed beside the request. Simple lookups, such as
+`repo_status` or `repo_constraints`, take only the repository path.
+
+| Area | Functions | Types |
 | --- | --- | --- |
-| `repo init` | `init_repo` | `RepoInitOptions` |
-| `snapshot capture` | `capture_snapshot`, `plan_capture_snapshot` | `SnapshotCaptureRequest`, `SnapshotCapturePlan`, `SnapshotCaptureResult` |
-| `installation reconstruct` | `reconstruct_installation` | `InstallationRequest`, `InstallationReconstructResult` |
-| `installation verify` | `verify_installation` | `InstallationVerifyRequest`, `InstallationVerifyResult` |
-| `installation preview` | `preview_installation` | `InstallationPreviewEvent`, `InstallationPreviewSummary` |
-| `installation repair` | `repair_installation`, `plan_repair_installation` | `InstallationRepairRequest`, `InstallationRepairResult` |
-| `repo push` | `push_repo`, `plan_push_repo` | `RepoPushPlan`, `RepoPushResult` |
+| Repository | `init_repo`, `plan_init_repo`, `verify_repo`, `rename_repo`, `rebuild_repo_index` | `RepoInitRequest`, `RepoInitPlan`, `RepoInitResult`, `RepoVerifyRequest`, ... |
+| Snapshot | `capture_snapshot`, `plan_capture_snapshot`, `measure_snapshot`, `diff_snapshots`, `delete_snapshot` | `SnapshotCaptureRequest`, `SnapshotCapturePlan`, `SnapshotCaptureResult`, ... |
+| Installation | `reconstruct_installation`, `verify_installation`, `repair_installation`, `plan_repair_installation`, `preview_installation` | `InstallationReconstructRequest`, `InstallationVerifyRequest`, `InstallationRepairRequest`, `InstallationRepairPlan`, `InstallationPreviewRequest`, ... |
+| Remote | `push_repo`, `plan_push_repo`, `pull_repo`, `plan_pull_repo`, `bind_remote_repo`, `create_remote_repo`, `unbind_remote_repo` | `RepoPushRequest`, `RepoPushPlan`, `RepoPushResult`, `RepoPullRequest`, ... |
 
-Commands named by a noun, such as `repo status` or `repo constraints show`,
-are functions named by that noun: `repo_status`, `repo_constraints`. See the
-crate documentation (`cargo doc -p gutch --open`) for the rest. Results are
-plain structs, the same data the CLI prints with `--json`. Errors are `gutch::api::Error`;
-`error.exit_code()` gives the status the CLI would exit with.
+See the crate documentation (`cargo doc -p gutch --open`) for the rest. Results
+are plain structs, the same data the CLI prints with `--json`. Errors are
+`gutch::api::Error`; `error.exit_code()` gives the status the CLI would exit
+with.
 
 ## Progress, cancellation and warnings
 
-Long operations take an `OperationControl`. Attach what you need:
+The `control` field of a request is an `OperationControl`. Attach what you need:
 
 ```rust
 use std::sync::Arc;

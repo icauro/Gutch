@@ -42,7 +42,7 @@ pub struct SnapshotEntryChange {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct SnapshotDiff {
+pub struct SnapshotDiffResult {
     pub changes: Vec<SnapshotEntryChange>,
     pub delta_bytes: i128,
 }
@@ -51,10 +51,10 @@ pub(crate) fn compare_snapshot_entries(
     before: &[SnapshotEntry],
     after: &[SnapshotEntry],
     control: &OperationControl,
-) -> Result<SnapshotDiff> {
+) -> Result<SnapshotDiffResult> {
     let mut before = sorted_by_path(before).into_iter().peekable();
     let mut after = sorted_by_path(after).into_iter().peekable();
-    let mut result = SnapshotDiff::default();
+    let mut result = SnapshotDiffResult::default();
     while let Some((before, after)) = next_pair(&mut before, &mut after) {
         control.checkpoint()?;
         let (path, change) = match (before, after) {

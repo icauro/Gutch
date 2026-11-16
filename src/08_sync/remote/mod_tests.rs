@@ -205,18 +205,25 @@ fn pull_plan_preserves_local_repository_metadata_and_index() {
 #[test]
 fn pull_planning_accepts_a_reader_without_host_or_http() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let plan = plan_pull_repo(
-        directory.path(),
-        &EmptyReader,
-        None,
-        PullConflictPolicy::KeepRemote,
-    )
-    .expect("pull plan");
+    let request = RepoPullRequest {
+        repo_root: directory.path().to_path_buf(),
+        on_conflict: PullConflictPolicy::KeepRemote,
+        ..Default::default()
+    };
+    let plan = plan_pull_repo(&request, &EmptyReader).expect("pull plan");
 
     assert_eq!(plan.remote_repo_id, "remote-1");
     assert!(plan.repo_manifest_needed);
     assert!(plan.chunk_map_needed);
     assert!(plan.snapshots_to_download.is_empty());
+}
+
+fn bind_request(repo_root: &std::path::Path, remote_repo_id: &str) -> RemoteRepoBindRequest {
+    RemoteRepoBindRequest {
+        repo_root: repo_root.to_path_buf(),
+        remote_repo_id: remote_repo_id.to_owned(),
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -225,7 +232,7 @@ fn binding_a_remote_repo_keeps_the_id_opaque() {
     crate::repo::paths::ensure_repo_layout(&RepoPaths::from_repo_root(directory.path()), "fixture")
         .expect("repo layout");
 
-    bind_remote_repo(directory.path(), "provider-specific-id").expect("bind repo");
+    bind_remote_repo(&bind_request(directory.path(), "provider-specific-id")).expect("bind repo");
     assert_eq!(
         linked_remote_repo_id(directory.path()).expect("linked id"),
         "provider-specific-id"
@@ -235,7 +242,8 @@ fn binding_a_remote_repo_keeps_the_id_opaque() {
 #[test]
 fn binding_rejects_an_empty_remote_repo_id() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let error = bind_remote_repo(directory.path(), " ").expect_err("empty id must fail");
+    let error =
+        bind_remote_repo(&bind_request(directory.path(), " ")).expect_err("empty id must fail");
     assert!(error.to_string().contains("remote repo ID is required"));
 }
 

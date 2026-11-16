@@ -13,8 +13,8 @@ use crate::installation::execute::jobs::{
     ReconstructPipelinePlan, ReconstructSourceChunkJob, ReconstructTarget, SourceChunkLocation,
 };
 use crate::installation::inspect::InspectionSpans;
-use crate::installation::inspect::RepairClassification;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationIssues;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -449,7 +449,7 @@ impl<'a> PipelinePlanBuilder<'a> {
 
 pub(crate) struct InstallationChanges {
     pub(crate) metadata_updates: Vec<SnapshotEntry>,
-    pub(crate) classification: RepairClassification,
+    pub(crate) classification: InstallationIssues,
     pub(crate) affected_manifest: SnapshotManifest,
     pub(crate) missing_file_count: usize,
     pub(crate) corrupt_file_count: usize,
@@ -462,7 +462,7 @@ pub(crate) fn inspect_installation_changes(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: Option<&ChunkIndex>,
     destination_dir: &Path,
-    inspection: VerifyMode,
+    inspection: InstallationVerifyMode,
     runtime_hints: &RuntimeResourceHints,
     control: &OperationControl,
     operation_pool: Option<&ThreadPool>,
@@ -476,7 +476,7 @@ pub(crate) fn inspect_installation_changes(
         spans: &InspectionSpans::REPAIR,
         pool: operation_pool,
     })?;
-    let updates = if inspection == VerifyMode::MetadataOnly {
+    let updates = if inspection == InstallationVerifyMode::MetadataOnly {
         Vec::new()
     } else {
         resolve_metadata_updates(
@@ -495,7 +495,7 @@ pub(crate) fn inspect_installation_changes(
 pub(crate) fn build_installation_changes(
     snapshot_manifest: &SnapshotManifest,
     chunk_index: Option<&ChunkIndex>,
-    classification: RepairClassification,
+    classification: InstallationIssues,
 ) -> Result<InstallationChanges> {
     let missing_file_count = classification.missing_files.len();
     let corrupt_file_count = classification.corrupt_files.len();
@@ -526,7 +526,7 @@ pub(crate) fn build_installation_changes(
 /// A permissions mismatch does not require rebuilding a file whose bytes still match.
 pub(crate) fn resolve_metadata_updates(
     target: &SnapshotManifest,
-    classification: &mut RepairClassification,
+    classification: &mut InstallationIssues,
     destination: &Path,
     control: &OperationControl,
 ) -> Result<Vec<SnapshotEntry>> {
@@ -594,7 +594,7 @@ fn proportional_estimate(whole: u64, part: u64, total: u64) -> u64 {
 
 fn subset_manifest_for_issues(
     snapshot_manifest: &SnapshotManifest,
-    classification: &RepairClassification,
+    classification: &InstallationIssues,
 ) -> Result<SnapshotManifest> {
     let affected_paths = classification
         .missing_files
@@ -629,7 +629,9 @@ fn subset_manifest_for_issues(
 mod tests {
     use super::proportional_estimate;
     use super::subset_manifest_for_issues;
-    use crate::installation::inspect::{RepairClassification, RepairIssue, RepairIssueKind};
+    use crate::installation::inspect::{
+        InstallationIssue, InstallationIssueKind, InstallationIssues,
+    };
     use crate::manifest::SnapshotEntry;
     use crate::manifest::SnapshotTagSet;
     use crate::manifest::SymlinkManifest;
@@ -650,9 +652,9 @@ mod tests {
                 path: "current".into(),
                 target_path: "data".into(),
             }));
-        let classification = RepairClassification {
-            missing_files: vec![RepairIssue {
-                kind: RepairIssueKind::Missing,
+        let classification = InstallationIssues {
+            missing_files: vec![InstallationIssue {
+                kind: InstallationIssueKind::Missing,
                 path: "current".into(),
                 detail: String::new(),
             }],

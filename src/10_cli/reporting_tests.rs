@@ -2,7 +2,7 @@ use super::*;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::capture::build::types::BuildTimings;
 use crate::installation::ReconstructTimings;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::inspect::VerifyTimings;
 use crate::profiling::ProfileMode;
 use std::time::Duration;
@@ -69,7 +69,7 @@ fn typed_summaries_hide_diagnostic_values_without_hiding_counts_or_ratios() {
         );
         let verification = verify_timings_summary(
             &VerifyTimings {
-                verify_mode: VerifyMode::Strict,
+                verify_mode: InstallationVerifyMode::Strict,
                 chunk_hash_bytes: 42,
                 ..Default::default()
             },
@@ -207,7 +207,7 @@ fn reconstruct_summary_uses_null_for_disabled_verification() {
 #[test]
 fn verify_summary_reports_wall_phases_and_strict_worker_details() {
     let timings = VerifyTimings {
-        verify_mode: VerifyMode::Strict,
+        verify_mode: InstallationVerifyMode::Strict,
         prepare_wall: Duration::from_secs(1),
         verify_files_wall: Duration::from_secs(4),
         extra_file_scan_wall: Duration::from_millis(500),

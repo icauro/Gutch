@@ -6,7 +6,6 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use super::artifact_decision::repo_file_hash;
-use super::link::bind_remote_repo;
 use super::pull::local_bundle_paths;
 use super::*;
 use crate::Result;
@@ -272,19 +271,30 @@ fn bundle_ids(repo: &Path) -> Vec<String> {
 }
 
 fn push(repo: &Path, provider: &MemoryProvider) -> Result<RepoPushResult> {
-    push_repo(repo, provider, &OperationControl::default())
+    let request = RepoPushRequest {
+        repo_root: repo.to_path_buf(),
+        ..Default::default()
+    };
+    push_repo(&request, provider)
+}
+
+fn bind(repo: &Path) {
+    bind_remote_repo(&RemoteRepoBindRequest {
+        repo_root: repo.to_path_buf(),
+        remote_repo_id: "memory".to_owned(),
+        ..Default::default()
+    })
+    .unwrap();
 }
 
 fn pull(repo: &Path, provider: &MemoryProvider, prune: bool) -> RepoPullResult {
-    pull_repo(
-        repo,
-        provider,
-        None,
-        PullConflictPolicy::KeepRemote,
+    let request = RepoPullRequest {
+        repo_root: repo.to_path_buf(),
+        on_conflict: PullConflictPolicy::KeepRemote,
         prune,
-        &OperationControl::default(),
-    )
-    .unwrap()
+        ..Default::default()
+    };
+    pull_repo(&request, provider).unwrap()
 }
 
 #[test]
@@ -292,7 +302,7 @@ fn pull_skips_snapshots_whose_remote_artifacts_are_not_ready() {
     let root = tempfile::tempdir().unwrap();
     let origin = root.path().join("origin");
     let id = capture(&origin, &root.path().join("source"), &[7; 64 * 1024]);
-    bind_remote_repo(&origin, "memory").unwrap();
+    bind(&origin);
     let provider = MemoryProvider::default();
     push(&origin, &provider).unwrap();
     provider.set_ready(&id, false);
@@ -312,7 +322,7 @@ fn prune_removes_local_only_snapshots_and_their_bundles_without_requesting_them(
     let root = tempfile::tempdir().unwrap();
     let origin = root.path().join("origin");
     capture(&origin, &root.path().join("shared"), &[1; 64 * 1024]);
-    bind_remote_repo(&origin, "memory").unwrap();
+    bind(&origin);
     let provider = MemoryProvider::default();
     push(&origin, &provider).unwrap();
 
@@ -327,12 +337,12 @@ fn prune_removes_local_only_snapshots_and_their_bundles_without_requesting_them(
     assert!(provider.take_requested_bundles().is_empty());
     assert!(stats.pruned_bundle_count > 0);
     assert_eq!(bundle_ids(&clone), shared_bundles);
-    let verified = crate::repo::verify::verify_repo(
-        &clone,
-        None,
-        crate::repo::verify::RepoVerifyMode::Strict,
-        &crate::progress::OperationControl::default(),
-    )
+    let verified = crate::repo::verify::verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: clone.clone(),
+        snapshot_id: None,
+        mode: crate::repo::verify::RepoVerifyMode::Strict,
+        control: Default::default(),
+    })
     .unwrap();
     assert!(verified.ok);
     assert_eq!(verified.snapshot_count, 1);
@@ -343,7 +353,7 @@ fn push_fails_when_a_required_bundle_is_missing_locally() {
     let root = tempfile::tempdir().unwrap();
     let origin = root.path().join("origin");
     capture(&origin, &root.path().join("source"), &[3; 64 * 1024]);
-    bind_remote_repo(&origin, "memory").unwrap();
+    bind(&origin);
     let paths = RepoPaths::from_repo_root(&origin);
     for path in local_bundle_paths(&paths.bundles_root).unwrap() {
         std::fs::remove_file(path).unwrap();
@@ -360,21 +370,20 @@ fn pull_step_total_matches_the_steps_reported() {
     let root = tempfile::tempdir().unwrap();
     let origin = root.path().join("origin");
     capture(&origin, &root.path().join("source"), &[5; 64 * 1024]);
-    bind_remote_repo(&origin, "memory").unwrap();
+    bind(&origin);
     let provider = MemoryProvider::default();
     push(&origin, &provider).unwrap();
 
     for (clone, prune) in [("plain", false), ("pruned", true)] {
         let steps = std::sync::Arc::new(crate::test_util::RecordedProgress::default());
-        pull_repo(
-            &root.path().join(clone),
-            &provider,
-            None,
-            PullConflictPolicy::KeepRemote,
+        let request = RepoPullRequest {
+            repo_root: root.path().join(clone),
+            on_conflict: PullConflictPolicy::KeepRemote,
             prune,
-            &OperationControl::default().with_progress(steps.clone()),
-        )
-        .unwrap();
+            control: OperationControl::default().with_progress(steps.clone()),
+            ..Default::default()
+        };
+        pull_repo(&request, &provider).unwrap();
         let events = steps.events();
         let finished = events.last().unwrap();
         assert!(finished.done);

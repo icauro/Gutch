@@ -42,6 +42,7 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 struct LocalSyncSnapshot {
@@ -55,7 +56,19 @@ struct LocalSyncSnapshot {
     snapshot_blueprint_hash_b3: String,
 }
 
-pub fn plan_push_repo(repo_root: &Path, provider: &dyn RemoteRepoReader) -> Result<RepoPushPlan> {
+/// Which repository to push. The provider is passed beside the request.
+#[derive(Debug, Clone, Default)]
+pub struct RepoPushRequest {
+    pub repo_root: PathBuf,
+    pub control: OperationControl,
+}
+
+pub fn plan_push_repo(
+    request: &RepoPushRequest,
+    provider: &dyn RemoteRepoReader,
+) -> Result<RepoPushPlan> {
+    request.control.checkpoint()?;
+    let repo_root = request.repo_root.as_path();
     let bound_remote_repo_id = linked_remote_repo_id(repo_root)?;
     let repository = provider.resolve_repo(None, Some(&bound_remote_repo_id))?;
     let snapshots = provider.list_snapshots(&repository)?;
@@ -394,10 +407,11 @@ fn required_local_bundle_ids(repo_paths: &RepoPaths, status: &RepoStatus) -> Res
 }
 
 pub fn push_repo(
-    repo_root: &Path,
+    request: &RepoPushRequest,
     provider: &dyn RemoteRepoProvider,
-    control: &OperationControl,
 ) -> Result<RepoPushResult> {
+    let repo_root = request.repo_root.as_path();
+    let control = &request.control;
     coordination::write_with_control(repo_root, control, || {
         control.checkpoint()?;
         let mut progress = RemoteProgress::new(control, OperationKind::Push);

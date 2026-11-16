@@ -8,7 +8,7 @@ use crate::capture::contracts::SnapshotCapturePlan;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
 use crate::capture::execute::capture_planned_snapshots;
-use crate::capture::plan::plan_capture_snapshot;
+use crate::capture::plan::plan_capture_source;
 
 pub fn plan_capture_snapshots(
     requests: &[SnapshotCaptureRequest],
@@ -21,7 +21,7 @@ pub fn plan_capture_snapshots(
                 &BundleSizingProfile::for_preset(request.bundle_profile),
                 request.storage_mode,
             )?;
-            plan_capture_snapshot(
+            plan_capture_source(
                 &request.repo_root,
                 &request.source_dir,
                 &request.explicit_tags,
@@ -29,6 +29,11 @@ pub fn plan_capture_snapshots(
             )
         })
         .collect()
+}
+
+pub fn plan_capture_snapshot(request: &SnapshotCaptureRequest) -> Result<SnapshotCapturePlan> {
+    let mut plans = plan_capture_snapshots(std::slice::from_ref(request))?;
+    Ok(plans.remove(0))
 }
 
 pub fn capture_snapshot(request: &SnapshotCaptureRequest) -> Result<SnapshotCaptureResult> {

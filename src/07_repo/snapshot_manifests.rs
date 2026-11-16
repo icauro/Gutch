@@ -16,7 +16,7 @@ use crate::repo::coordination::read_with_control;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::validate_path_component;
-use crate::snapshot::diff::SnapshotDiff;
+use crate::snapshot::diff::SnapshotDiffResult;
 use crate::snapshot::diff::compare_snapshot_entries;
 use crate::snapshot::identity::snapshot_id_from_entries;
 use std::fs;
@@ -27,18 +27,23 @@ pub(crate) const SNAPSHOT_METADATA_FILE: &str = "snapshot_metadata.json";
 pub(crate) const SNAPSHOT_PRODUCT_METADATA_FILE: &str = "snapshot_product_metadata.json";
 pub(crate) const SNAPSHOT_BLUEPRINT_FILE: &str = "snapshot_blueprint.gtcbin";
 
+/// Two snapshots of one repository to compare.
+#[derive(Debug, Clone)]
+pub struct SnapshotDiffRequest {
+    pub repo_root: PathBuf,
+    pub from_snapshot_id: String,
+    pub to_snapshot_id: String,
+    pub control: OperationControl,
+}
+
 /// Compare installed-tree content and supported properties without reading payload artifacts.
-pub fn diff_snapshots(
-    repo_root: &Path,
-    from: &str,
-    to: &str,
-    control: &OperationControl,
-) -> Result<SnapshotDiff> {
-    read_with_control(repo_root, control, || {
-        let (paths, _) = load_repo_manifest(repo_root)?;
-        let before = load_snapshot_manifest(&paths, from)?;
+pub fn diff_snapshots(request: &SnapshotDiffRequest) -> Result<SnapshotDiffResult> {
+    let control = &request.control;
+    read_with_control(&request.repo_root, control, || {
+        let (paths, _) = load_repo_manifest(&request.repo_root)?;
+        let before = load_snapshot_manifest(&paths, &request.from_snapshot_id)?;
         control.checkpoint()?;
-        let after = load_snapshot_manifest(&paths, to)?;
+        let after = load_snapshot_manifest(&paths, &request.to_snapshot_id)?;
         compare_snapshot_entries(&before.entries, &after.entries, control)
     })
 }

@@ -4,12 +4,58 @@ use super::provider::RemoteRepoService;
 use super::provider::RemoteTagReferencesResult;
 use crate::Error;
 use crate::Result;
+use crate::progress::OperationControl;
 use crate::repo::coordination;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::write_repo_manifest;
 use crate::repo::tag_references::advisory_tag_references;
+use serde::Serialize;
 use std::path::Path;
+use std::path::PathBuf;
+
+/// Records an existing remote repository ID as the remote of a local repository.
+#[derive(Debug, Clone, Default)]
+pub struct RemoteRepoBindRequest {
+    pub repo_root: PathBuf,
+    pub remote_repo_id: String,
+    pub control: OperationControl,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteRepoBindResult {
+    pub remote_repo_id: String,
+}
+
+/// Creates a remote repository in a provider scope and binds the local repository to it.
+/// The provider service is passed beside the request.
+#[derive(Debug, Clone, Default)]
+pub struct RemoteRepoCreateRequest {
+    pub repo_root: PathBuf,
+    pub scope_id: String,
+    pub control: OperationControl,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteRepoCreateResult {
+    pub remote_repo_id: String,
+}
+
+/// Removes the remote binding, and optionally deletes the remote repository.
+#[derive(Debug, Clone, Default)]
+pub struct RemoteRepoUnbindRequest {
+    pub repo_root: PathBuf,
+    pub delete_remote: bool,
+    pub control: OperationControl,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteRepoUnbindResult {
+    /// The remote that was bound, or `None` when nothing was bound.
+    pub remote_repo_id: Option<String>,
+    pub remote_deleted: bool,
+}
+
 pub(crate) fn linked_remote_repo_id(repo_root: &Path) -> Result<String> {
     let (_paths, manifest) = load_repo_manifest(repo_root)?;
     manifest.remote_repo_id.ok_or_else(|| not_linked(repo_root))
@@ -22,25 +68,31 @@ fn not_linked(repo_root: &Path) -> Error {
     ))
 }
 
-pub fn bind_remote_repo(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
-    coordination::write(repo_root, || {
-        let remote_repo_id = remote_repo_id.trim();
+pub fn bind_remote_repo(request: &RemoteRepoBindRequest) -> Result<RemoteRepoBindResult> {
+    let repo_root = request.repo_root.as_path();
+    coordination::write_with_control(repo_root, &request.control, || {
+        request.control.checkpoint()?;
+        let remote_repo_id = request.remote_repo_id.trim();
         if remote_repo_id.is_empty() {
             return Err(Error::repo("remote repo ID is required"));
         }
 
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
         manifest.remote_repo_id = Some(remote_repo_id.to_string());
-        write_repo_manifest(&paths, &manifest)
+        write_repo_manifest(&paths, &manifest)?;
+        Ok(RemoteRepoBindResult {
+            remote_repo_id: remote_repo_id.to_string(),
+        })
     })
 }
 
 pub fn create_remote_repo(
-    repo_root: &Path,
-    scope_id: &str,
+    request: &RemoteRepoCreateRequest,
     provider: &dyn RemoteRepoService,
-) -> Result<()> {
-    coordination::write(repo_root, || {
+) -> Result<RemoteRepoCreateResult> {
+    let repo_root = request.repo_root.as_path();
+    coordination::write_with_control(repo_root, &request.control, || {
+        request.control.checkpoint()?;
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
         if let Some(remote_repo_id) = &manifest.remote_repo_id {
             return Err(Error::repo(format!(
@@ -49,7 +101,7 @@ pub fn create_remote_repo(
             )));
         }
 
-        let scope_id = scope_id.trim();
+        let scope_id = request.scope_id.trim();
         if scope_id.is_empty() {
             return Err(Error::repo("remote repo scope is required"));
         }
@@ -57,24 +109,28 @@ pub fn create_remote_repo(
         if remote_repo_id.trim().is_empty() {
             return Err(Error::repo("remote provider returned an empty repo ID"));
         }
-        manifest.remote_repo_id = Some(remote_repo_id);
+        manifest.remote_repo_id = Some(remote_repo_id.clone());
         write_repo_manifest(&paths, &manifest)?;
-        Ok(())
+        Ok(RemoteRepoCreateResult { remote_repo_id })
     })
 }
 
 pub fn unbind_remote_repo(
-    repo_root: &Path,
-    delete_remote: bool,
+    request: &RemoteRepoUnbindRequest,
     provider: Option<&dyn RemoteRepoService>,
-) -> Result<()> {
-    coordination::write(repo_root, || {
+) -> Result<RemoteRepoUnbindResult> {
+    let repo_root = request.repo_root.as_path();
+    coordination::write_with_control(repo_root, &request.control, || {
+        request.control.checkpoint()?;
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
         let Some(remote_repo_id) = manifest.remote_repo_id.take() else {
-            return Ok(());
+            return Ok(RemoteRepoUnbindResult {
+                remote_repo_id: None,
+                remote_deleted: false,
+            });
         };
 
-        if delete_remote {
+        if request.delete_remote {
             let provider = provider
                 .ok_or_else(|| Error::repo("deleting the remote repo needs a remote provider"))?;
             let repository = provider
@@ -84,7 +140,10 @@ pub fn unbind_remote_repo(
         }
 
         write_repo_manifest(&paths, &manifest)?;
-        Ok(())
+        Ok(RemoteRepoUnbindResult {
+            remote_repo_id: Some(remote_repo_id),
+            remote_deleted: request.delete_remote,
+        })
     })
 }
 

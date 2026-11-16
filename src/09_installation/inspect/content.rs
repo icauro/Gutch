@@ -1,6 +1,6 @@
 //! Verify file metadata and full-file or chunk content hashes.
 use super::classify::{PreparedFileMetadata, PreparedVerifyFile};
-use super::types::{RepairIssue, VerifyMode, VerifyTimings};
+use super::types::{InstallationIssue, InstallationVerifyMode, VerifyTimings};
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::integrity::verify_full_file_integrity;
@@ -16,11 +16,11 @@ use std::path::Path;
 
 pub(super) fn verify_manifest_file(
     prepared_file: &PreparedVerifyFile<'_>,
-    verify_mode: VerifyMode,
+    verify_mode: InstallationVerifyMode,
     control: &OperationControl,
     concurrent_file_count: usize,
     file_span: &'static str,
-) -> Result<(Vec<RepairIssue>, VerifyTimings)> {
+) -> Result<(Vec<InstallationIssue>, VerifyTimings)> {
     let file_manifest = prepared_file.manifest;
     let _file_span = control.profile_span_with_args(file_span, || {
         file_trace_args(&file_manifest.path, file_manifest.size)
@@ -33,10 +33,10 @@ pub(super) fn verify_manifest_file(
     if let Some(issue) = check_file_metadata(prepared_file, control, &mut timings)? {
         return Ok((vec![issue], timings));
     }
-    if verify_mode == VerifyMode::MetadataOnly {
+    if verify_mode == InstallationVerifyMode::MetadataOnly {
         return Ok((Vec::new(), timings));
     }
-    let verification = if verify_mode == VerifyMode::Fast {
+    let verification = if verify_mode == InstallationVerifyMode::Fast {
         verify_file_fast(prepared_file, concurrent_file_count, &mut timings, control)
     } else {
         verify_file_streaming(
@@ -51,11 +51,11 @@ pub(super) fn verify_manifest_file(
     let issues = match verification {
         Ok(issues) => issues,
         Err(crate::Error::Cancelled) => return Err(crate::Error::Cancelled),
-        Err(crate::Error::HashMismatch { expected, actual }) => vec![RepairIssue::corrupt(
+        Err(crate::Error::HashMismatch { expected, actual }) => vec![InstallationIssue::corrupt(
             path,
             format!("hash mismatch for {path}: expected {expected}, got {actual}"),
         )],
-        Err(error) => vec![RepairIssue::corrupt(
+        Err(error) => vec![InstallationIssue::corrupt(
             path,
             format!("cannot read {path}: {error}"),
         )],
@@ -69,11 +69,11 @@ fn check_file_metadata(
     prepared_file: &PreparedVerifyFile<'_>,
     control: &OperationControl,
     timings: &mut VerifyTimings,
-) -> Result<Option<RepairIssue>> {
+) -> Result<Option<InstallationIssue>> {
     let file_manifest = prepared_file.manifest;
     let path = &file_manifest.path;
     let missing = || {
-        Ok(Some(RepairIssue::missing(
+        Ok(Some(InstallationIssue::missing(
             path,
             format!("missing file: {path}"),
         )))
@@ -92,7 +92,7 @@ fn check_file_metadata(
         }
     };
 
-    let corrupt = |detail: String| Ok(Some(RepairIssue::corrupt(path, detail)));
+    let corrupt = |detail: String| Ok(Some(InstallationIssue::corrupt(path, detail)));
     if !metadata.file_type().is_file() {
         return corrupt(format!("entry type mismatch for file: {path}"));
     }
@@ -117,7 +117,7 @@ fn verify_file_fast(
     concurrent_file_count: usize,
     timings: &mut VerifyTimings,
     control: &OperationControl,
-) -> Result<Vec<RepairIssue>> {
+) -> Result<Vec<InstallationIssue>> {
     let integrity = verify_full_file_integrity(
         &prepared_file.path,
         prepared_file.manifest.size,
@@ -135,10 +135,10 @@ fn verify_file_fast(
 fn verify_file_streaming(
     file_manifest: &manifest::FileManifest,
     file_path: &Path,
-    verify_mode: VerifyMode,
+    verify_mode: InstallationVerifyMode,
     timings: &mut VerifyTimings,
     control: &OperationControl,
-) -> Result<Vec<RepairIssue>> {
+) -> Result<Vec<InstallationIssue>> {
     let file = File::open(file_path)?;
     let mut reader = BufReader::new(file);
     let mut issues = Vec::new();
@@ -155,7 +155,7 @@ fn verify_file_streaming(
         chunk_offset = end;
 
         if end > file_manifest.size {
-            issues.push(RepairIssue::corrupt(
+            issues.push(InstallationIssue::corrupt(
                 &file_manifest.path,
                 format!(
                     "chunk reference out of bounds in {}: offset {start}, size {raw_size}",
@@ -183,7 +183,7 @@ fn verify_file_streaming(
             timings.chunk_hash += chunk_hash_started.elapsed();
             timings.chunk_hash_bytes += raw_size;
             if chunk_hash_actual != chunk_ref.chunk_hash {
-                issues.push(RepairIssue::corrupt(
+                issues.push(InstallationIssue::corrupt(
                     &file_manifest.path,
                     format!(
                         "chunk hash mismatch in {} at offset {start}: expected {}, got {}",
@@ -197,7 +197,7 @@ fn verify_file_streaming(
     }
 
     if chunk_offset != file_manifest.size {
-        issues.push(RepairIssue::corrupt(
+        issues.push(InstallationIssue::corrupt(
             &file_manifest.path,
             format!(
                 "chunk coverage mismatch for {}: expected {} bytes, got {chunk_offset}",
@@ -210,7 +210,7 @@ fn verify_file_streaming(
     let actual_hash = ChunkHash::from_blake3(full_file_hasher.finalize());
     timings.file_hash += file_hash_finalize_started.elapsed();
     if actual_hash != file_manifest.full_file_hash {
-        issues.push(RepairIssue::corrupt(
+        issues.push(InstallationIssue::corrupt(
             &file_manifest.path,
             format!(
                 "hash mismatch for {}: expected {}, got {}",

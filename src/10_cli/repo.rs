@@ -16,18 +16,22 @@ use crate::filesystem;
 use crate::manifest::constraints::FilesystemTarget;
 use crate::manifest::constraints::RepoConstraints;
 use crate::progress::OperationControl;
-use crate::repo::init_policy::RepoInitAssessment;
-use crate::repo::init_policy::RepoInitOptions;
 use crate::repo::init_policy::RepoInitPathKind;
-use crate::repo::init_policy::assess_repo_init_path;
+use crate::repo::init_policy::RepoInitPlan;
+use crate::repo::init_policy::RepoInitRequest;
 use crate::repo::init_policy::init_repo;
-use crate::repo::recovery::{plan_rebuild_repo_index, rebuild_repo_index};
+use crate::repo::init_policy::plan_init_repo;
+use crate::repo::recovery::{RepoIndexRebuildRequest, plan_rebuild_repo_index, rebuild_repo_index};
 use crate::repo::status::repo_status;
+use crate::repo::updates::RepoConstraintsSetRequest;
+use crate::repo::updates::RepoRenameRequest;
 use crate::repo::updates::plan_rename_repo;
 use crate::repo::updates::plan_set_repo_constraints;
+use crate::repo::updates::rename_repo;
 use crate::repo::updates::repo_constraints;
 use crate::repo::updates::set_repo_constraints;
 use crate::repo::verify::RepoVerifyMode;
+use crate::repo::verify::RepoVerifyRequest;
 use crate::repo::verify::verify_repo;
 use std::path::Path;
 
@@ -91,13 +95,27 @@ pub(crate) fn run(
             name,
             dry_run: DryRunArgs { dry_run },
         } => {
+            let request = RepoRenameRequest {
+                repo_root: repo,
+                name,
+                control: OperationControl::default(),
+            };
             if dry_run {
-                let name = plan_rename_repo(&repo, &name)?;
-                output::record(&serde_json::json!({"operation": "rename", "name": name}))?;
-                output::line(format_args!("Would rename {} to {}", repo.display(), name));
+                let plan = plan_rename_repo(&request)?;
+                output::record(&plan)?;
+                output::line(format_args!(
+                    "Would rename repo '{}' to '{}'",
+                    plan.previous_name, plan.name
+                ));
                 Ok(())
             } else {
-                rename_repo(&repo, &name)
+                let result = rename_repo(&request)?;
+                output::record(&result)?;
+                output::line(format_args!(
+                    "renamed repo '{}' to '{}'",
+                    result.previous_name, result.name
+                ));
+                Ok(())
             }
         }
         RepoCommands::Status { repo } => status(&repo, profile),
@@ -129,12 +147,17 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
         } => (repo, Some(RepoConstraints::default()), dry_run),
     };
     let constraints = match replacement {
-        Some(replacement) => {
-            let constraints = plan_set_repo_constraints(&repo, replacement)?;
-            if !dry_run {
-                set_repo_constraints(&repo, constraints.clone())?;
+        Some(constraints) => {
+            let request = RepoConstraintsSetRequest {
+                repo_root: repo,
+                constraints,
+                control: OperationControl::default(),
+            };
+            if dry_run {
+                plan_set_repo_constraints(&request)?.constraints
+            } else {
+                set_repo_constraints(&request)?.constraints
             }
-            constraints
         }
         None => repo_constraints(&repo)?,
     };
@@ -147,15 +170,20 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
 }
 
 fn rebuild_chunk_index(repo: &Path, dry_run: bool) -> crate::Result<()> {
-    let control = OperationControl::default();
-    let result = if dry_run {
-        plan_rebuild_repo_index(repo, &control)?
-    } else {
-        rebuild_repo_index(repo, &control)?
+    let request = RepoIndexRebuildRequest {
+        repo_root: repo.to_path_buf(),
+        control: OperationControl::default(),
     };
-    output::record(&result)?;
-    output::line(format_args!("{}", serde_json::to_string_pretty(&result)?));
-    if !result.complete {
+    let (record, complete) = if dry_run {
+        let plan = plan_rebuild_repo_index(&request)?;
+        (serde_json::to_value(&plan)?, plan.complete)
+    } else {
+        let result = rebuild_repo_index(&request)?;
+        (serde_json::to_value(&result)?, result.plan.complete)
+    };
+    output::record(&record)?;
+    output::line(format_args!("{}", serde_json::to_string_pretty(&record)?));
+    if !complete {
         return Err(crate::Error::repo(
             "chunk index rebuild is incomplete; the index was not replaced",
         ));
@@ -211,7 +239,12 @@ fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result
     } else {
         RepoVerifyMode::Fast
     };
-    let result = verify_repo(repo, snapshot_id, mode, &OperationControl::default())?;
+    let result = verify_repo(&RepoVerifyRequest {
+        repo_root: repo.to_path_buf(),
+        snapshot_id: snapshot_id.map(str::to_owned),
+        mode,
+        control: OperationControl::default(),
+    })?;
     output::record(&result)?;
 
     output::line(format_args!("{SECTION_SEPARATOR}"));
@@ -248,7 +281,13 @@ pub(crate) fn init(
     constraints: RepoConstraints,
     dry_run: bool,
 ) -> crate::Result<()> {
-    let assessment = assess_repo_init_path(path)?;
+    let mut request = RepoInitRequest {
+        repo_root: path.to_path_buf(),
+        force,
+        constraints,
+        control: OperationControl::default(),
+    };
+    let assessment = plan_init_repo(&request)?;
     if dry_run {
         output::record(&assessment)?;
         output::line(format_args!(
@@ -260,21 +299,14 @@ pub(crate) fn init(
         }
         return Ok(());
     }
-    let mut proceed_force = force;
-    if assessment.requires_confirmation && !proceed_force {
+    if assessment.requires_confirmation && !request.force {
         if !confirm_repo_init_stdio(&assessment)? {
             return Err(crate::Error::Cancelled);
         }
-        proceed_force = true;
+        request.force = true;
     }
 
-    let repository = init_repo(
-        path,
-        RepoInitOptions {
-            force: proceed_force,
-            constraints,
-        },
-    )?;
+    let repository = init_repo(&request)?;
 
     output::line(format_args!(
         "created gutch repo '{}' at {}",
@@ -284,17 +316,7 @@ pub(crate) fn init(
     Ok(())
 }
 
-pub(crate) fn rename_repo(repo: &Path, name: &str) -> crate::Result<()> {
-    crate::repo::updates::rename_repo(repo, name)?;
-    output::line(format_args!(
-        "renamed repo '{}' to '{}'",
-        repo.display(),
-        name.trim()
-    ));
-    Ok(())
-}
-
-fn confirm_repo_init_stdio(assessment: &RepoInitAssessment) -> crate::Result<bool> {
+fn confirm_repo_init_stdio(assessment: &RepoInitPlan) -> crate::Result<bool> {
     output::line(format_args!(""));
     for risk in &assessment.risks {
         output::line(format_args!("{}", risk.message));

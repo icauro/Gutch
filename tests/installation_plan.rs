@@ -1,7 +1,7 @@
 use gutch::api::*;
 use std::fs;
 
-fn fixture() -> (tempfile::TempDir, InstallationRequest) {
+fn fixture() -> (tempfile::TempDir, InstallationReconstructRequest) {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source");
     fs::create_dir(&source).unwrap();
@@ -12,7 +12,11 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
     #[cfg(unix)]
     std::os::unix::fs::symlink("healthy", source.join("link")).unwrap();
     let repo = root.path().join("repo");
-    init_repo(&repo, RepoInitOptions::default()).unwrap();
+    init_repo(&RepoInitRequest {
+        repo_root: repo.clone(),
+        ..Default::default()
+    })
+    .unwrap();
     let capture = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source,
@@ -30,7 +34,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         control: Default::default(),
     })
     .unwrap();
-    let request = InstallationRequest {
+    let request = InstallationReconstructRequest {
         repo_root: repo,
         snapshot_id: capture.snapshot_id,
         destination_dir: root.path().join("installed"),
@@ -45,6 +49,43 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
     };
     reconstruct_installation(&request).unwrap();
     (root, request)
+}
+
+fn preview(
+    request: &InstallationReconstructRequest,
+    publication: InstallationPublication,
+    inspection: InstallationInspection,
+    visitor: &mut dyn FnMut(InstallationPreviewEvent) -> Result<()>,
+) -> InstallationPreviewSummary {
+    preview_installation(
+        &InstallationPreviewRequest {
+            repo_root: request.repo_root.clone(),
+            snapshot_id: request.snapshot_id.clone(),
+            destination_dir: request.destination_dir.clone(),
+            staging_dir: request.staging_dir.clone(),
+            source_snapshot_id: request.source_snapshot_id.clone(),
+            source_dir: request.source_dir.clone(),
+            publication,
+            inspection,
+            runtime_hints: request.runtime_hints,
+            control: request.control.clone(),
+        },
+        visitor,
+    )
+    .unwrap()
+}
+
+fn repair(request: &InstallationReconstructRequest, remove_extra_files: bool) {
+    repair_installation(&InstallationRepairRequest {
+        repo_root: request.repo_root.clone(),
+        snapshot_id: request.snapshot_id.clone(),
+        destination_dir: request.destination_dir.clone(),
+        staging_dir: None,
+        remove_extra_files,
+        runtime_hints: request.runtime_hints,
+        control: request.control.clone(),
+    })
+    .unwrap();
 }
 
 #[test]
@@ -62,7 +103,7 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
         .set_times(fs::FileTimes::new().set_modified(modified))
         .unwrap();
     let mut actions = std::collections::BTreeMap::new();
-    let summary = preview_installation(
+    let summary = preview(
         &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Preserve,
@@ -74,8 +115,7 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
             }
             Ok(())
         },
-    )
-    .unwrap();
+    );
     assert_eq!(actions["healthy"], InstallationAction::Keep);
     assert_eq!(actions["damaged"], InstallationAction::Replace);
     assert_eq!(actions["missing"], InstallationAction::Add);
@@ -84,13 +124,7 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
     assert!(!request.destination_dir.join("missing").exists());
     // Changes after a preview are reclassified during execution.
     fs::write(request.destination_dir.join("damaged"), b"different again").unwrap();
-    install_snapshot_from_repo(
-        &request,
-        InstallationPublication::Selective {
-            extra_files: ExtraFilePolicy::Preserve,
-        },
-    )
-    .unwrap();
+    repair(&request, false);
     assert_eq!(
         fs::read(request.destination_dir.join("damaged")).unwrap(),
         b"original content"
@@ -127,7 +161,7 @@ fn reconstruction_salvages_healthy_files_from_a_partially_damaged_source() {
 fn metadata_only_preview_does_not_claim_content_integrity() {
     let (_root, request) = fixture();
     fs::write(request.destination_dir.join("damaged"), b"modified content").unwrap();
-    let summary = preview_installation(
+    let summary = preview(
         &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Remove,
@@ -142,8 +176,7 @@ fn metadata_only_preview_does_not_claim_content_integrity() {
             }
             Ok(())
         },
-    )
-    .unwrap();
+    );
     assert!(!summary.content_inspected);
     assert_eq!(summary.staging_file_bytes, 0);
 }
@@ -157,7 +190,7 @@ fn permission_repair_keeps_verified_content_in_place() {
     permissions.set_readonly(true);
     fs::set_permissions(&file, permissions).unwrap();
     let mut saw_metadata = false;
-    let summary = preview_installation(
+    let summary = preview(
         &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Preserve,
@@ -171,17 +204,10 @@ fn permission_repair_keeps_verified_content_in_place() {
             }
             Ok(())
         },
-    )
-    .unwrap();
+    );
     assert!(saw_metadata);
     assert_eq!(summary.staging_file_bytes, 0);
-    install_snapshot_from_repo(
-        &request,
-        InstallationPublication::Selective {
-            extra_files: ExtraFilePolicy::Preserve,
-        },
-    )
-    .unwrap();
+    repair(&request, false);
     assert!(!fs::metadata(&file).unwrap().permissions().readonly());
     assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), before);
 }
@@ -193,13 +219,7 @@ fn repairing_a_link_does_not_replace_its_healthy_target() {
     let healthy = request.destination_dir.join("healthy");
     let before = fs::metadata(&healthy).unwrap().modified().unwrap();
     fs::remove_file(request.destination_dir.join("link")).unwrap();
-    install_snapshot_from_repo(
-        request.clone(),
-        InstallationPublication::Selective {
-            extra_files: ExtraFilePolicy::Preserve,
-        },
-    )
-    .unwrap();
+    repair(&request, false);
     assert_eq!(fs::metadata(&healthy).unwrap().modified().unwrap(), before);
     assert_eq!(
         fs::read(request.destination_dir.join("link")).unwrap(),
@@ -215,13 +235,7 @@ fn removing_extra_content_preserves_expected_empty_directories() {
     let extra_directory = request.destination_dir.join("extra-directory");
     fs::create_dir(&extra_directory).unwrap();
     fs::write(extra_directory.join("user-file"), b"extra content").unwrap();
-    install_snapshot_from_repo(
-        &request,
-        InstallationPublication::Selective {
-            extra_files: ExtraFilePolicy::Remove,
-        },
-    )
-    .unwrap();
+    repair(&request, true);
     assert!(expected_directory.is_dir());
     assert!(!expected_directory.join("user-file").exists());
     assert!(!extra_directory.exists());

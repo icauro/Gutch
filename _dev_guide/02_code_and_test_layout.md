@@ -10,9 +10,9 @@ artifact readiness, with separate scheduling, adaptive-policy and feedback owner
 recovery and synchronization. Installation coordinates combined fetch and
 reconstruction; [artifact](../src/04_artifact) owns the binary codecs. The
 [module map](internals/01_overview/01_operation_ownership.md#crate-and-module-map) records dependency boundaries.
-Runnable library examples live in `examples/`. Public API names follow the
-CLI command words; keep new functions and types to the
-[naming rule](../_docs/08_embedding_gutch.md#a-first-program).
+Runnable library examples live in `examples/`. Public API names use the same
+words as the CLI for the same concepts; keep new functions and types to the
+[naming and shape rules](../_docs/08_embedding_gutch.md#a-first-program).
 
 ## Where work belongs
 

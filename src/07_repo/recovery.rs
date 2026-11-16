@@ -21,16 +21,25 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+use std::path::PathBuf;
 
 use rayon::prelude::*;
 
 use crate::repo::paths::RepoPaths;
 
-#[derive(Debug, Serialize, Deserialize)]
+/// The repository whose chunk index to rebuild from its stored artifacts.
+#[derive(Debug, Clone)]
+pub struct RepoIndexRebuildRequest {
+    pub repo_root: PathBuf,
+    pub control: OperationControl,
+}
+
+/// The chunk index a rebuild would publish; `complete` is false when some
+/// snapshot would not resolve, and then a rebuild keeps the current index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoIndexRebuildResult {
+pub struct RepoIndexRebuildPlan {
     pub complete: bool,
-    pub published: bool,
     pub chunk_count: usize,
     pub artifact_count: usize,
     pub duplicate_locations: usize,
@@ -39,21 +48,24 @@ pub struct RepoIndexRebuildResult {
     pub affected_snapshots: Vec<String>,
 }
 
+/// What a rebuild found, and whether it replaced the current index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoIndexRebuildResult {
+    #[serde(flatten)]
+    pub plan: RepoIndexRebuildPlan,
+    pub published: bool,
+}
+
 /// Rebuild the chunk index from verified artifacts without replacing the current one.
-pub fn plan_rebuild_repo_index(
-    repo_root: &Path,
-    control: &OperationControl,
-) -> Result<RepoIndexRebuildResult> {
-    recover_index(repo_root, false, control)
+pub fn plan_rebuild_repo_index(request: &RepoIndexRebuildRequest) -> Result<RepoIndexRebuildPlan> {
+    recover_index(&request.repo_root, false, &request.control).map(|result| result.plan)
 }
 
 /// Rebuild the chunk index from verified artifacts and replace the current one
 /// only when every retained snapshot resolves.
-pub fn rebuild_repo_index(
-    repo_root: &Path,
-    control: &OperationControl,
-) -> Result<RepoIndexRebuildResult> {
-    recover_index(repo_root, true, control)
+pub fn rebuild_repo_index(request: &RepoIndexRebuildRequest) -> Result<RepoIndexRebuildResult> {
+    recover_index(&request.repo_root, true, &request.control)
 }
 
 /// Discover and verify owned artifacts independently of the current chunk map.
@@ -65,9 +77,8 @@ fn recover_index(
     let work = || {
         let (paths, _) = load_repo_manifest(repo_root)?;
         let mut entries: BTreeMap<ChunkHash, ChunkIndexEntry> = BTreeMap::new();
-        let mut result = RepoIndexRebuildResult {
+        let mut result = RepoIndexRebuildPlan {
             complete: false,
-            published: false,
             chunk_count: 0,
             artifact_count: 0,
             duplicate_locations: 0,
@@ -122,7 +133,8 @@ fn recover_index(
         result.affected_snapshots.sort();
         result.chunk_count = entries.len();
         result.complete = result.corrupt_artifacts.is_empty() && result.missing_chunks.is_empty();
-        if publish && result.complete {
+        let published = publish && result.complete;
+        if published {
             control.checkpoint()?;
             write_chunk_index(
                 &paths,
@@ -130,9 +142,11 @@ fn recover_index(
                     entries: entries.into_iter().collect(),
                 },
             )?;
-            result.published = true;
         }
-        Ok(result)
+        Ok(RepoIndexRebuildResult {
+            plan: result,
+            published,
+        })
     };
     if publish {
         super::coordination::write_with_control(repo_root, control, work)

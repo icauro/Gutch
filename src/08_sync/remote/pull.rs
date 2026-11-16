@@ -297,16 +297,31 @@ fn write_remote_snapshot_artifacts(
     Ok(())
 }
 
+/// Which repository to pull into and how. The provider is passed beside the request.
+#[derive(Debug, Clone, Default)]
+pub struct RepoPullRequest {
+    pub repo_root: PathBuf,
+    /// Remote repository to pull from; `None` uses the bound remote.
+    pub remote_repo_id: Option<String>,
+    pub on_conflict: PullConflictPolicy,
+    /// Delete local snapshots that the remote no longer has.
+    pub prune: bool,
+    pub control: OperationControl,
+}
+
 pub fn plan_pull_repo(
-    repo_root: &Path,
+    request: &RepoPullRequest,
     provider: &dyn RemoteRepoReader,
-    remote_spec: Option<&str>,
-    policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
+    request.control.checkpoint()?;
+    let repo_root = request.repo_root.as_path();
     let bound_remote_repo_id = bound_remote_repo_id(repo_root)?;
-    let repository = provider.resolve_repo(remote_spec, bound_remote_repo_id.as_deref())?;
+    let repository = provider.resolve_repo(
+        request.remote_repo_id.as_deref(),
+        bound_remote_repo_id.as_deref(),
+    )?;
     let snapshots = provider.list_snapshots(&repository)?;
-    plan_pull(repo_root, &repository, &snapshots, policy)
+    plan_pull(repo_root, &repository, &snapshots, request.on_conflict)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -563,19 +578,22 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
 }
 
 pub fn pull_repo(
-    repo_root: &Path,
+    request: &RepoPullRequest,
     provider: &dyn RemoteRepoReader,
-    remote_spec: Option<&str>,
-    policy: PullConflictPolicy,
-    prune: bool,
-    control: &OperationControl,
 ) -> Result<RepoPullResult> {
+    let repo_root = request.repo_root.as_path();
+    let control = &request.control;
+    let policy = request.on_conflict;
+    let prune = request.prune;
     fs::create_dir_all(repo_root)?;
     coordination::write_with_control(repo_root, control, || {
         control.checkpoint()?;
         let mut progress = RemoteProgress::new(control, OperationKind::Pull);
         let bound_remote_repo_id = bound_remote_repo_id(repo_root)?;
-        let repository = provider.resolve_repo(remote_spec, bound_remote_repo_id.as_deref())?;
+        let repository = provider.resolve_repo(
+            request.remote_repo_id.as_deref(),
+            bound_remote_repo_id.as_deref(),
+        )?;
         let repo_paths = RepoPaths::from_repo_root(repo_root);
         let repository_existed = repo_paths.repo_metadata_path.exists();
         ensure_repo_layout(&repo_paths, &repository.name)?;

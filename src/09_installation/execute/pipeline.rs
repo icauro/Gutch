@@ -41,7 +41,7 @@ use super::workers::{
     dispatch_ready_work,
 };
 use crate::artifact::reference::ArtifactRef;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::inspect::VerifyTimings;
 use crate::profiling::file_trace_args;
 use crate::runtime::MemoryBudget;
@@ -94,7 +94,7 @@ pub(crate) fn run_reconstruction_jobs(
     };
     // Reconstruction checks output sizes only; chunk hashes were checked on write.
     let verify_timings = VerifyTimings {
-        verify_mode: VerifyMode::MetadataOnly,
+        verify_mode: InstallationVerifyMode::MetadataOnly,
         runtime_plan: Some(runtime_plan.clone()),
         ..VerifyTimings::default()
     };

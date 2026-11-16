@@ -5,9 +5,9 @@ use super::inventory::{
     FilesystemInventory, augment_inventory_for_symlinked_parents, build_filesystem_inventory,
 };
 use super::non_files::{classify_inventory_non_files, classify_resolved_non_files};
-use super::types::RepairClassification;
-use super::types::RepairIssue;
-use super::types::VerifyMode;
+use super::types::InstallationIssue;
+use super::types::InstallationIssues;
+use super::types::InstallationVerifyMode;
 use super::types::VerifyTimings;
 use crate::Result;
 use crate::filesystem::paths::ManifestPathResolver;
@@ -67,7 +67,7 @@ impl InspectionSpans {
 pub(crate) struct VerifyRequest<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub dir: &'a Path,
-    pub mode: VerifyMode,
+    pub mode: InstallationVerifyMode,
     pub runtime_hints: &'a RuntimeResourceHints,
     pub control: OperationControl,
     pub spans: &'static InspectionSpans,
@@ -90,21 +90,21 @@ pub(super) enum PreparedFileMetadata {
 /// snapshot does not contain.
 pub(crate) fn classify_directory(
     request: VerifyRequest<'_>,
-) -> Result<(RepairClassification, VerifyTimings)> {
+) -> Result<(InstallationIssues, VerifyTimings)> {
     classify(request, true)
 }
 
 /// Classifies only the entries the snapshot lists; other files are ignored.
 pub(crate) fn classify_expected_entries(
     request: VerifyRequest<'_>,
-) -> Result<(RepairClassification, VerifyTimings)> {
+) -> Result<(InstallationIssues, VerifyTimings)> {
     classify(request, false)
 }
 
 fn classify(
     request: VerifyRequest<'_>,
     scan_extra_files: bool,
-) -> Result<(RepairClassification, VerifyTimings)> {
+) -> Result<(InstallationIssues, VerifyTimings)> {
     let VerifyRequest {
         snapshot_manifest,
         dir,
@@ -118,7 +118,7 @@ fn classify(
     let total_start = ProfileInstant::start(control.profiler());
     control.checkpoint()?;
     let _operation_span = control.profile_span(spans.operation);
-    let mut classification = RepairClassification::default();
+    let mut classification = InstallationIssues::default();
     let mut runtime_plan = plan_runtime(runtime_hints);
     let owned_pool = match supplied_pool {
         Some(_) => None,
@@ -180,7 +180,7 @@ fn classify(
         let _extra_scan_span = control.profile_span(spans.extra_scan);
         for relative in &inventory.extra_paths {
             control.checkpoint()?;
-            classification.push(RepairIssue::extra(
+            classification.push(InstallationIssue::extra(
                 relative,
                 format!("extra filesystem entry: {relative}"),
             ));
@@ -255,7 +255,7 @@ impl EntryLocations {
     fn classify_non_files(
         &self,
         snapshot_manifest: &SnapshotManifest,
-        classification: &mut RepairClassification,
+        classification: &mut InstallationIssues,
     ) -> Result<()> {
         match self {
             Self::Inventory(inventory) => {
@@ -322,7 +322,7 @@ fn resolve_entry_paths(
 
 /// The settings shared by every file check of one inspection.
 struct FileVerification<'a> {
-    mode: VerifyMode,
+    mode: InstallationVerifyMode,
     control: &'a OperationControl,
     spans: &'static InspectionSpans,
     worker_count: usize,
@@ -334,7 +334,7 @@ fn verify_files(
     prepared_files: &[PreparedVerifyFile<'_>],
     verification: FileVerification<'_>,
     pool: &ThreadPool,
-) -> Vec<Result<(Vec<RepairIssue>, VerifyTimings)>> {
+) -> Vec<Result<(Vec<InstallationIssue>, VerifyTimings)>> {
     let FileVerification {
         mode,
         control,

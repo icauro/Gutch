@@ -191,10 +191,11 @@ pub trait RemoteRepoService {
 }
 
 /// Which copy pull keeps when a local file differs from the remote one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum PullConflictPolicy {
     KeepLocal,
     KeepRemote,
+    #[default]
     KeepNewer,
 }
 

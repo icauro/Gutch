@@ -5,13 +5,14 @@ fn incoming_snapshot_is_rejected_before_metadata_is_written() {
     let root = tempfile::tempdir().unwrap();
     let paths = RepoPaths::from_repo_root(root.path());
     crate::repo::paths::ensure_repo_layout(&paths, "test").unwrap();
-    crate::repo::updates::set_repo_constraints(
-        root.path(),
-        crate::manifest::constraints::RepoConstraints {
+    crate::repo::updates::set_repo_constraints(&crate::repo::updates::RepoConstraintsSetRequest {
+        repo_root: root.path().to_path_buf(),
+        constraints: crate::manifest::constraints::RepoConstraints {
             targets: vec![crate::filesystem::constraints::FilesystemTarget::WindowsNtfs],
             ..Default::default()
         },
-    )
+        control: Default::default(),
+    })
     .unwrap();
     let entries = vec![crate::manifest::SnapshotEntry::Directory(
         crate::manifest::DirectoryManifest {

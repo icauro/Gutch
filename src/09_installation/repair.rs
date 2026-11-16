@@ -2,13 +2,12 @@
 
 use crate::Result;
 
-use crate::installation::contracts::InstallationRepairPlanRequest;
-use crate::installation::contracts::InstallationRepairPlanResult;
+use crate::installation::contracts::InstallationRepairPlan;
 use crate::installation::contracts::InstallationRepairRequest;
 use crate::installation::contracts::InstallationRepairResult;
 
-use crate::installation::contracts::InstallationRequest;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::contracts::InstallationReconstructRequest;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::install::ExtraFilePolicy;
 use crate::installation::install::InstallationPublication;
 use crate::installation::install::install_snapshot_from_repo;
@@ -17,11 +16,12 @@ use crate::installation::prepare::LoadedRepoSnapshot;
 use crate::installation::prepare::load_repo_snapshot_manifest;
 use crate::repo::coordination::read_with_control;
 use crate::repo::index::load_chunk_index;
+
 pub fn repair_installation(
     request: &InstallationRepairRequest,
 ) -> Result<InstallationRepairResult> {
     let result = install_snapshot_from_repo(
-        &InstallationRequest {
+        &InstallationReconstructRequest {
             repo_root: request.repo_root.clone(),
             snapshot_id: request.snapshot_id.clone(),
             destination_dir: request.destination_dir.clone(),
@@ -49,9 +49,10 @@ pub fn repair_installation(
     })
 }
 
+/// Classifies the destination and lists the artifacts a repair would need, without changing it.
 pub fn plan_repair_installation(
-    request: &InstallationRepairPlanRequest,
-) -> Result<InstallationRepairPlanResult> {
+    request: &InstallationRepairRequest,
+) -> Result<InstallationRepairPlan> {
     request.control.checkpoint()?;
     read_with_control(&request.repo_root, &request.control.clone(), || {
         request.control.checkpoint()?;
@@ -64,13 +65,13 @@ pub fn plan_repair_installation(
             &snapshot_manifest,
             Some(&chunk_index),
             &request.destination_dir,
-            VerifyMode::Fast,
+            InstallationVerifyMode::Fast,
             &request.runtime_hints,
             &request.control,
             None,
         )?;
 
-        Ok(InstallationRepairPlanResult {
+        Ok(InstallationRepairPlan {
             repo_root: repo_paths.repo_root,
             snapshot_manifest,
             missing_file_count: repair_plan.missing_file_count,

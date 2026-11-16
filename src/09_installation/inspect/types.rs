@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::runtime::RuntimePlan;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum VerifyMode {
+pub enum InstallationVerifyMode {
     #[default]
     Fast,
     Strict,
@@ -13,23 +13,23 @@ pub enum VerifyMode {
     MetadataOnly,
 }
 
-impl VerifyMode {
+impl InstallationVerifyMode {
     pub fn as_str(self) -> &'static str {
         match self {
-            VerifyMode::Fast => "fast",
-            VerifyMode::Strict => "strict",
-            VerifyMode::MetadataOnly => "metadata-only",
+            InstallationVerifyMode::Fast => "fast",
+            InstallationVerifyMode::Strict => "strict",
+            InstallationVerifyMode::MetadataOnly => "metadata-only",
         }
     }
 
     pub(crate) fn checks_chunk_hashes(self) -> bool {
-        matches!(self, VerifyMode::Strict)
+        matches!(self, InstallationVerifyMode::Strict)
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct VerifyTimings {
-    pub(crate) verify_mode: VerifyMode,
+    pub(crate) verify_mode: InstallationVerifyMode,
     pub(crate) runtime_plan: Option<RuntimePlan>,
     pub(crate) prepare_wall: Duration,
     pub(crate) verify_files_wall: Duration,
@@ -45,33 +45,33 @@ pub struct VerifyTimings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RepairIssueKind {
+pub enum InstallationIssueKind {
     Missing,
     Corrupt,
     Extra,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepairIssue {
-    pub kind: RepairIssueKind,
+pub struct InstallationIssue {
+    pub kind: InstallationIssueKind,
     pub path: String,
     pub detail: String,
 }
 
-impl RepairIssue {
+impl InstallationIssue {
     pub(crate) fn missing(path: &str, detail: String) -> Self {
-        Self::new(RepairIssueKind::Missing, path, detail)
+        Self::new(InstallationIssueKind::Missing, path, detail)
     }
 
     pub(crate) fn corrupt(path: &str, detail: String) -> Self {
-        Self::new(RepairIssueKind::Corrupt, path, detail)
+        Self::new(InstallationIssueKind::Corrupt, path, detail)
     }
 
     pub(crate) fn extra(path: &str, detail: String) -> Self {
-        Self::new(RepairIssueKind::Extra, path, detail)
+        Self::new(InstallationIssueKind::Extra, path, detail)
     }
 
-    fn new(kind: RepairIssueKind, path: &str, detail: String) -> Self {
+    fn new(kind: InstallationIssueKind, path: &str, detail: String) -> Self {
         Self {
             kind,
             path: path.to_string(),
@@ -81,18 +81,18 @@ impl RepairIssue {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct RepairClassification {
-    pub missing_files: Vec<RepairIssue>,
-    pub corrupt_files: Vec<RepairIssue>,
-    pub extra_files: Vec<RepairIssue>,
+pub struct InstallationIssues {
+    pub missing_files: Vec<InstallationIssue>,
+    pub corrupt_files: Vec<InstallationIssue>,
+    pub extra_files: Vec<InstallationIssue>,
 }
 
-impl RepairClassification {
-    pub(crate) fn push(&mut self, issue: RepairIssue) {
+impl InstallationIssues {
+    pub(crate) fn push(&mut self, issue: InstallationIssue) {
         match issue.kind {
-            RepairIssueKind::Missing => self.missing_files.push(issue),
-            RepairIssueKind::Corrupt => self.corrupt_files.push(issue),
-            RepairIssueKind::Extra => self.extra_files.push(issue),
+            InstallationIssueKind::Missing => self.missing_files.push(issue),
+            InstallationIssueKind::Corrupt => self.corrupt_files.push(issue),
+            InstallationIssueKind::Extra => self.extra_files.push(issue),
         }
     }
 

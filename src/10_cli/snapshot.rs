@@ -3,6 +3,7 @@
 use crate::capture::contracts::SnapshotCapturePlan;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
+use crate::capture::measure::SnapshotMeasureRequest;
 use crate::capture::measure::measure_snapshot;
 use crate::capture::sources::capture_snapshots;
 use crate::capture::sources::config::init_source_config;
@@ -32,9 +33,13 @@ use crate::filesystem;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::ProfileMode;
+use crate::progress::OperationControl;
 use crate::repo::paths::RepoPaths;
 use crate::repo::read::load_repo_manifest;
+use crate::repo::snapshot_manifests::SnapshotDiffRequest;
 use crate::repo::snapshot_manifests::diff_snapshots;
+use crate::repo::snapshots::SnapshotDeleteRequest;
+use crate::repo::snapshots::SnapshotTagsReplaceRequest;
 use crate::repo::snapshots::delete_snapshot;
 use crate::repo::snapshots::plan_replace_snapshot_tags;
 use crate::repo::snapshots::replace_snapshot_tags;
@@ -124,7 +129,12 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
 }
 
 fn diff(repo: &Path, from: &str, to: &str, profile: &Profile) -> crate::Result<()> {
-    let result = diff_snapshots(repo, from, to, &control_with_profile(profile))?;
+    let result = diff_snapshots(&SnapshotDiffRequest {
+        repo_root: repo.to_path_buf(),
+        from_snapshot_id: from.to_owned(),
+        to_snapshot_id: to.to_owned(),
+        control: control_with_profile(profile),
+    })?;
     output::record(&result)?;
     for entry in &result.changes {
         output::line(format_args!(
@@ -301,7 +311,11 @@ fn delete(
     }
 
     let control = control_with_profile(profile).with_progress(CliProgressSink::new());
-    let result = delete_snapshot(repo, snapshot_id, &control)?;
+    let result = delete_snapshot(&SnapshotDeleteRequest {
+        repo_root: repo.to_path_buf(),
+        snapshot_id: snapshot_id.to_owned(),
+        control,
+    })?;
     output::record(&result)?;
     output::line(format_args!(
         "deleted snapshot '{snapshot_id}': removed manifest, {} orphaned artifacts cleaned up",
@@ -331,7 +345,12 @@ fn replace_tags(
     if replacements.is_empty() {
         return Err(crate::Error::invalid_input("select at least one snapshot"));
     }
-    let preview = plan_replace_snapshot_tags(repo, &replacements)?;
+    let request = SnapshotTagsReplaceRequest {
+        repo_root: repo.to_path_buf(),
+        replacements,
+        control: control_with_profile(profile),
+    };
+    let preview = plan_replace_snapshot_tags(&request)?.changes;
     for change in &preview {
         output::line(format_args!(
             "{}: {} -> {}",
@@ -347,7 +366,7 @@ fn replace_tags(
     if !confirm.yes && !prompt_yes_no("Apply these tag changes?", false)? {
         return Err(crate::Error::Cancelled);
     }
-    let results = replace_snapshot_tags(repo, replacements, &control_with_profile(profile))?;
+    let results = replace_snapshot_tags(&request)?.changes;
     if single_snapshot {
         output::record(&results[0])
     } else {
@@ -356,7 +375,11 @@ fn replace_tags(
 }
 
 fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
-    let result = measure_snapshot(source_dir, &SnapshotTagSet::from_compact_strings(tags)?)?;
+    let result = measure_snapshot(&SnapshotMeasureRequest {
+        source_dir: source_dir.to_path_buf(),
+        tags: SnapshotTagSet::from_compact_strings(tags)?,
+        control: OperationControl::default(),
+    })?;
     output::record(&serde_json::json!({
         "file_count": result.file_count,
         "logical_bytes": result.logical_bytes,

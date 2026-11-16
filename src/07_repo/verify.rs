@@ -3,6 +3,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
+use std::path::PathBuf;
 
 use crate::Error;
 use crate::Result;
@@ -48,12 +49,12 @@ pub struct RepoVerifyResult {
     pub mode: RepoVerifyMode,
     pub snapshot_count: usize,
     pub snapshots_ok: usize,
-    pub snapshots: Vec<SnapshotArtifactVerifyResult>,
+    pub snapshots: Vec<SnapshotVerifyOutcome>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotArtifactVerifyResult {
+pub struct SnapshotVerifyOutcome {
     pub snapshot_id: String,
     pub ok: bool,
     pub check_passed: bool,
@@ -70,12 +71,22 @@ pub struct SnapshotArtifactVerifyResult {
 }
 
 /// Verify repo artifact integrity. When `snapshot_id` is None, all repo snapshots are verified.
-pub fn verify_repo(
-    repo_root: &Path,
-    snapshot_id: Option<&str>,
-    mode: RepoVerifyMode,
-    control: &OperationControl,
-) -> Result<RepoVerifyResult> {
+/// A repository, optionally narrowed to one snapshot, and how deeply to check its artifacts.
+#[derive(Debug, Clone)]
+pub struct RepoVerifyRequest {
+    pub repo_root: PathBuf,
+    pub snapshot_id: Option<String>,
+    pub mode: RepoVerifyMode,
+    pub control: OperationControl,
+}
+
+pub fn verify_repo(request: &RepoVerifyRequest) -> Result<RepoVerifyResult> {
+    let (repo_root, snapshot_id, mode, control) = (
+        request.repo_root.as_path(),
+        request.snapshot_id.as_deref(),
+        request.mode,
+        &request.control,
+    );
     coordination::read_with_control(repo_root, control, || {
         let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
@@ -128,7 +139,7 @@ pub(crate) fn verify_snapshot_artifacts(
     snapshot_manifest: &SnapshotManifest,
     mode: RepoVerifyMode,
     verified: &mut VerifiedArtifacts,
-) -> Result<SnapshotArtifactVerifyResult> {
+) -> Result<SnapshotVerifyOutcome> {
     let RequiredArtifacts {
         artifacts: required_artifacts,
         unindexed_chunks,
@@ -187,7 +198,7 @@ pub(crate) fn verify_snapshot_artifacts(
     let check_passed = missing_artifacts.is_empty();
     let ok = check_passed && corrupt_artifacts.is_empty();
 
-    Ok(SnapshotArtifactVerifyResult {
+    Ok(SnapshotVerifyOutcome {
         snapshot_id: snapshot_manifest.snapshot_id.clone(),
         ok,
         check_passed,

@@ -1,6 +1,7 @@
 //! Repository initialization: risk assessment of the target path and confirmation policy.
 
 use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -10,7 +11,7 @@ use crate::Error;
 use crate::Result;
 use crate::filesystem;
 use crate::manifest::constraints::RepoConstraints;
-use crate::manifest::repo_manifest::RepoManifest;
+use crate::progress::OperationControl;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_repo_layout;
 use crate::repo::paths::write_repo_manifest;
@@ -38,7 +39,7 @@ pub const REPO_INIT_NEEDS_CONFIRMATION: &str = "repo_init_needs_confirmation";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoInitAssessment {
+pub struct RepoInitPlan {
     pub path: String,
     pub path_kind: RepoInitPathKind,
     pub requires_confirmation: bool,
@@ -54,17 +55,34 @@ pub struct RepoInitAssessment {
     pub linked: Option<bool>,
 }
 
+/// Where to create a repository, and whether existing Gutch files there may be replaced.
 #[derive(Debug, Clone, Default)]
-pub struct RepoInitOptions {
+pub struct RepoInitRequest {
+    pub repo_root: PathBuf,
     pub force: bool,
     pub constraints: RepoConstraints,
+    pub control: OperationControl,
 }
 
-pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoInitResult {
+    pub repo_root: PathBuf,
+    pub repository_name: String,
+}
+
+/// Inspects the target path and reports what initializing there would replace.
+pub fn plan_init_repo(request: &RepoInitRequest) -> Result<RepoInitPlan> {
+    request.control.checkpoint()?;
+    request.constraints.validate_definition()?;
+    assess_repo_init_path(&request.repo_root)
+}
+
+pub(crate) fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitPlan> {
     let path = repo_root.display().to_string();
 
     if repo_root.exists() && !repo_root.is_dir() {
-        return Ok(RepoInitAssessment {
+        return Ok(RepoInitPlan {
             path,
             path_kind: RepoInitPathKind::NotADirectory,
             requires_confirmation: false,
@@ -81,7 +99,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     }
 
     if !repo_root.exists() {
-        return Ok(RepoInitAssessment {
+        return Ok(RepoInitPlan {
             path,
             path_kind: RepoInitPathKind::Missing,
             requires_confirmation: false,
@@ -112,7 +130,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
         let status = match manifest_error {
             None => repo_status(repo_root)?,
             Some(error) => {
-                return Ok(RepoInitAssessment {
+                return Ok(RepoInitPlan {
                     path,
                     path_kind: RepoInitPathKind::InvalidManifest,
                     requires_confirmation: true,
@@ -126,7 +144,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
             }
         };
         if status.is_repo {
-            return Ok(RepoInitAssessment {
+            return Ok(RepoInitPlan {
                 path,
                 path_kind: RepoInitPathKind::ExistingRepo,
                 requires_confirmation: true,
@@ -139,7 +157,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
             });
         }
 
-        return Ok(RepoInitAssessment {
+        return Ok(RepoInitPlan {
             path,
             path_kind: RepoInitPathKind::InvalidManifest,
             requires_confirmation: true,
@@ -153,7 +171,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
     }
 
     if entry_count == 0 {
-        return Ok(RepoInitAssessment {
+        return Ok(RepoInitPlan {
             path,
             path_kind: RepoInitPathKind::Empty,
             requires_confirmation: false,
@@ -166,7 +184,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
         });
     }
 
-    Ok(RepoInitAssessment {
+    Ok(RepoInitPlan {
         path,
         path_kind: RepoInitPathKind::NonEmpty,
         requires_confirmation: true,
@@ -180,9 +198,9 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
 }
 
 /// Creates the repository and returns its written manifest.
-pub fn init_repo(repo_root: &Path, options: RepoInitOptions) -> Result<RepoManifest> {
-    options.constraints.validate_definition()?;
-    let assessment = assess_repo_init_path(repo_root)?;
+pub fn init_repo(request: &RepoInitRequest) -> Result<RepoInitResult> {
+    let repo_root = request.repo_root.as_path();
+    let assessment = plan_init_repo(request)?;
 
     if assessment.path_kind == RepoInitPathKind::NotADirectory {
         return Err(Error::repo(
@@ -194,16 +212,16 @@ pub fn init_repo(repo_root: &Path, options: RepoInitOptions) -> Result<RepoManif
         ));
     }
 
-    if assessment.requires_confirmation && !options.force {
+    if assessment.requires_confirmation && !request.force {
         return Err(repo_init_needs_confirmation_error(&assessment));
     }
 
     fs::create_dir_all(repo_root)?;
     super::coordination::write(repo_root, || {
-        if !options.force && repo_root.join("repo_metadata.json").exists() {
+        if !request.force && repo_root.join("repo_metadata.json").exists() {
             return Err(Error::repo("repository was initialized by another writer"));
         }
-        if options.force && assessment.path_kind != RepoInitPathKind::Missing {
+        if request.force && assessment.path_kind != RepoInitPathKind::Missing {
             clear_repo_artifacts(repo_root)?;
         }
 
@@ -215,9 +233,12 @@ pub fn init_repo(repo_root: &Path, options: RepoInitOptions) -> Result<RepoManif
         let repo_paths = RepoPaths::from_repo_root(repo_root);
         let mut repo_manifest = ensure_repo_layout(&repo_paths, repo_name)?;
         repo_manifest.constraints =
-            (!options.constraints.is_empty()).then_some(options.constraints);
+            (!request.constraints.is_empty()).then(|| request.constraints.clone());
         write_repo_manifest(&repo_paths, &repo_manifest)?;
-        Ok(repo_manifest)
+        Ok(RepoInitResult {
+            repo_root: repo_root.to_path_buf(),
+            repository_name: repo_manifest.repository_name,
+        })
     })
 }
 
@@ -251,7 +272,7 @@ fn non_empty_risk(entry_count: usize) -> RepoInitRisk {
     }
 }
 
-pub(crate) fn repo_init_needs_confirmation_error(assessment: &RepoInitAssessment) -> Error {
+pub(crate) fn repo_init_needs_confirmation_error(assessment: &RepoInitPlan) -> Error {
     let payload = serde_json::to_string(assessment).unwrap_or_else(|_| "{}".to_string());
     Error::repo(format!("{REPO_INIT_NEEDS_CONFIRMATION}:{payload}"))
 }

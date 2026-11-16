@@ -7,9 +7,9 @@ use crate::filesystem::paths::ManifestPathResolver;
 use crate::filesystem::set_read_only;
 use crate::installation::contracts::InstallationRepairOutcome;
 use crate::installation::inspect::InspectionSpans;
-use crate::installation::inspect::RepairClassification;
-use crate::installation::inspect::RepairIssue;
-use crate::installation::inspect::VerifyMode;
+use crate::installation::inspect::InstallationIssue;
+use crate::installation::inspect::InstallationIssues;
+use crate::installation::inspect::InstallationVerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_expected_entries;
 use crate::installation::plan::InstallationChanges;
@@ -127,12 +127,12 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
             .extend(repair_plan.metadata_updates.iter().cloned());
     }
     let mut final_classification = if verification_manifest.entries.is_empty() {
-        RepairClassification::default()
+        InstallationIssues::default()
     } else {
         classify_expected_entries(VerifyRequest {
             snapshot_manifest: &verification_manifest,
             dir: destination_dir,
-            mode: VerifyMode::Fast,
+            mode: InstallationVerifyMode::Fast,
             runtime_hints,
             control: control.clone(),
             spans: &InspectionSpans::REPAIR_RESULT,
@@ -144,7 +144,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         for issue in &repair_plan.classification.extra_files {
             let path = destination.resolve_entry(&issue.path)?;
             if fs::symlink_metadata(path).is_ok() {
-                final_classification.push(RepairIssue::extra(
+                final_classification.push(InstallationIssue::extra(
                     &issue.path,
                     format!(
                         "extra filesystem entry remains after repair: {}",
@@ -335,7 +335,7 @@ fn remove_existing_entry(path: &Path) -> Result<()> {
 fn delete_extra_files(
     destination_dir: &Path,
     snapshot_manifest: &SnapshotManifest,
-    extra_files: &[RepairIssue],
+    extra_files: &[InstallationIssue],
 ) -> Result<usize> {
     let manifest_paths = manifest_paths_set(snapshot_manifest);
     let destination = ManifestPathResolver::new(destination_dir)?;

@@ -7,11 +7,11 @@ use crate::artifact::profiles::BundleSizingPreset;
 use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
-use crate::capture::plan::plan_capture_snapshot;
+use crate::capture::plan::plan_capture_source;
 use crate::capture::scan::format_system_time_utc;
 use crate::capture::scan::source_modified_at;
 use crate::capture::sources::capture_snapshot;
-use crate::installation::InstallationRequest;
+use crate::installation::InstallationReconstructRequest;
 use crate::installation::reconstruct_installation;
 use crate::manifest;
 use crate::manifest::ChunkRef;
@@ -83,7 +83,7 @@ fn plan_capture_snapshot_keeps_tagless_snapshots_distinct() {
 
     fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
-    let plan = plan_capture_snapshot(
+    let plan = plan_capture_source(
         &repo_root,
         &new_source,
         &manifest::SnapshotTagSet::default(),
@@ -139,7 +139,7 @@ fn test_repo_with_source(
 
 fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     let destination = repo_root.join(format!("reconstructed-{snapshot_id}"));
-    reconstruct_installation(&InstallationRequest {
+    reconstruct_installation(&InstallationReconstructRequest {
         repo_root: repo_root.to_path_buf(),
         snapshot_id: snapshot_id.to_string(),
         destination_dir: destination.clone(),
@@ -151,12 +151,12 @@ fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     })
     .unwrap();
     assert!(destination.join("game.exe").is_file());
-    let verification = verify_repo(
-        repo_root,
-        Some(snapshot_id),
-        RepoVerifyMode::Strict,
-        &crate::progress::OperationControl::default(),
-    )
+    let verification = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: repo_root.to_path_buf(),
+        snapshot_id: Some(snapshot_id.to_owned()),
+        mode: RepoVerifyMode::Strict,
+        control: Default::default(),
+    })
     .unwrap();
     assert!(verification.ok, "strict verification failed");
 }
@@ -483,13 +483,13 @@ fn explicit_retag_reports_previous_and_new_tags() {
     ])
     .unwrap();
     let retag = |tags: manifest::SnapshotTagSet| {
-        replace_snapshot_tags(
-            &repo_root,
-            std::collections::BTreeMap::from([(first.snapshot_id.clone(), tags)]),
-            &OperationControl::default(),
-        )
+        replace_snapshot_tags(&crate::repo::snapshots::SnapshotTagsReplaceRequest {
+            repo_root: repo_root.clone(),
+            replacements: std::collections::BTreeMap::from([(first.snapshot_id.clone(), tags)]),
+            control: OperationControl::default(),
+        })
     };
-    let retagged = retag(new_tags.clone()).unwrap().remove(0);
+    let retagged = retag(new_tags.clone()).unwrap().changes.remove(0);
     assert_eq!(retagged.snapshot_id, first.snapshot_id);
     assert_eq!(retagged.previous_tags, test_tags());
     assert_eq!(retagged.new_tags, new_tags);

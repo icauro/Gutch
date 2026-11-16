@@ -403,12 +403,12 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     assert_eq!(status.snapshots[0].required_artifact_count, 1);
     assert_eq!(status.snapshots[0].missing_artifact_count, 0);
 
-    let verification = verify_repo(
-        temp.path(),
-        Some(&snapshot.snapshot_id),
-        RepoVerifyMode::Strict,
-        &crate::progress::OperationControl::default(),
-    )
+    let verification = verify_repo(&crate::repo::verify::RepoVerifyRequest {
+        repo_root: temp.path().to_path_buf(),
+        snapshot_id: Some(snapshot.snapshot_id.clone()),
+        mode: RepoVerifyMode::Strict,
+        control: Default::default(),
+    })
     .unwrap();
     assert!(verification.ok);
     assert_eq!(verification.snapshots[0].required_artifact_count, 1);
@@ -650,39 +650,43 @@ fn force_init_replaces_an_unparsable_manifest() {
         assessment.path_kind,
         crate::repo::init_policy::RepoInitPathKind::InvalidManifest
     );
-    let options = |force| crate::repo::init_policy::RepoInitOptions {
+    let request = |force| crate::repo::init_policy::RepoInitRequest {
+        repo_root: temp.path().to_path_buf(),
         force,
-        constraints: Default::default(),
+        ..Default::default()
     };
-    assert!(crate::repo::init_policy::init_repo(temp.path(), options(false)).is_err());
-    crate::repo::init_policy::init_repo(temp.path(), options(true)).unwrap();
+    assert!(crate::repo::init_policy::init_repo(&request(false)).is_err());
+    crate::repo::init_policy::init_repo(&request(true)).unwrap();
     load_repo_manifest(temp.path()).unwrap();
 }
 
 #[test]
 fn deleting_a_missing_snapshot_reports_not_found() {
     let temp = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::init_repo(
-        temp.path(),
-        crate::repo::init_policy::RepoInitOptions {
-            force: false,
-            constraints: Default::default(),
-        },
-    )
+    crate::repo::init_policy::init_repo(&crate::repo::init_policy::RepoInitRequest {
+        repo_root: temp.path().to_path_buf(),
+        force: false,
+        ..Default::default()
+    })
     .unwrap();
-    let error = crate::repo::snapshots::delete_snapshot(
-        temp.path(),
-        &"a".repeat(64),
-        &crate::progress::OperationControl::default(),
-    )
-    .unwrap_err();
+    let error =
+        crate::repo::snapshots::delete_snapshot(&crate::repo::snapshots::SnapshotDeleteRequest {
+            repo_root: temp.path().to_path_buf(),
+            snapshot_id: "a".repeat(64),
+            control: Default::default(),
+        })
+        .unwrap_err();
     assert!(error.to_string().contains("snapshot not found"), "{error}");
 }
 
 #[test]
 fn a_newer_repository_format_is_refused_for_reading_and_writing() {
     let temp = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::init_repo(temp.path(), Default::default()).unwrap();
+    crate::repo::init_policy::init_repo(&crate::repo::init_policy::RepoInitRequest {
+        repo_root: temp.path().to_path_buf(),
+        ..Default::default()
+    })
+    .unwrap();
     let path = temp.path().join(crate::manifest::REPO_METADATA_FILE);
     let mut metadata: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
