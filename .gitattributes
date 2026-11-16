@@ -1,3 +1,6 @@
+# Store and check out text as LF on every platform; Git detects binary files.
+* text=auto eol=lf
+
 # Source fixtures and encoded repositories must preserve their exact bytes.
 /tests/datasets/corpus/** -text -diff
 /tests/datasets/corpus/*/case.json text eol=lf diff
