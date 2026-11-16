@@ -78,7 +78,7 @@ pub struct RepoSnapshotStatus {
     pub launch_readiness_error: Option<String>,
 }
 
-pub fn read_repo_status(repo_root: &Path) -> Result<RepoStatus> {
+pub fn repo_status(repo_root: &Path) -> Result<RepoStatus> {
     if !repo_root.is_dir() {
         return check_repo_unlocked(repo_root);
     }

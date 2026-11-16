@@ -199,7 +199,7 @@ pub enum PullConflictPolicy {
 }
 
 #[derive(Debug, Serialize)]
-pub struct RepoPullStats {
+pub struct RepoPullResult {
     pub command: &'static str,
     pub repo_root: String,
     pub remote_repo_id: String,
@@ -256,7 +256,7 @@ pub struct RepoPushPlan {
 }
 
 #[derive(Debug, Serialize)]
-pub struct RepoPushStats {
+pub struct RepoPushResult {
     pub command: &'static str,
     pub repo_root: String,
     pub remote_repo_id: String,

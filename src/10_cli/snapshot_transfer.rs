@@ -11,9 +11,9 @@ use crate::cli::progress::CliProgressSink;
 use crate::cli::reporting::print_profile_summary;
 use crate::cli::reporting::write_stats_json_output;
 use crate::cli::verbose_output_enabled;
-use crate::installation::fetch::SnapshotFetchAndReconstructRequest;
-use crate::installation::fetch::SnapshotFetchAndReconstructResult;
-use crate::installation::fetch::fetch_and_reconstruct_snapshot;
+use crate::installation::fetch::InstallationFetchAndReconstructRequest;
+use crate::installation::fetch::InstallationFetchAndReconstructResult;
+use crate::installation::fetch::fetch_and_reconstruct_installation;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch::fetch_snapshot;
@@ -156,7 +156,7 @@ pub(crate) fn fetch_and_reconstruct(
     let progress = CliProgressSink::new();
     let fetch_request =
         fetch.into_request(control_with_profile(profile).with_progress(progress))?;
-    let result = fetch_and_reconstruct_snapshot(&SnapshotFetchAndReconstructRequest {
+    let result = fetch_and_reconstruct_installation(&InstallationFetchAndReconstructRequest {
         fetch_request,
         destination_dir: destination,
         staging_dir,
@@ -164,7 +164,7 @@ pub(crate) fn fetch_and_reconstruct(
         source_dir: source_dir.clone(),
         runtime_hints,
     })?;
-    let SnapshotFetchAndReconstructResult {
+    let InstallationFetchAndReconstructResult {
         fetch_result,
         reconstruct_result,
     } = result;

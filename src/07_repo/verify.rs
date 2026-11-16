@@ -28,11 +28,11 @@ use std::fs::File;
 /// `Fast` checks artifact structure; `Strict` also checks content-addressed identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RepoArtifactVerification {
+pub enum RepoVerifyMode {
     Fast,
     Strict,
 }
-impl RepoArtifactVerification {
+impl RepoVerifyMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Fast => "fast",
@@ -43,9 +43,9 @@ impl RepoArtifactVerification {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoArtifactVerifyResult {
+pub struct RepoVerifyResult {
     pub ok: bool,
-    pub mode: RepoArtifactVerification,
+    pub mode: RepoVerifyMode,
     pub snapshot_count: usize,
     pub snapshots_ok: usize,
     pub snapshots: Vec<SnapshotArtifactVerifyResult>,
@@ -73,9 +73,9 @@ pub struct SnapshotArtifactVerifyResult {
 pub fn verify_repo(
     repo_root: &Path,
     snapshot_id: Option<&str>,
-    mode: RepoArtifactVerification,
+    mode: RepoVerifyMode,
     control: &OperationControl,
-) -> Result<RepoArtifactVerifyResult> {
+) -> Result<RepoVerifyResult> {
     coordination::read_with_control(repo_root, control, || {
         let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
@@ -108,7 +108,7 @@ pub fn verify_repo(
         let snapshots_ok = snapshots.iter().filter(|snapshot| snapshot.ok).count();
         let ok = snapshots_ok == snapshots.len();
 
-        Ok(RepoArtifactVerifyResult {
+        Ok(RepoVerifyResult {
             ok,
             mode,
             snapshot_count: snapshots.len(),
@@ -126,7 +126,7 @@ pub(crate) fn verify_snapshot_artifacts(
     repo_paths: &RepoPaths,
     chunk_index: &ChunkIndex,
     snapshot_manifest: &SnapshotManifest,
-    mode: RepoArtifactVerification,
+    mode: RepoVerifyMode,
     verified: &mut VerifiedArtifacts,
 ) -> Result<SnapshotArtifactVerifyResult> {
     let RequiredArtifacts {
@@ -204,9 +204,9 @@ pub(crate) fn verify_snapshot_artifacts(
     })
 }
 
-fn verify_bundle_file(path: &Path, bundle_id: &str, mode: RepoArtifactVerification) -> Result<()> {
+fn verify_bundle_file(path: &Path, bundle_id: &str, mode: RepoVerifyMode) -> Result<()> {
     let mut reader = bundle::BundleReader::open(File::open(path)?)?;
-    if mode == RepoArtifactVerification::Strict {
+    if mode == RepoVerifyMode::Strict {
         reader.verify_identity(bundle_id)?;
     }
     Ok(())

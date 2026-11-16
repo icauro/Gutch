@@ -11,7 +11,7 @@ use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::VerifyMode;
 use crate::installation::inspect::VerifyRequest;
 use crate::installation::inspect::classify_directory;
-use crate::installation::reconstruct_snapshot;
+use crate::installation::reconstruct_installation;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -125,7 +125,7 @@ fn apply_snapshot_ops_reuses_verified_source_destination() {
     add_built_bundles_to_chunk_index(&mut chunk_index, &v2.bundles).unwrap();
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
-    let result = reconstruct_snapshot(&InstallationRequest {
+    let result = reconstruct_installation(&InstallationRequest {
         repo_root: repo_dir,
         snapshot_id: v2.snapshot_manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
@@ -360,7 +360,7 @@ fn large_game_build_200mb() {
     let t2 = Instant::now();
     let out_dir_temp = tempfile::tempdir().unwrap();
     let out_dir = out_dir_temp.path().join("test_200mb_reconstructed");
-    reconstruct_snapshot(&InstallationRequest {
+    reconstruct_installation(&InstallationRequest {
         repo_root: repo_root.clone(),
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         destination_dir: out_dir.clone(),

@@ -49,7 +49,7 @@ pub fn repair_installation(
     })
 }
 
-pub fn plan_installation_repair(
+pub fn plan_repair_installation(
     request: &InstallationRepairPlanRequest,
 ) -> Result<InstallationRepairPlanResult> {
     request.control.checkpoint()?;

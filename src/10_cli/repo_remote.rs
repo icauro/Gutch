@@ -18,11 +18,11 @@ use crate::sync::remote::RepoPullPlan;
 use crate::sync::remote::RepoPushPlan;
 use crate::sync::remote::bind_remote_repo;
 use crate::sync::remote::create_remote_repo;
-use crate::sync::remote::inspect_repo_tag_references;
-use crate::sync::remote::plan_repo_pull;
-use crate::sync::remote::plan_repo_push;
+use crate::sync::remote::plan_pull_repo;
+use crate::sync::remote::plan_push_repo;
 use crate::sync::remote::pull_repo;
 use crate::sync::remote::push_repo;
+use crate::sync::remote::remote_tag_references;
 use crate::sync::remote::unbind_remote_repo;
 
 pub(crate) fn push(
@@ -34,7 +34,7 @@ pub(crate) fn push(
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
     let repo_provider = provider.repo_provider();
-    let plan = plan_repo_push(&repo, repo_provider)?;
+    let plan = plan_push_repo(&repo, repo_provider)?;
     print_push_plan(&plan);
     output::record(&plan)?;
     if confirm.dry_run {
@@ -88,7 +88,7 @@ pub(crate) fn pull(
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
     let repo_provider = provider.repo_provider();
-    let plan = plan_repo_pull(&repo, repo_provider, remote.as_deref(), policy)?;
+    let plan = plan_pull_repo(&repo, repo_provider, remote.as_deref(), policy)?;
     print_pull_plan(&plan);
     output::record(&plan)?;
     if confirm.dry_run {
@@ -209,7 +209,7 @@ pub(crate) fn unbind(
 pub(crate) fn tag_references(repo: PathBuf, host: &CommandLineHost<'_>) -> crate::Result<()> {
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
-    let result: RemoteTagReferencesResult = inspect_repo_tag_references(&repo, provider)?;
+    let result: RemoteTagReferencesResult = remote_tag_references(&repo, provider)?;
     output::record(&result)?;
 
     output::line(format_args!("repo: {}", result.repo_root));

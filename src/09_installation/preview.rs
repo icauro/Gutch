@@ -39,7 +39,7 @@ pub enum InstallationAction {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum InstallationPlanEvent {
+pub enum InstallationPreviewEvent {
     Entry {
         path: String,
         action: InstallationAction,
@@ -54,7 +54,7 @@ pub enum InstallationPlanEvent {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InstallationPlanSummary {
+pub struct InstallationPreviewSummary {
     pub snapshot_id: String,
     pub content_inspected: bool,
     pub entry_count: usize,
@@ -67,12 +67,12 @@ pub struct InstallationPlanSummary {
 
 /// Inspect without changing the installation. Target entries, extras, and artifacts are each delivered in path/ID order.
 /// This is a preview, not a persisted authorization to execute a stale plan.
-pub fn visit_installation_plan(
+pub fn preview_installation(
     request: &InstallationRequest,
     publication: InstallationPublication,
     inspection: InstallationInspection,
-    visitor: &mut dyn FnMut(InstallationPlanEvent) -> Result<()>,
-) -> Result<InstallationPlanSummary> {
+    visitor: &mut dyn FnMut(InstallationPreviewEvent) -> Result<()>,
+) -> Result<InstallationPreviewSummary> {
     read_with_control(&request.repo_root, &request.control, || {
         request.control.checkpoint()?;
         validate_installation_paths(
@@ -151,12 +151,12 @@ pub fn visit_installation_plan(
         artifacts.sort_by_cached_key(|artifact| artifact.id().into_owned());
         for artifact in artifacts {
             request.control.checkpoint()?;
-            visitor(InstallationPlanEvent::Artifact {
+            visitor(InstallationPreviewEvent::Artifact {
                 id: artifact.id().into_owned(),
                 available_locally: existing_artifacts.contains(artifact),
             })?;
         }
-        Ok(InstallationPlanSummary {
+        Ok(InstallationPreviewSummary {
             snapshot_id: target_manifest.snapshot_id.clone(),
             content_inspected,
             entry_count: target_manifest.entries.len(),
@@ -229,7 +229,7 @@ impl<'a> EntryActions<'a> {
         &self,
         request: &InstallationRequest,
         target_manifest: &SnapshotManifest,
-        visitor: &mut dyn FnMut(InstallationPlanEvent) -> Result<()>,
+        visitor: &mut dyn FnMut(InstallationPreviewEvent) -> Result<()>,
     ) -> Result<u64> {
         let mut retained_file_bytes = 0;
         let entries: BTreeMap<_, _> = target_manifest
@@ -246,7 +246,7 @@ impl<'a> EntryActions<'a> {
             ) {
                 retained_file_bytes += entry.as_file().map_or_default(|file| file.size);
             }
-            visitor(InstallationPlanEvent::Entry {
+            visitor(InstallationPreviewEvent::Entry {
                 path: path.to_owned(),
                 action,
                 reason: reason.to_owned(),
@@ -264,7 +264,7 @@ fn visit_extra_files(
     request: &InstallationRequest,
     publication: InstallationPublication,
     changes: &InstallationChanges,
-    visitor: &mut dyn FnMut(InstallationPlanEvent) -> Result<()>,
+    visitor: &mut dyn FnMut(InstallationPreviewEvent) -> Result<()>,
 ) -> Result<()> {
     let action = if publication.removes_extra_files() {
         InstallationAction::Remove
@@ -275,7 +275,7 @@ fn visit_extra_files(
     extras.sort_by(|left, right| left.path.cmp(&right.path));
     for extra in extras {
         request.control.checkpoint()?;
-        visitor(InstallationPlanEvent::Entry {
+        visitor(InstallationPreviewEvent::Entry {
             path: extra.path.clone(),
             action,
             reason: "absent from target snapshot".into(),

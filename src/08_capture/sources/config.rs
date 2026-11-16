@@ -298,7 +298,7 @@ pub fn fnmatch_name(name: &str, pattern: &str) -> bool {
 }
 
 /// Persist the default discovery configuration only if the root has none.
-pub fn initialize_source_config(source_root: &Path) -> Result<()> {
+pub fn init_source_config(source_root: &Path) -> Result<()> {
     SourceConfig::load_or_create(source_root).map(|_| ())
 }
 

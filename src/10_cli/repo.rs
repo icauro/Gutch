@@ -20,14 +20,14 @@ use crate::repo::init_policy::RepoInitAssessment;
 use crate::repo::init_policy::RepoInitOptions;
 use crate::repo::init_policy::RepoInitPathKind;
 use crate::repo::init_policy::assess_repo_init_path;
-use crate::repo::init_policy::initialize_repo;
-use crate::repo::recovery::{plan_index_rebuild, rebuild_index};
-use crate::repo::status::read_repo_status;
-use crate::repo::updates::plan_repo_constraints;
-use crate::repo::updates::plan_repo_rename;
-use crate::repo::updates::read_repo_constraints;
-use crate::repo::updates::update_repo_constraints;
-use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::init_policy::init_repo;
+use crate::repo::recovery::{plan_rebuild_repo_index, rebuild_repo_index};
+use crate::repo::status::repo_status;
+use crate::repo::updates::plan_rename_repo;
+use crate::repo::updates::plan_set_repo_constraints;
+use crate::repo::updates::repo_constraints;
+use crate::repo::updates::set_repo_constraints;
+use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::verify_repo;
 use std::path::Path;
 
@@ -51,7 +51,7 @@ pub(crate) fn run(
             targets,
             constraints,
             dry_run: DryRunArgs { dry_run },
-        } => init_repo(
+        } => init(
             &path,
             force,
             read_constraint_input(constraints.as_deref(), targets)?,
@@ -92,7 +92,7 @@ pub(crate) fn run(
             dry_run: DryRunArgs { dry_run },
         } => {
             if dry_run {
-                let name = plan_repo_rename(&repo, &name)?;
+                let name = plan_rename_repo(&repo, &name)?;
                 output::record(&serde_json::json!({"operation": "rename", "name": name}))?;
                 output::line(format_args!("Would rename {} to {}", repo.display(), name));
                 Ok(())
@@ -130,13 +130,13 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
     };
     let constraints = match replacement {
         Some(replacement) => {
-            let constraints = plan_repo_constraints(&repo, replacement)?;
+            let constraints = plan_set_repo_constraints(&repo, replacement)?;
             if !dry_run {
-                update_repo_constraints(&repo, constraints.clone())?;
+                set_repo_constraints(&repo, constraints.clone())?;
             }
             constraints
         }
-        None => read_repo_constraints(&repo)?,
+        None => repo_constraints(&repo)?,
     };
     output::record(&constraints)?;
     output::line(format_args!(
@@ -149,9 +149,9 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
 fn rebuild_chunk_index(repo: &Path, dry_run: bool) -> crate::Result<()> {
     let control = OperationControl::default();
     let result = if dry_run {
-        plan_index_rebuild(repo, &control)?
+        plan_rebuild_repo_index(repo, &control)?
     } else {
-        rebuild_index(repo, &control)?
+        rebuild_repo_index(repo, &control)?
     };
     output::record(&result)?;
     output::line(format_args!("{}", serde_json::to_string_pretty(&result)?));
@@ -165,7 +165,7 @@ fn rebuild_chunk_index(repo: &Path, dry_run: bool) -> crate::Result<()> {
 
 fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
     let _status_span = profile.as_ref().and_then(|p| p.span("repo.status"));
-    let status = read_repo_status(repo)?;
+    let status = repo_status(repo)?;
     output::record(&status)?;
 
     if !status.is_repo {
@@ -207,9 +207,9 @@ fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
 
 fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result<()> {
     let mode = if strict {
-        RepoArtifactVerification::Strict
+        RepoVerifyMode::Strict
     } else {
-        RepoArtifactVerification::Fast
+        RepoVerifyMode::Fast
     };
     let result = verify_repo(repo, snapshot_id, mode, &OperationControl::default())?;
     output::record(&result)?;
@@ -242,7 +242,7 @@ fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result
     Ok(())
 }
 
-pub(crate) fn init_repo(
+pub(crate) fn init(
     path: &Path,
     force: bool,
     constraints: RepoConstraints,
@@ -268,7 +268,7 @@ pub(crate) fn init_repo(
         proceed_force = true;
     }
 
-    let repository = initialize_repo(
+    let repository = init_repo(
         path,
         RepoInitOptions {
             force: proceed_force,

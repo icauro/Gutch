@@ -88,7 +88,7 @@ pub fn unbind_remote_repo(
     })
 }
 
-pub fn inspect_repo_tag_references(
+pub fn remote_tag_references(
     repo_root: &Path,
     provider: &dyn RemoteRepoService,
 ) -> Result<RemoteTagReferencesResult> {

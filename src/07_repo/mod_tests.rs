@@ -38,7 +38,7 @@ use crate::repo::index::ChunkIndexEntries;
 use crate::repo::index::ChunkIndexEntry;
 use crate::repo::paths::bundle_id_from_bundle_path;
 use crate::repo::paths::chunk_path_in_root;
-use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::verify_repo;
 use crate::runtime::build_thread_pool;
 use crate::snapshot::identity::snapshot_id_from_entries;
@@ -117,7 +117,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
     )
     .unwrap();
 
-    let status = read_repo_status(temp.path()).unwrap();
+    let status = repo_status(temp.path()).unwrap();
     let hashes = status
         .snapshots
         .iter()
@@ -310,7 +310,7 @@ fn check_repo_reports_snapshots() {
     fs::create_dir_all(bundle_path.parent().unwrap()).unwrap();
     fs::write(bundle_path, b"bundle-a").unwrap();
 
-    let status = read_repo_status(&repo_root).unwrap();
+    let status = repo_status(&repo_root).unwrap();
 
     assert!(status.exists);
     assert!(status.is_repo);
@@ -328,7 +328,7 @@ fn check_repo_treats_missing_artifact_roots_as_empty() {
     fs::remove_dir_all(&paths.bundles_root).unwrap();
     fs::remove_dir_all(&paths.chunks_root).unwrap();
 
-    let status = read_repo_status(temp.path()).unwrap();
+    let status = repo_status(temp.path()).unwrap();
 
     assert!(status.is_repo);
     assert_eq!(status.bundle_count, 0);
@@ -398,7 +398,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     };
     write_chunk_index(&paths, &index).unwrap();
 
-    let status = read_repo_status(temp.path()).unwrap();
+    let status = repo_status(temp.path()).unwrap();
     assert_eq!(status.artifact_count, 1);
     assert_eq!(status.snapshots[0].required_artifact_count, 1);
     assert_eq!(status.snapshots[0].missing_artifact_count, 0);
@@ -406,7 +406,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
     let verification = verify_repo(
         temp.path(),
         Some(&snapshot.snapshot_id),
-        RepoArtifactVerification::Strict,
+        RepoVerifyMode::Strict,
         &crate::progress::OperationControl::default(),
     )
     .unwrap();
@@ -563,7 +563,7 @@ fn inspect_repo_shows_snapshot_tags() {
     .unwrap();
     index_manifest(&paths, &manifest);
 
-    let status = read_repo_status(&root).unwrap();
+    let status = repo_status(&root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(status.snapshots[0].snapshot_id, manifest.snapshot_id);
     assert_eq!(status.snapshots[0].version_tag, "2.0.0");
@@ -654,15 +654,15 @@ fn force_init_replaces_an_unparsable_manifest() {
         force,
         constraints: Default::default(),
     };
-    assert!(crate::repo::init_policy::initialize_repo(temp.path(), options(false)).is_err());
-    crate::repo::init_policy::initialize_repo(temp.path(), options(true)).unwrap();
+    assert!(crate::repo::init_policy::init_repo(temp.path(), options(false)).is_err());
+    crate::repo::init_policy::init_repo(temp.path(), options(true)).unwrap();
     load_repo_manifest(temp.path()).unwrap();
 }
 
 #[test]
 fn deleting_a_missing_snapshot_reports_not_found() {
     let temp = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::initialize_repo(
+    crate::repo::init_policy::init_repo(
         temp.path(),
         crate::repo::init_policy::RepoInitOptions {
             force: false,
@@ -682,7 +682,7 @@ fn deleting_a_missing_snapshot_reports_not_found() {
 #[test]
 fn a_newer_repository_format_is_refused_for_reading_and_writing() {
     let temp = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::initialize_repo(temp.path(), Default::default()).unwrap();
+    crate::repo::init_policy::init_repo(temp.path(), Default::default()).unwrap();
     let path = temp.path().join(crate::manifest::REPO_METADATA_FILE);
     let mut metadata: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();

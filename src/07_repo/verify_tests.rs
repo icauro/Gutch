@@ -38,10 +38,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     let unselected = save_test_snapshot(&paths, "missing", b"unavailable payload");
     crate::test_util::index_manifest(&paths, &unselected);
 
-    for mode in [
-        RepoArtifactVerification::Fast,
-        RepoArtifactVerification::Strict,
-    ] {
+    for mode in [RepoVerifyMode::Fast, RepoVerifyMode::Strict] {
         let result = verify_repo(
             root.path(),
             Some(&selected.snapshot_id),
@@ -75,7 +72,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     let error = verify_repo(
         root.path(),
         Some(&selected.snapshot_id),
-        RepoArtifactVerification::Fast,
+        RepoVerifyMode::Fast,
         &crate::progress::OperationControl::default(),
     )
     .unwrap_err();
@@ -86,7 +83,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     let error = verify_repo(
         root.path(),
         Some(&selected.snapshot_id),
-        RepoArtifactVerification::Fast,
+        RepoVerifyMode::Fast,
         &crate::progress::OperationControl::default(),
     )
     .unwrap_err();
@@ -107,7 +104,7 @@ fn selection_limits_payload_checks_but_validates_unselected_chunk_references() {
     let error = verify_repo(
         root.path(),
         Some(&selected.snapshot_id),
-        RepoArtifactVerification::Fast,
+        RepoVerifyMode::Fast,
         &crate::progress::OperationControl::default(),
     )
     .unwrap_err();
@@ -122,7 +119,7 @@ fn empty_repository_succeeds_but_unknown_snapshot_is_an_error() {
     let result = verify_repo(
         root.path(),
         None,
-        RepoArtifactVerification::Fast,
+        RepoVerifyMode::Fast,
         &OperationControl::default(),
     )
     .unwrap();
@@ -132,7 +129,7 @@ fn empty_repository_succeeds_but_unknown_snapshot_is_an_error() {
     let error = verify_repo(
         root.path(),
         Some(&unknown),
-        RepoArtifactVerification::Fast,
+        RepoVerifyMode::Fast,
         &OperationControl::default(),
     )
     .unwrap_err();
@@ -149,8 +146,8 @@ fn structural_verification_does_not_claim_content_addressed_identity() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("bundle");
     std::fs::write(&path, encoded).unwrap();
-    verify_bundle_file(&path, &bundle_id, RepoArtifactVerification::Strict).unwrap();
+    verify_bundle_file(&path, &bundle_id, RepoVerifyMode::Strict).unwrap();
     let incorrect_id = "0".repeat(64);
-    verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Fast).unwrap();
-    assert!(verify_bundle_file(&path, &incorrect_id, RepoArtifactVerification::Strict).is_err());
+    verify_bundle_file(&path, &incorrect_id, RepoVerifyMode::Fast).unwrap();
+    assert!(verify_bundle_file(&path, &incorrect_id, RepoVerifyMode::Strict).is_err());
 }

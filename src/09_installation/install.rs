@@ -2,7 +2,7 @@
 
 use crate::Result;
 use crate::installation::contracts::{
-    InstallationReconstructResult, InstallationRequest, SnapshotRepairResult,
+    InstallationReconstructResult, InstallationRepairOutcome, InstallationRequest,
 };
 use crate::installation::execute::apply_reconstruct_pipeline;
 use crate::installation::execute::jobs::ReconstructPipelineApplyRequest;
@@ -34,11 +34,11 @@ pub enum ExtraFilePolicy {
 #[derive(Debug, Clone)]
 pub struct InstallationResult {
     pub reconstruction: InstallationReconstructResult,
-    pub repair: Option<SnapshotRepairResult>,
+    pub repair: Option<InstallationRepairOutcome>,
 }
 
 /// Full reconstruction: build in staging, then replace the destination.
-pub fn reconstruct_snapshot(
+pub fn reconstruct_installation(
     request: &InstallationRequest,
 ) -> Result<InstallationReconstructResult> {
     install_snapshot_from_repo(request, InstallationPublication::ReplaceDirectory)

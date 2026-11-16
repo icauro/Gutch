@@ -67,7 +67,7 @@ contents and modification times during repair. Damaged files are replaced in
 full, not patched in place. Healthy source files can contribute reused chunks
 when other files in the source installation are damaged.
 
-`visit_installation_plan` and `installation preview` stream entry actions (`keep`,
+`preview_installation` and `installation preview` stream entry actions (`keep`,
 `add`, `replace`, `remove`, `preserveExtra`, `updateMetadata`), reasons, artifact
 availability, then a summary. Target paths, extra paths, and artifact IDs are each
 sorted within their group. The summary records target ID, whether content was

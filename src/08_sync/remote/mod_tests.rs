@@ -205,7 +205,7 @@ fn pull_plan_preserves_local_repository_metadata_and_index() {
 #[test]
 fn pull_planning_accepts_a_reader_without_host_or_http() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let plan = plan_repo_pull(
+    let plan = plan_pull_repo(
         directory.path(),
         &EmptyReader,
         None,

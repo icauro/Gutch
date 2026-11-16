@@ -5,7 +5,7 @@ use crate::Result;
 use crate::filesystem;
 use crate::filesystem::paths::ManifestPathResolver;
 use crate::filesystem::set_read_only;
-use crate::installation::contracts::SnapshotRepairResult;
+use crate::installation::contracts::InstallationRepairOutcome;
 use crate::installation::inspect::InspectionSpans;
 use crate::installation::inspect::RepairClassification;
 use crate::installation::inspect::RepairIssue;
@@ -55,7 +55,7 @@ pub(crate) struct FinalizeRepairRequest<'a> {
 
 pub(crate) fn finalize_repair_result_after_reconstruction(
     request: FinalizeRepairRequest<'_>,
-) -> Result<SnapshotRepairResult> {
+) -> Result<InstallationRepairOutcome> {
     let FinalizeRepairRequest {
         snapshot_manifest,
         destination_dir,
@@ -171,7 +171,7 @@ pub(crate) fn finalize_repair_result_after_reconstruction(
         )));
     }
 
-    Ok(SnapshotRepairResult {
+    Ok(InstallationRepairOutcome {
         snapshot_id: snapshot_manifest.snapshot_id.clone(),
         destination_dir: destination_dir.to_path_buf(),
         missing_file_count: repair_plan.missing_file_count,

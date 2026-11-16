@@ -7,12 +7,12 @@ use crate::artifact::profiles::BundleSizingPreset;
 use crate::artifact::profiles::ChunkSizingPreset;
 use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
-use crate::capture::plan::plan_snapshot_capture;
+use crate::capture::plan::plan_capture_snapshot;
 use crate::capture::scan::format_system_time_utc;
 use crate::capture::scan::source_modified_at;
 use crate::capture::sources::capture_snapshot;
 use crate::installation::InstallationRequest;
-use crate::installation::reconstruct_snapshot;
+use crate::installation::reconstruct_installation;
 use crate::manifest;
 use crate::manifest::ChunkRef;
 use crate::manifest::snapshot::SnapshotManifest;
@@ -20,10 +20,10 @@ use crate::progress::OperationControl;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_repo_layout;
 use crate::repo::paths::load_repo_manifest;
-use crate::repo::read_repo_status;
+use crate::repo::repo_status;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
-use crate::repo::snapshots::retag_snapshots;
-use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::snapshots::replace_snapshot_tags;
+use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::verify_repo;
 use crate::runtime::RuntimeResourceHints;
 use crate::snapshot::identity::snapshot_id_from_entries;
@@ -35,7 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
-fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
+fn plan_capture_snapshot_keeps_tagless_snapshots_distinct() {
     let temp = tempfile::tempdir().unwrap();
     let repo_root = temp.path().join("repo");
     let source_root = temp.path().join("sources");
@@ -83,7 +83,7 @@ fn plan_snapshot_capture_keeps_tagless_snapshots_distinct() {
 
     fs::write(new_source.join("game.exe"), b"new-content").unwrap();
 
-    let plan = plan_snapshot_capture(
+    let plan = plan_capture_snapshot(
         &repo_root,
         &new_source,
         &manifest::SnapshotTagSet::default(),
@@ -139,7 +139,7 @@ fn test_repo_with_source(
 
 fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     let destination = repo_root.join(format!("reconstructed-{snapshot_id}"));
-    reconstruct_snapshot(&InstallationRequest {
+    reconstruct_installation(&InstallationRequest {
         repo_root: repo_root.to_path_buf(),
         snapshot_id: snapshot_id.to_string(),
         destination_dir: destination.clone(),
@@ -154,7 +154,7 @@ fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     let verification = verify_repo(
         repo_root,
         Some(snapshot_id),
-        RepoArtifactVerification::Strict,
+        RepoVerifyMode::Strict,
         &crate::progress::OperationControl::default(),
     )
     .unwrap();
@@ -290,7 +290,7 @@ fn cancelled_capture_retains_first_snapshot() {
         crate::repo::snapshot_manifests::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
             .unwrap();
     assert_eq!(retained.snapshot_tags, test_tags());
-    let status = read_repo_status(&repo_root).unwrap();
+    let status = repo_status(&repo_root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);
 }
@@ -320,7 +320,7 @@ fn identical_recapture_returns_unchanged() {
     assert_eq!(second.generated_bundle_count, 0);
     assert_eq!(second.generated_loose_chunk_count, 0);
 
-    let status = read_repo_status(&repo_root).unwrap();
+    let status = repo_status(&repo_root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
 }
 
@@ -483,7 +483,7 @@ fn explicit_retag_reports_previous_and_new_tags() {
     ])
     .unwrap();
     let retag = |tags: manifest::SnapshotTagSet| {
-        retag_snapshots(
+        replace_snapshot_tags(
             &repo_root,
             std::collections::BTreeMap::from([(first.snapshot_id.clone(), tags)]),
             &OperationControl::default(),
@@ -595,7 +595,7 @@ fn content_change_with_frozen_mtime_creates_new_snapshot() {
     );
     assert_ne!(first.snapshot_id, second.snapshot_id);
 
-    let status = read_repo_status(&repo_root).unwrap();
+    let status = repo_status(&repo_root).unwrap();
     assert_eq!(status.snapshots.len(), 2);
 }
 
@@ -642,7 +642,7 @@ fn failed_artifact_write_publishes_no_snapshot() {
 
     // No partial snapshot became visible and the first snapshot still
     // verifies and reconstructs.
-    let status = read_repo_status(&repo_root).unwrap();
+    let status = repo_status(&repo_root).unwrap();
     assert_eq!(status.snapshots.len(), 1);
     assert_eq!(status.snapshots[0].snapshot_id, first.snapshot_id);
     test_reconstruct_and_strict_verify(&repo_root, &first.snapshot_id);

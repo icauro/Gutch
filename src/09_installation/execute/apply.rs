@@ -9,9 +9,11 @@ use super::publish::{
 use crate::Result;
 use crate::filesystem::directory::replace_directory;
 use crate::filesystem::paths::validate_destination_paths;
+use crate::installation::contracts::InstallationRepairOutcome;
 use crate::installation::contracts::ReconstructTimings;
-use crate::installation::contracts::SnapshotRepairResult;
-use crate::installation::contracts::{InstallationReconstructResult, SnapshotReconstructResult};
+use crate::installation::contracts::{
+    InstallationReconstructOutcome, InstallationReconstructResult,
+};
 use crate::installation::inspect::VerifyTimings;
 use crate::installation::staging::SnapshotStaging;
 use crate::installation::staging::create_snapshot_staging;
@@ -26,7 +28,10 @@ use std::path::Path;
 pub(crate) fn apply_reconstruct_pipeline(
     request: ReconstructPipelineApplyRequest<'_>,
     pipeline_plan: ReconstructPipelinePlan,
-) -> Result<(InstallationReconstructResult, Option<SnapshotRepairResult>)> {
+) -> Result<(
+    InstallationReconstructResult,
+    Option<InstallationRepairOutcome>,
+)> {
     let control = request.control;
     let _output_stage = control.output_stage();
     control.checkpoint()?;
@@ -214,8 +219,8 @@ struct BuildSnapshotReconstructResultRequest<'a> {
 
 fn build_snapshot_reconstruct_result(
     request: BuildSnapshotReconstructResultRequest<'_>,
-) -> SnapshotReconstructResult {
-    SnapshotReconstructResult {
+) -> InstallationReconstructOutcome {
+    InstallationReconstructOutcome {
         snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
         destination_dir: request.destination_dir.to_path_buf(),
         staging_dir: request.staging_dir.to_path_buf(),

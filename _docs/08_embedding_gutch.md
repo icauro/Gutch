@@ -15,20 +15,24 @@ the result:
 cargo run --example capture_and_install -- SOURCE_DIR WORK_DIR
 ```
 
-Each step is one function that takes a request struct:
+Library names follow the command words. A command `NOUN VERB` is the
+function `VERB_NOUN`; its types put the words in command order, and a command
+that shows its plan first has a `plan_` function:
 
-| Function | Same as |
-| --- | --- |
-| `initialize_repo` | `repo init` |
-| `capture_snapshot` | `snapshot capture` |
-| `reconstruct_snapshot` | `installation reconstruct` |
-| `verify_installation` | `installation verify` |
-| `plan_installation_repair` | `installation preview` |
-| `repair_installation` | `installation repair` |
-| `verify_repo` | `repo verify` |
+| Command | Function | Types |
+| --- | --- | --- |
+| `repo init` | `init_repo` | `RepoInitOptions` |
+| `snapshot capture` | `capture_snapshot`, `plan_capture_snapshot` | `SnapshotCaptureRequest`, `SnapshotCapturePlan`, `SnapshotCaptureResult` |
+| `installation reconstruct` | `reconstruct_installation` | `InstallationRequest`, `InstallationReconstructResult` |
+| `installation verify` | `verify_installation` | `InstallationVerifyRequest`, `InstallationVerifyResult` |
+| `installation preview` | `preview_installation` | `InstallationPreviewEvent`, `InstallationPreviewSummary` |
+| `installation repair` | `repair_installation`, `plan_repair_installation` | `InstallationRepairRequest`, `InstallationRepairResult` |
+| `repo push` | `push_repo`, `plan_push_repo` | `RepoPushPlan`, `RepoPushResult` |
 
-Other commands have matching functions; see the crate documentation (`cargo doc -p gutch --open`). Results are plain structs,
-the same data the CLI prints with `--json`. Errors are `gutch::api::Error`;
+Commands named by a noun, such as `repo status` or `repo constraints show`,
+are functions named by that noun: `repo_status`, `repo_constraints`. See the
+crate documentation (`cargo doc -p gutch --open`) for the rest. Results are
+plain structs, the same data the CLI prints with `--json`. Errors are `gutch::api::Error`;
 `error.exit_code()` gives the status the CLI would exit with.
 
 ## Progress, cancellation and warnings

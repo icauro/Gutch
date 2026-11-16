@@ -231,7 +231,7 @@ does not open additional file objects.
 
 ### Local or cached repository
 
-`reconstruct_snapshot` uses the local snapshot manifest, chunk index,
+`reconstruct_installation` uses the local snapshot manifest, chunk index,
 and artifacts. Missing local artifacts fail unless a source snapshot supplies
 the required content. There is no download scheduler or HTTP client in this
 path. A local artifact is initially considered available when its expected path
@@ -246,7 +246,7 @@ download/decode overlap.
 
 ### Unified remote fetch-reconstruct
 
-`fetch_and_reconstruct_snapshot` prepares the local metadata and
+`fetch_and_reconstruct_installation` prepares the local metadata and
 reconstruction plan, resolves direct bundle URLs or asks the injected
 `ArtifactUrlProvider` for unresolved artifact URLs, and starts a scheduler for the
 missing artifacts. The scheduler writes each bundle atomically and sends a

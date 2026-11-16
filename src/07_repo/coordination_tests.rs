@@ -5,7 +5,7 @@ use super::*;
 fn committed_mutation_survives_locked_obsolete_artifact() {
     use std::os::windows::fs::OpenOptionsExt;
     let root = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
+    crate::repo::init_policy::init_repo(root.path(), Default::default()).unwrap();
     let artifact = root.path().join("bundles/obsolete");
     std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
     std::fs::write(&artifact, b"obsolete").unwrap();
@@ -46,7 +46,7 @@ fn committed_mutation_survives_locked_obsolete_artifact() {
 fn locked_previous_generation_does_not_fail_metadata_publication() {
     use std::os::windows::fs::OpenOptionsExt;
     let root = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
+    crate::repo::init_policy::init_repo(root.path(), Default::default()).unwrap();
     write(root.path(), || Ok(())).unwrap();
     let journal = root.path().join(".gutch-transactions");
     let previous = committed_directory(&journal).unwrap();
@@ -102,7 +102,7 @@ fn failed_mutation_restores_all_metadata_and_retains_artifacts() {
 #[test]
 fn a_later_failure_restores_the_last_completed_changes() {
     let root = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
+    crate::repo::init_policy::init_repo(root.path(), Default::default()).unwrap();
     let chunk_map = root.path().join("chunk_map.gtcbin");
     let result: Result<()> = write(root.path(), || {
         std::fs::write(&chunk_map, b"completed")?;
@@ -118,7 +118,7 @@ fn a_later_failure_restores_the_last_completed_changes() {
 #[test]
 fn completed_changes_need_the_write_lock() {
     let root = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
+    crate::repo::init_policy::init_repo(root.path(), Default::default()).unwrap();
     assert!(commit_completed_changes(root.path()).is_err());
     let nested = read(root.path(), || commit_completed_changes(root.path()));
     assert!(nested.is_err());
@@ -127,7 +127,7 @@ fn completed_changes_need_the_write_lock() {
 #[test]
 fn interrupted_publication_is_rejected_by_readers_and_recovered_by_writer() {
     let root = tempfile::tempdir().unwrap();
-    crate::repo::init_policy::initialize_repo(root.path(), Default::default()).unwrap();
+    crate::repo::init_policy::init_repo(root.path(), Default::default()).unwrap();
     let committed = std::fs::read(root.path().join("repo_metadata.json")).unwrap();
     write(root.path(), || Ok(())).unwrap();
     std::fs::write(root.path().join(".gutch-transactions/pending"), b"1").unwrap();

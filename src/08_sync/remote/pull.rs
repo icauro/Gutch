@@ -19,7 +19,7 @@ use super::provider::RemoteRepo;
 use super::provider::RemoteRepoReader;
 use super::provider::RemoteSnapshot;
 use super::provider::RepoPullPlan;
-use super::provider::RepoPullStats;
+use super::provider::RepoPullResult;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle::BundleIdentityWriter;
@@ -53,7 +53,7 @@ use crate::repo::snapshot_manifests::snapshot_metadata_path;
 use crate::repo::snapshot_manifests::snapshot_product_metadata_path;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::updates::validate_existing_constraints;
-use crate::repo::verify::RepoArtifactVerification;
+use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::VerifiedArtifacts;
 use crate::repo::verify::verify_snapshot_artifacts;
 use crate::snapshot::identity::snapshot_id_from_entries;
@@ -122,7 +122,7 @@ pub(super) fn compute_pull_plan(
                 repo_paths,
                 index,
                 &local,
-                RepoArtifactVerification::Strict,
+                RepoVerifyMode::Strict,
                 &mut verified_artifacts,
             )
             .is_ok_and(|result| result.ok)
@@ -297,7 +297,7 @@ fn write_remote_snapshot_artifacts(
     Ok(())
 }
 
-pub fn plan_repo_pull(
+pub fn plan_pull_repo(
     repo_root: &Path,
     provider: &dyn RemoteRepoReader,
     remote_spec: Option<&str>,
@@ -569,7 +569,7 @@ pub fn pull_repo(
     policy: PullConflictPolicy,
     prune: bool,
     control: &OperationControl,
-) -> Result<RepoPullStats> {
+) -> Result<RepoPullResult> {
     fs::create_dir_all(repo_root)?;
     coordination::write_with_control(repo_root, control, || {
         control.checkpoint()?;
@@ -599,7 +599,7 @@ pub fn pull_repo(
             control,
         };
 
-        let mut stats = RepoPullStats {
+        let mut stats = RepoPullResult {
             command: "repo pull",
             repo_root: repo_paths.repo_root.display().to_string(),
             remote_repo_id: repository.id.clone(),

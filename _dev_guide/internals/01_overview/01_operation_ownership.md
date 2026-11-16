@@ -17,9 +17,9 @@ owners.
 | Repo status and advisory tag references | Private Gutch repo engine, exposed through `gutch::api` | Render the returned status and references |
 | Verify Gutch repo artifacts | Private Gutch repo engine, exposed as `gutch::api::verify_repo` | Supply the repo path, snapshot selection, and verification mode |
 | Fetch snapshot artifacts | Private `repo/` acquisition workflow, exposed as `gutch::api::fetch_snapshot` | Resolve authorized artifact sources and provide progress/cancellation |
-| Fetch and reconstruct a destination | Private `installation/` workflow, exposed as `gutch::api::fetch_and_reconstruct_snapshot` | Supply authorized sources and destination/staging paths |
+| Fetch and reconstruct a destination | Private `installation/` workflow, exposed as `gutch::api::fetch_and_reconstruct_installation` | Supply authorized sources and destination/staging paths |
 | Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installation`; CLI `gutch installation verify` | Supply the repo path, destination, mode, and runtime hints |
-| Reconstruct and promote an install | Private `installation/` engine, exposed as `gutch::api::reconstruct_snapshot` | Select the destination/staging paths and commit app metadata only after success |
+| Reconstruct and promote an install | Private `installation/` engine, exposed as `gutch::api::reconstruct_installation` | Select the destination/staging paths and commit app metadata only after success |
 | Repair a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::repair_installation`; CLI `gutch installation repair` | Choose repair policy and extra-file handling; present the result |
 | Corrupt a reconstructed destination for tests/benchmarks | Private Gutch test/benchmark command operation; available through the CLI | Supply an explicit corruption plan and confirmation |
 | Remote repo pull/push/link/bind | Private Gutch repo engine, exposed through `gutch::api` | The host adapter supplies the provider contract and authorized context |
@@ -34,7 +34,7 @@ The module map below records source navigation and import boundaries.
 Artifact mechanics own packaging profiles; repository and snapshot schemas
 consume those profiles without defining a separate codec policy.
 The shared installation entrypoint is `install_snapshot_from_repo`; reconstruction
-and repair are presets. `visit_installation_plan` streams change descriptions
+and repair are presets. `preview_installation` streams change descriptions
 from the same classification and job-planning functions.
 
 Capture owns the derived state used to reuse existing chunks, including proportional encoded-byte estimates. Repository code owns
@@ -135,15 +135,15 @@ handle-release ordering intact across these boundaries.
 
 ## Public naming
 
-Local-to-remote synchronization uses `push_repo`, `plan_repo_push`,
-`RepoPushPlan`, `RepoPushSnapshotChange`, and `RepoPushStats`, matching `repo push`.
+Local-to-remote synchronization uses `push_repo`, `plan_push_repo`,
+`RepoPushPlan`, `RepoPushSnapshotChange`, and `RepoPushResult`, matching `repo push`.
 The corresponding download direction remains `pull_repo` and `RepoPullPlan`.
 Public identifiers spell the repository `repo` (`RepoConstraints`,
 `RemoteRepoProvider`, `RemoteRepoService`, `Error::Repo`), and requests and
 results name its directory `repo_root`. Operations borrow their requests,
 paths, strings and `OperationControl`, and sync operations take `&dyn` provider
 contracts. Previews are separate `plan_*` functions, such as
-`plan_index_rebuild` beside `rebuild_index`, rather than boolean flags. The public metadata readers take the repo root and return
+`plan_rebuild_repo_index` beside `rebuild_repo_index`, rather than boolean flags. The public metadata readers take the repo root and return
 plain manifests; `RepoPaths` stays internal. `RepoStatus` reports the
 directory as `repoRoot`; stored documents keep their field names.
 
@@ -183,7 +183,7 @@ snapshot preparation. Artifact readiness still enables reconstruction before all
 downloads finish; repository metadata is published after successful execution.
 Local reconstruction and repair continue to use the shared installation executor.
 
-Repository artifact verification selects `RepoArtifactVerification::Fast`
+Repository artifact verification selects `RepoVerifyMode::Fast`
 (structure) or `Strict` (also content identity), reported as `fast` and `strict`.
 The verifier loads repository metadata, the index and committed snapshots directly.
 It decodes each blueprint once and retains that manifest through path and artifact

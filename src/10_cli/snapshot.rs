@@ -5,8 +5,8 @@ use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
 use crate::capture::measure::measure_snapshot;
 use crate::capture::sources::capture_snapshots;
-use crate::capture::sources::config::initialize_source_config;
-use crate::capture::sources::plan_snapshot_captures;
+use crate::capture::sources::config::init_source_config;
+use crate::capture::sources::plan_capture_snapshots;
 use crate::capture::sources::resolve_capture_sources;
 use crate::cli::Profile;
 use crate::cli::SECTION_SEPARATOR;
@@ -36,9 +36,9 @@ use crate::repo::paths::RepoPaths;
 use crate::repo::read::load_repo_manifest;
 use crate::repo::snapshot_manifests::diff_snapshots;
 use crate::repo::snapshots::delete_snapshot;
-use crate::repo::snapshots::plan_snapshot_tag_updates;
-use crate::repo::snapshots::retag_snapshots;
-use crate::repo::status::read_repo_status;
+use crate::repo::snapshots::plan_replace_snapshot_tags;
+use crate::repo::snapshots::replace_snapshot_tags;
+use crate::repo::status::repo_status;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -177,7 +177,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         })
         .collect::<Vec<_>>();
     if confirm.dry_run {
-        let plans = plan_snapshot_captures(&requests)?;
+        let plans = plan_capture_snapshots(&requests)?;
         output::record(&plans)?;
         for plan in plans {
             output::line(format_args!("{}", describe_capture_plan(&plan)));
@@ -186,7 +186,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
     }
     if !confirm.yes {
         output::line(format_args!("snapshot capture plan:"));
-        for plan in plan_snapshot_captures(&requests)? {
+        for plan in plan_capture_snapshots(&requests)? {
             output::line(format_args!("  {}", describe_capture_plan(&plan)));
         }
         if !prompt_yes_no("Proceed?", false)? {
@@ -195,7 +195,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
     }
     let results = capture_snapshots(&requests)?;
     if let Some(source_root) = source_root {
-        initialize_source_config(&source_root)?;
+        init_source_config(&source_root)?;
     }
     let mut snapshot_stats = Vec::with_capacity(results.len());
     for (result, source) in results.iter().zip(&sources) {
@@ -256,7 +256,7 @@ fn aggregate_capture_stats(
 }
 
 fn list(repo: &Path) -> crate::Result<()> {
-    let status = read_repo_status(repo)?;
+    let status = repo_status(repo)?;
     output::record(&status.snapshots)?;
     if !status.is_repo {
         return Err(crate::Error::invalid_input(format!(
@@ -331,7 +331,7 @@ fn replace_tags(
     if replacements.is_empty() {
         return Err(crate::Error::invalid_input("select at least one snapshot"));
     }
-    let preview = plan_snapshot_tag_updates(repo, &replacements)?;
+    let preview = plan_replace_snapshot_tags(repo, &replacements)?;
     for change in &preview {
         output::line(format_args!(
             "{}: {} -> {}",
@@ -347,7 +347,7 @@ fn replace_tags(
     if !confirm.yes && !prompt_yes_no("Apply these tag changes?", false)? {
         return Err(crate::Error::Cancelled);
     }
-    let results = retag_snapshots(repo, replacements, &control_with_profile(profile))?;
+    let results = replace_snapshot_tags(repo, replacements, &control_with_profile(profile))?;
     if single_snapshot {
         output::record(&results[0])
     } else {

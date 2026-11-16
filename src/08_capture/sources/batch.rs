@@ -8,9 +8,9 @@ use crate::capture::contracts::SnapshotCapturePlan;
 use crate::capture::contracts::SnapshotCaptureRequest;
 use crate::capture::contracts::SnapshotCaptureResult;
 use crate::capture::execute::capture_planned_snapshots;
-use crate::capture::plan::plan_snapshot_capture;
+use crate::capture::plan::plan_capture_snapshot;
 
-pub fn plan_snapshot_captures(
+pub fn plan_capture_snapshots(
     requests: &[SnapshotCaptureRequest],
 ) -> Result<Vec<SnapshotCapturePlan>> {
     requests
@@ -21,7 +21,7 @@ pub fn plan_snapshot_captures(
                 &BundleSizingProfile::for_preset(request.bundle_profile),
                 request.storage_mode,
             )?;
-            plan_snapshot_capture(
+            plan_capture_snapshot(
                 &request.repo_root,
                 &request.source_dir,
                 &request.explicit_tags,
@@ -40,6 +40,6 @@ pub fn capture_snapshot(request: &SnapshotCaptureRequest) -> Result<SnapshotCapt
 pub fn capture_snapshots(
     requests: &[SnapshotCaptureRequest],
 ) -> Result<Vec<SnapshotCaptureResult>> {
-    plan_snapshot_captures(requests)?;
+    plan_capture_snapshots(requests)?;
     capture_planned_snapshots(requests)
 }

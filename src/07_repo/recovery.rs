@@ -28,7 +28,7 @@ use crate::repo::paths::RepoPaths;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct IndexRebuildResult {
+pub struct RepoIndexRebuildResult {
     pub complete: bool,
     pub published: bool,
     pub chunk_count: usize,
@@ -40,16 +40,19 @@ pub struct IndexRebuildResult {
 }
 
 /// Rebuild the chunk index from verified artifacts without replacing the current one.
-pub fn plan_index_rebuild(
+pub fn plan_rebuild_repo_index(
     repo_root: &Path,
     control: &OperationControl,
-) -> Result<IndexRebuildResult> {
+) -> Result<RepoIndexRebuildResult> {
     recover_index(repo_root, false, control)
 }
 
 /// Rebuild the chunk index from verified artifacts and replace the current one
 /// only when every retained snapshot resolves.
-pub fn rebuild_index(repo_root: &Path, control: &OperationControl) -> Result<IndexRebuildResult> {
+pub fn rebuild_repo_index(
+    repo_root: &Path,
+    control: &OperationControl,
+) -> Result<RepoIndexRebuildResult> {
     recover_index(repo_root, true, control)
 }
 
@@ -58,11 +61,11 @@ fn recover_index(
     repo_root: &Path,
     publish: bool,
     control: &OperationControl,
-) -> Result<IndexRebuildResult> {
+) -> Result<RepoIndexRebuildResult> {
     let work = || {
         let (paths, _) = load_repo_manifest(repo_root)?;
         let mut entries: BTreeMap<ChunkHash, ChunkIndexEntry> = BTreeMap::new();
-        let mut result = IndexRebuildResult {
+        let mut result = RepoIndexRebuildResult {
             complete: false,
             published: false,
             chunk_count: 0,
@@ -139,7 +142,7 @@ fn recover_index(
 }
 
 /// Rebuilds the chunk index from every stored bundle and loose chunk with the
-/// same identity checks and duplicate rules as `rebuild_index`, failing on the
+/// same identity checks and duplicate rules as `rebuild_repo_index`, failing on the
 /// first unreadable artifact or conflicting chunk size.
 pub(crate) fn rebuild_chunk_index_from_artifacts(
     paths: &RepoPaths,

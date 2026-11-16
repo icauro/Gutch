@@ -15,8 +15,8 @@ use super::provider::RemoteRepoReader;
 use super::provider::RemoteRepoWriter;
 use super::provider::RemoteSnapshot;
 use super::provider::RepoPushPlan;
+use super::provider::RepoPushResult;
 use super::provider::RepoPushSnapshotChange;
-use super::provider::RepoPushStats;
 use crate::Error;
 use crate::Result;
 use crate::filesystem;
@@ -36,7 +36,7 @@ use crate::repo::snapshot_manifests::load_snapshot_manifest;
 use crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote;
 use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
-use crate::repo::status::read_repo_status;
+use crate::repo::status::repo_status;
 use crate::repo::summarize_snapshot_tags;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ struct LocalSyncSnapshot {
     snapshot_blueprint_hash_b3: String,
 }
 
-pub fn plan_repo_push(repo_root: &Path, provider: &dyn RemoteRepoReader) -> Result<RepoPushPlan> {
+pub fn plan_push_repo(repo_root: &Path, provider: &dyn RemoteRepoReader) -> Result<RepoPushPlan> {
     let bound_remote_repo_id = linked_remote_repo_id(repo_root)?;
     let repository = provider.resolve_repo(None, Some(&bound_remote_repo_id))?;
     let snapshots = provider.list_snapshots(&repository)?;
@@ -65,7 +65,7 @@ pub fn plan_repo_push(repo_root: &Path, provider: &dyn RemoteRepoReader) -> Resu
 fn collect_local_sync_snapshots(
     repo_root: &Path,
 ) -> Result<(RepoStatus, RepoPaths, Vec<LocalSyncSnapshot>)> {
-    let status = read_repo_status(repo_root)?;
+    let status = repo_status(repo_root)?;
     if !status.is_repo {
         return Err(Error::repo(format!(
             "no gutch repo found at {}",
@@ -283,7 +283,7 @@ impl<P: RemoteRepoWriter + ?Sized> PushContext<'_, P> {
     fn upload_snapshot(
         &self,
         progress: &mut RemoteProgress,
-        stats: &mut RepoPushStats,
+        stats: &mut RepoPushResult,
         manifest: &SnapshotManifest,
         remote_snapshot: &RemoteSnapshot,
     ) -> Result<()> {
@@ -342,7 +342,7 @@ impl<P: RemoteRepoWriter + ?Sized> PushContext<'_, P> {
     fn upload_bundles(
         &self,
         progress: &mut RemoteProgress,
-        stats: &mut RepoPushStats,
+        stats: &mut RepoPushResult,
         required_bundle_ids: &[String],
     ) -> Result<()> {
         for bundle_id in required_bundle_ids {
@@ -397,7 +397,7 @@ pub fn push_repo(
     repo_root: &Path,
     provider: &dyn RemoteRepoProvider,
     control: &OperationControl,
-) -> Result<RepoPushStats> {
+) -> Result<RepoPushResult> {
     coordination::write_with_control(repo_root, control, || {
         control.checkpoint()?;
         let mut progress = RemoteProgress::new(control, OperationKind::Push);
@@ -433,7 +433,7 @@ pub fn push_repo(
                 + required_bundle_ids.len()
                 + 1,
         );
-        let mut stats = RepoPushStats {
+        let mut stats = RepoPushResult {
             command: "repo push",
             repo_root: repo_paths.repo_root.display().to_string(),
             remote_repo_id: repository.id.clone(),

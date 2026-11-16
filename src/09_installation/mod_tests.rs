@@ -5,7 +5,7 @@ use crate::filesystem::set_read_only;
 use crate::installation::InstallationRepairPlanRequest;
 use crate::installation::InstallationRepairRequest;
 use crate::installation::execute::entries::prepare_snapshot_entries;
-use crate::installation::repair::plan_installation_repair;
+use crate::installation::repair::plan_repair_installation;
 use crate::installation::repair_installation;
 use crate::installation::resolve_snapshot_state;
 use crate::manifest;
@@ -326,7 +326,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     fs::write(destination_dir.join("game.exe"), b"bad!").unwrap();
     fs::write(destination_dir.join("data.bin"), b"data").unwrap();
 
-    let plan = plan_installation_repair(&InstallationRepairPlanRequest {
+    let plan = plan_repair_installation(&InstallationRepairPlanRequest {
         repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),

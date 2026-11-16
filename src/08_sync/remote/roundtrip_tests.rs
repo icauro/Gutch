@@ -271,11 +271,11 @@ fn bundle_ids(repo: &Path) -> Vec<String> {
     ids
 }
 
-fn push(repo: &Path, provider: &MemoryProvider) -> Result<RepoPushStats> {
+fn push(repo: &Path, provider: &MemoryProvider) -> Result<RepoPushResult> {
     push_repo(repo, provider, &OperationControl::default())
 }
 
-fn pull(repo: &Path, provider: &MemoryProvider, prune: bool) -> RepoPullStats {
+fn pull(repo: &Path, provider: &MemoryProvider, prune: bool) -> RepoPullResult {
     pull_repo(
         repo,
         provider,
@@ -330,7 +330,7 @@ fn prune_removes_local_only_snapshots_and_their_bundles_without_requesting_them(
     let verified = crate::repo::verify::verify_repo(
         &clone,
         None,
-        crate::repo::verify::RepoArtifactVerification::Strict,
+        crate::repo::verify::RepoVerifyMode::Strict,
         &crate::progress::OperationControl::default(),
     )
     .unwrap();

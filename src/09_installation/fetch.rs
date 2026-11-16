@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct SnapshotFetchAndReconstructRequest {
+pub struct InstallationFetchAndReconstructRequest {
     pub fetch_request: SnapshotFetchRequest,
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
@@ -32,14 +32,14 @@ pub struct SnapshotFetchAndReconstructRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotFetchAndReconstructResult {
+pub struct InstallationFetchAndReconstructResult {
     pub fetch_result: SnapshotFetchResult,
     pub reconstruct_result: InstallationReconstructResult,
 }
 
-pub fn fetch_and_reconstruct_snapshot(
-    request: &SnapshotFetchAndReconstructRequest,
-) -> Result<SnapshotFetchAndReconstructResult> {
+pub fn fetch_and_reconstruct_installation(
+    request: &InstallationFetchAndReconstructRequest,
+) -> Result<InstallationFetchAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
     fs::create_dir_all(&request.fetch_request.repo_root)?;
     write_with_control(
@@ -124,7 +124,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 transfer_stats,
             );
 
-            Ok(SnapshotFetchAndReconstructResult {
+            Ok(InstallationFetchAndReconstructResult {
                 fetch_result,
                 reconstruct_result,
             })

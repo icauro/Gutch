@@ -11,9 +11,9 @@ use std::path::Path;
 use crate::Result;
 use crate::filesystem::paths::resolve_manifest_relative_path;
 
-use crate::installation::contracts::InstallationCorruptionOperation;
-use crate::installation::contracts::InstallationCorruptionRequest;
-use crate::installation::contracts::InstallationCorruptionResult;
+use crate::installation::contracts::InstallationCorruptOperation;
+use crate::installation::contracts::InstallationCorruptRequest;
+use crate::installation::contracts::InstallationCorruptResult;
 
 /// Apply an explicit corruption plan to a reconstructed destination.
 ///
@@ -21,8 +21,8 @@ use crate::installation::contracts::InstallationCorruptionResult;
 /// benchmark scenarios can exercise verification and repair against identical deterministic
 /// damage patterns.
 pub fn corrupt_installation(
-    request: &InstallationCorruptionRequest,
-) -> Result<InstallationCorruptionResult> {
+    request: &InstallationCorruptRequest,
+) -> Result<InstallationCorruptResult> {
     request.control.checkpoint()?;
     let _operation_span = request.control.profile_span("installation.corrupt");
     let root_metadata = fs::symlink_metadata(&request.destination_dir)?;
@@ -38,20 +38,20 @@ pub fn corrupt_installation(
         apply_operation(&request.destination_dir, operation)?;
     }
 
-    Ok(InstallationCorruptionResult {
+    Ok(InstallationCorruptResult {
         destination_dir: request.destination_dir.clone(),
         applied_operation_count: request.plan.operations.len(),
     })
 }
 
-fn apply_operation(root: &Path, operation: &InstallationCorruptionOperation) -> Result<()> {
+fn apply_operation(root: &Path, operation: &InstallationCorruptOperation) -> Result<()> {
     match operation {
-        InstallationCorruptionOperation::FlipByte { path, offset, mask } => {
+        InstallationCorruptOperation::FlipByte { path, offset, mask } => {
             flip_byte(root, path, *offset, *mask)
         }
-        InstallationCorruptionOperation::Delete { path } => delete_entry(root, path),
-        InstallationCorruptionOperation::AddFile { path, content } => add_file(root, path, content),
-        InstallationCorruptionOperation::SetReadOnly { path, read_only } => {
+        InstallationCorruptOperation::Delete { path } => delete_entry(root, path),
+        InstallationCorruptOperation::AddFile { path, content } => add_file(root, path, content),
+        InstallationCorruptOperation::SetReadOnly { path, read_only } => {
             set_read_only(root, path, *read_only)
         }
     }
@@ -117,8 +117,8 @@ fn set_read_only(root: &Path, relative: &str, read_only: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::installation::contracts::InstallationCorruptionOperation;
-    use crate::installation::contracts::InstallationCorruptionPlan;
+    use crate::installation::contracts::InstallationCorruptOperation;
+    use crate::installation::contracts::InstallationCorruptPlan;
 
     #[test]
     fn applies_deterministic_file_corruption_operations() {
@@ -126,20 +126,20 @@ mod tests {
         let file_path = root.path().join("game.bin");
         fs::write(&file_path, [0x10, 0x20, 0x30]).unwrap();
 
-        corrupt_installation(&InstallationCorruptionRequest {
+        corrupt_installation(&InstallationCorruptRequest {
             destination_dir: root.path().to_path_buf(),
-            plan: InstallationCorruptionPlan {
+            plan: InstallationCorruptPlan {
                 operations: vec![
-                    InstallationCorruptionOperation::FlipByte {
+                    InstallationCorruptOperation::FlipByte {
                         path: "game.bin".into(),
                         offset: 1,
                         mask: 0xff,
                     },
-                    InstallationCorruptionOperation::AddFile {
+                    InstallationCorruptOperation::AddFile {
                         path: "extra.txt".into(),
                         content: b"extra".to_vec(),
                     },
-                    InstallationCorruptionOperation::SetReadOnly {
+                    InstallationCorruptOperation::SetReadOnly {
                         path: "game.bin".into(),
                         read_only: true,
                     },
@@ -159,10 +159,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let outside = root.path().parent().unwrap().join("outside.txt");
         fs::write(&outside, b"safe").unwrap();
-        let result = corrupt_installation(&InstallationCorruptionRequest {
+        let result = corrupt_installation(&InstallationCorruptRequest {
             destination_dir: root.path().to_path_buf(),
-            plan: InstallationCorruptionPlan {
-                operations: vec![InstallationCorruptionOperation::Delete {
+            plan: InstallationCorruptPlan {
+                operations: vec![InstallationCorruptOperation::Delete {
                     path: "../outside.txt".into(),
                 }],
             },

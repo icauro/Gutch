@@ -12,7 +12,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
     #[cfg(unix)]
     std::os::unix::fs::symlink("healthy", source.join("link")).unwrap();
     let repo = root.path().join("repo");
-    initialize_repo(&repo, RepoInitOptions::default()).unwrap();
+    init_repo(&repo, RepoInitOptions::default()).unwrap();
     let capture = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source,
@@ -43,7 +43,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
         },
         control: Default::default(),
     };
-    reconstruct_snapshot(&request).unwrap();
+    reconstruct_installation(&request).unwrap();
     (root, request)
 }
 
@@ -62,14 +62,14 @@ fn preview_streams_changes_and_selective_execution_preserves_healthy_files() {
         .set_times(fs::FileTimes::new().set_modified(modified))
         .unwrap();
     let mut actions = std::collections::BTreeMap::new();
-    let summary = visit_installation_plan(
+    let summary = preview_installation(
         &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Preserve,
         },
         InstallationInspection::Content,
         &mut |event| {
-            if let InstallationPlanEvent::Entry { path, action, .. } = event {
+            if let InstallationPreviewEvent::Entry { path, action, .. } = event {
                 actions.insert(path, action);
             }
             Ok(())
@@ -111,7 +111,7 @@ fn reconstruction_salvages_healthy_files_from_a_partially_damaged_source() {
     let (_root, mut request) = fixture();
     fs::write(request.destination_dir.join("damaged"), b"broken").unwrap();
     request.source_snapshot_id = Some(request.snapshot_id.clone());
-    let result = reconstruct_snapshot(&request).unwrap();
+    let result = reconstruct_installation(&request).unwrap();
     assert!(result.reconstruct_result.reused_source_chunk_count > 0);
     assert_eq!(
         fs::read(request.destination_dir.join("damaged")).unwrap(),
@@ -127,14 +127,14 @@ fn reconstruction_salvages_healthy_files_from_a_partially_damaged_source() {
 fn metadata_only_preview_does_not_claim_content_integrity() {
     let (_root, request) = fixture();
     fs::write(request.destination_dir.join("damaged"), b"modified content").unwrap();
-    let summary = visit_installation_plan(
+    let summary = preview_installation(
         &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Remove,
         },
         InstallationInspection::MetadataOnly,
         &mut |event| {
-            if let InstallationPlanEvent::Entry {
+            if let InstallationPreviewEvent::Entry {
                 content_verified, ..
             } = event
             {
@@ -157,14 +157,14 @@ fn permission_repair_keeps_verified_content_in_place() {
     permissions.set_readonly(true);
     fs::set_permissions(&file, permissions).unwrap();
     let mut saw_metadata = false;
-    let summary = visit_installation_plan(
+    let summary = preview_installation(
         &request,
         InstallationPublication::Selective {
             extra_files: ExtraFilePolicy::Preserve,
         },
         InstallationInspection::Content,
         &mut |event| {
-            if let InstallationPlanEvent::Entry { path, action, .. } = event
+            if let InstallationPreviewEvent::Entry { path, action, .. } = event
                 && path == "healthy"
             {
                 saw_metadata = action == InstallationAction::UpdateMetadata;

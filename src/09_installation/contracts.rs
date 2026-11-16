@@ -53,7 +53,7 @@ pub(crate) struct SnapshotReconstructSource<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotReconstructResult {
+pub struct InstallationReconstructOutcome {
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub staging_dir: PathBuf,
@@ -81,7 +81,7 @@ pub struct InstallationRequest {
 pub struct InstallationReconstructResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
-    pub reconstruct_result: SnapshotReconstructResult,
+    pub reconstruct_result: InstallationReconstructOutcome,
     pub resolved_bundle_file_count: usize,
     pub resolved_artifact_file_count: usize,
     pub source_destination_dir: Option<PathBuf>,
@@ -111,13 +111,13 @@ pub struct InstallationVerifyResult {
 /// adapter requires explicit confirmation before applying a plan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InstallationCorruptionPlan {
-    pub operations: Vec<InstallationCorruptionOperation>,
+pub struct InstallationCorruptPlan {
+    pub operations: Vec<InstallationCorruptOperation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum InstallationCorruptionOperation {
+pub enum InstallationCorruptOperation {
     FlipByte {
         path: String,
         offset: u64,
@@ -142,27 +142,27 @@ fn default_corruption_mask() -> u8 {
 }
 
 #[derive(Debug, Clone)]
-pub struct InstallationCorruptionRequest {
+pub struct InstallationCorruptRequest {
     pub destination_dir: PathBuf,
-    pub plan: InstallationCorruptionPlan,
+    pub plan: InstallationCorruptPlan,
     pub control: OperationControl,
 }
 
 #[derive(Debug, Clone)]
-pub struct InstallationCorruptionResult {
+pub struct InstallationCorruptResult {
     pub destination_dir: PathBuf,
     pub applied_operation_count: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct SnapshotRepairResult {
+pub struct InstallationRepairOutcome {
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub missing_file_count: usize,
     pub corrupt_file_count: usize,
     pub extra_file_count: usize,
     pub removed_extra_file_count: usize,
-    pub reconstruct_result: Option<SnapshotReconstructResult>,
+    pub reconstruct_result: Option<InstallationReconstructOutcome>,
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +200,6 @@ pub struct InstallationRepairPlanResult {
 pub struct InstallationRepairResult {
     pub repo_root: PathBuf,
     pub snapshot_manifest: SnapshotManifest,
-    pub repair_result: SnapshotRepairResult,
+    pub repair_result: InstallationRepairOutcome,
     pub resolved_bundle_file_count: usize,
 }

@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::read_repo_status;
+use super::repo_status;
 use crate::Error;
 use crate::Result;
 use crate::filesystem;
@@ -110,7 +110,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
             Err(error) => Some(error.to_string()),
         };
         let status = match manifest_error {
-            None => read_repo_status(repo_root)?,
+            None => repo_status(repo_root)?,
             Some(error) => {
                 return Ok(RepoInitAssessment {
                     path,
@@ -180,7 +180,7 @@ pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {
 }
 
 /// Creates the repository and returns its written manifest.
-pub fn initialize_repo(repo_root: &Path, options: RepoInitOptions) -> Result<RepoManifest> {
+pub fn init_repo(repo_root: &Path, options: RepoInitOptions) -> Result<RepoManifest> {
     options.constraints.validate_definition()?;
     let assessment = assess_repo_init_path(repo_root)?;
 

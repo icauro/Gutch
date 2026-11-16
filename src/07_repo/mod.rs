@@ -20,7 +20,7 @@ pub(crate) mod verify;
 pub(crate) use crate::Result;
 pub(crate) use snapshot_tag_summary::summarize_snapshot_tags;
 pub(crate) use status::RepoStatus;
-pub(crate) use status::read_repo_status;
+pub(crate) use status::repo_status;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

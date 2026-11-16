@@ -23,8 +23,8 @@ use crate::cli::reporting::write_stats_json_output;
 use crate::cli::snapshot_transfer::FetchAndReconstructCommand;
 use crate::cli::snapshot_transfer::fetch_and_reconstruct;
 use crate::cli::verbose_output_enabled;
-use crate::installation::InstallationCorruptionPlan;
-use crate::installation::InstallationCorruptionRequest;
+use crate::installation::InstallationCorruptPlan;
+use crate::installation::InstallationCorruptRequest;
 use crate::installation::InstallationRepairRequest;
 use crate::installation::InstallationRequest;
 use crate::installation::InstallationVerifyRequest;
@@ -33,8 +33,8 @@ use crate::installation::inspect::VerifyMode;
 use crate::installation::install::ExtraFilePolicy;
 use crate::installation::install::InstallationPublication;
 use crate::installation::preview::InstallationInspection;
-use crate::installation::preview::visit_installation_plan;
-use crate::installation::reconstruct_snapshot;
+use crate::installation::preview::preview_installation;
+use crate::installation::reconstruct_installation;
 use crate::installation::repair_installation;
 use crate::installation::verify_installation;
 use crate::profiling::ProfileInstant;
@@ -164,19 +164,18 @@ pub(crate) fn corrupt(command: CorruptCommand, profile: &Profile) -> crate::Resu
             command.plan.display()
         ))
     })?;
-    let plan: InstallationCorruptionPlan =
-        serde_json::from_slice(&plan_bytes).map_err(|error| {
-            crate::Error::invalid_input(format!(
-                "invalid corruption plan '{}': {error}",
-                command.plan.display()
-            ))
-        })?;
+    let plan: InstallationCorruptPlan = serde_json::from_slice(&plan_bytes).map_err(|error| {
+        crate::Error::invalid_input(format!(
+            "invalid corruption plan '{}': {error}",
+            command.plan.display()
+        ))
+    })?;
     // Parse the plan first so the user never confirms a plan that cannot run.
     if !command.yes && !prompt_yes_no("Apply these changes to the installation?", false)? {
         return Err(crate::Error::Cancelled);
     }
     let started_at = ProfileInstant::start(profile.as_deref());
-    let result = corrupt_installation(&InstallationCorruptionRequest {
+    let result = corrupt_installation(&InstallationCorruptRequest {
         destination_dir: command.destination.clone(),
         plan,
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
@@ -319,7 +318,7 @@ fn preview(arguments: PreviewArgs, profile: &Profile) -> crate::Result<()> {
         runtime_hints: arguments.runtime.hints(),
         control: control_with_profile(profile).with_progress(CliProgressSink::new()),
     };
-    let summary = visit_installation_plan(&request, publication, inspection, &mut |event| {
+    let summary = preview_installation(&request, publication, inspection, &mut |event| {
         output::event(&event)
     })?;
     output::record(&summary)?;
@@ -363,7 +362,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
             profile,
         );
     }
-    let execution = reconstruct_snapshot(&InstallationRequest {
+    let execution = reconstruct_installation(&InstallationRequest {
         repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),

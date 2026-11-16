@@ -12,7 +12,7 @@ use crate::repo::paths::write_repo_manifest;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-pub fn read_repo_constraints(repo_root: &Path) -> Result<RepoConstraints> {
+pub fn repo_constraints(repo_root: &Path) -> Result<RepoConstraints> {
     coordination::read(repo_root, || {
         Ok(load_repo_manifest(repo_root)?
             .1
@@ -36,7 +36,7 @@ pub(crate) fn validate_existing_constraints(
     Ok(())
 }
 
-pub fn plan_repo_constraints(
+pub fn plan_set_repo_constraints(
     repo_root: &Path,
     mut constraints: RepoConstraints,
 ) -> Result<RepoConstraints> {
@@ -48,7 +48,7 @@ pub fn plan_repo_constraints(
     })
 }
 
-pub fn plan_repo_rename(repo_root: &Path, name: &str) -> Result<String> {
+pub fn plan_rename_repo(repo_root: &Path, name: &str) -> Result<String> {
     coordination::read(repo_root, || {
         load_repo_manifest(repo_root)?;
         validated_repo_name(name)
@@ -68,7 +68,7 @@ fn validated_repo_name(name: &str) -> Result<String> {
     Ok(trimmed.to_owned())
 }
 
-pub fn update_repo_constraints(repo_root: &Path, mut constraints: RepoConstraints) -> Result<()> {
+pub fn set_repo_constraints(repo_root: &Path, mut constraints: RepoConstraints) -> Result<()> {
     coordination::write(repo_root, || {
         constraints.targets.sort();
         constraints.targets.dedup();

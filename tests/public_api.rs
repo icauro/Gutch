@@ -1,7 +1,7 @@
 //! Host-facing API contracts; broader CLI workflows live in Python.
 use gutch::api::{
     CancellationHook, Error, InstallationRequest, OperationControl, RuntimeResourceHints,
-    reconstruct_snapshot,
+    reconstruct_installation,
 };
 use std::sync::Arc;
 
@@ -54,7 +54,7 @@ fn structured_output_requires_yes_instead_of_prompting_without_the_plan() {
     let source = root.path().join("source");
     std::fs::create_dir(&source).unwrap();
     std::fs::write(source.join("content"), b"content").unwrap();
-    initialize_repo(&repo, RepoInitOptions::default()).unwrap();
+    init_repo(&repo, RepoInitOptions::default()).unwrap();
     let error = run_from_args([
         "gutch",
         "--json",
@@ -94,7 +94,7 @@ fn assert_api_and_cli_capture_equivalent(
     let source = root.path().join("source");
     std::fs::create_dir(&source).unwrap();
     std::fs::write(source.join("content"), b"content").unwrap();
-    initialize_repo(&repo, RepoInitOptions::default()).unwrap();
+    init_repo(&repo, RepoInitOptions::default()).unwrap();
     let captured = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo.clone(),
         source_dir: source.clone(),
@@ -123,7 +123,7 @@ fn assert_api_and_cli_capture_equivalent(
         ArtifactStorageMode::LooseChunks
     );
     let cli_repo = root.path().join("cli-repo");
-    initialize_repo(&cli_repo, RepoInitOptions::default()).unwrap();
+    init_repo(&cli_repo, RepoInitOptions::default()).unwrap();
     run_from_args([
         "gutch",
         "snapshot",
@@ -170,7 +170,7 @@ fn assert_api_and_cli_capture_equivalent(
     std::fs::remove_dir_all(&source).unwrap();
     for (repository, label) in [(repo, "api-output"), (cli_repo, "cli-output")] {
         let destination = root.path().join(label);
-        reconstruct_snapshot(&InstallationRequest {
+        reconstruct_installation(&InstallationRequest {
             repo_root: repository,
             snapshot_id: captured.snapshot_id.clone(),
             destination_dir: destination.clone(),
@@ -208,7 +208,7 @@ fn cancelled_reconstruction_preserves_destination_and_does_not_create_staging() 
     let staging = temporary.path().join("staging");
     std::fs::create_dir(&destination).unwrap();
     std::fs::write(destination.join("keep.txt"), b"prior installation").unwrap();
-    let result = reconstruct_snapshot(&InstallationRequest {
+    let result = reconstruct_installation(&InstallationRequest {
         repo_root: temporary.path().join("unused-repository"),
         snapshot_id: "a".repeat(64),
         destination_dir: destination.clone(),

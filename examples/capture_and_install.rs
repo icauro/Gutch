@@ -11,7 +11,7 @@ use gutch::api::{
     ArtifactStorageMode, BundleSizingPreset, ChunkSizingPreset, Chunker, CompressionKind,
     InstallationRequest, InstallationVerifyRequest, OperationControl, RepoInitOptions, Result,
     RuntimeResourceHints, SnapshotCaptureRequest, SnapshotTagSet, VerifyMode, capture_snapshot,
-    initialize_repo, reconstruct_snapshot, verify_installation,
+    init_repo, reconstruct_installation, verify_installation,
 };
 
 fn main() -> ExitCode {
@@ -32,7 +32,7 @@ fn main() -> ExitCode {
 fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
     let repo_root = work_dir.join("repo");
     let destination_dir = work_dir.join("install");
-    initialize_repo(&repo_root, RepoInitOptions::default())?;
+    init_repo(&repo_root, RepoInitOptions::default())?;
 
     let mut tags = SnapshotTagSet::default();
     tags.insert("version", "1.0.0")?;
@@ -51,7 +51,7 @@ fn run(source_dir: PathBuf, work_dir: PathBuf) -> Result<()> {
     })?;
     println!("captured snapshot {}", captured.snapshot_id);
 
-    reconstruct_snapshot(&InstallationRequest {
+    reconstruct_installation(&InstallationRequest {
         repo_root: repo_root.clone(),
         snapshot_id: captured.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),

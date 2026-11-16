@@ -14,7 +14,7 @@ mod push;
 
 pub use link::bind_remote_repo;
 pub use link::create_remote_repo;
-pub use link::inspect_repo_tag_references;
+pub use link::remote_tag_references;
 pub use link::unbind_remote_repo;
 pub use provider::PullConflictPolicy;
 pub use provider::RemoteArtifactSource;
@@ -30,13 +30,13 @@ pub use provider::RemoteSnapshot;
 pub use provider::RemoteSnapshotSources;
 pub use provider::RemoteTagReferencesResult;
 pub use provider::RepoPullPlan;
-pub use provider::RepoPullStats;
+pub use provider::RepoPullResult;
 pub use provider::RepoPushPlan;
+pub use provider::RepoPushResult;
 pub use provider::RepoPushSnapshotChange;
-pub use provider::RepoPushStats;
-pub use pull::plan_repo_pull;
+pub use pull::plan_pull_repo;
 pub use pull::pull_repo;
-pub use push::plan_repo_push;
+pub use push::plan_push_repo;
 pub use push::push_repo;
 
 #[cfg(test)]

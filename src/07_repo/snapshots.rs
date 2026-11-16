@@ -33,7 +33,7 @@ pub struct SnapshotDeleteResult {
 /// Result of explicitly retagging one exact snapshot ID.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct RetagSnapshotResult {
+pub struct SnapshotTagsReplaceResult {
     pub snapshot_id: String,
     pub previous_tags: SnapshotTagSet,
     pub new_tags: SnapshotTagSet,
@@ -99,10 +99,10 @@ pub fn delete_snapshot(
 
 /// Preview complete replacement tag sets for selected snapshots. Untouched
 /// snapshots also participate in parity validation.
-pub fn plan_snapshot_tag_updates(
+pub fn plan_replace_snapshot_tags(
     repo_root: &Path,
     replacements: &BTreeMap<String, SnapshotTagSet>,
-) -> Result<Vec<RetagSnapshotResult>> {
+) -> Result<Vec<SnapshotTagsReplaceResult>> {
     coordination::read(repo_root, || {
         let (paths, repository) = load_repo_manifest(repo_root)?;
         let mut results = Vec::new();
@@ -111,7 +111,7 @@ pub fn plan_snapshot_tag_updates(
             let manifest = load_snapshot_manifest(&paths, id)?;
             let tags = tags.normalized()?;
             normalized.insert(id.clone(), tags.clone());
-            results.push(RetagSnapshotResult {
+            results.push(SnapshotTagsReplaceResult {
                 snapshot_id: id.clone(),
                 previous_tags: manifest.snapshot_tags,
                 new_tags: tags,
@@ -128,13 +128,13 @@ pub fn plan_snapshot_tag_updates(
 
 /// Replaces multiple snapshot tag sets in one recoverable repository transaction.
 /// A failing rule or write restores every snapshot's previous metadata.
-pub fn retag_snapshots(
+pub fn replace_snapshot_tags(
     repo_root: &Path,
     replacements: BTreeMap<String, SnapshotTagSet>,
     control: &OperationControl,
-) -> Result<Vec<RetagSnapshotResult>> {
+) -> Result<Vec<SnapshotTagsReplaceResult>> {
     coordination::write(repo_root, || {
-        let changes = plan_snapshot_tag_updates(repo_root, &replacements)?;
+        let changes = plan_replace_snapshot_tags(repo_root, &replacements)?;
         let (paths, _) = load_repo_manifest(repo_root)?;
         for change in &changes {
             let mut manifest = load_snapshot_manifest(&paths, &change.snapshot_id)?;
