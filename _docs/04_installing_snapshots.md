@@ -31,7 +31,7 @@ from there instead of decompressing it from the repository:
 
 ```sh
 gutch-cli installation reconstruct --repo REPO --snapshot NEW_ID --destination app-1.1 \
-  --reuse-snapshot OLD_ID --reuse-from app-1.0
+  --reuse-snapshot OLD_ID --reuse-dir app-1.0
 ```
 
 Gutch checks reused content against the hashes it expects, so a damaged old
@@ -94,7 +94,7 @@ the staging space it needs. It never changes the installation.
 | `--mode replace-directory` | Preview a full reconstruct instead of a repair; unchanged files still show as `keep`, though they are copied into the rebuilt folder |
 | `--remove-extra-files` | Preview removing entries the snapshot does not contain |
 | `--metadata-only` | Compare names, sizes and flags only; much faster, but cannot detect changed content of the same size |
-| `--reuse-snapshot`, `--reuse-from` | Account for content reused from another installation |
+| `--reuse-snapshot`, `--reuse-dir` | Account for content reused from another installation |
 
 A preview is advice, not a reservation: the actual command inspects the
 installation again before changing it.

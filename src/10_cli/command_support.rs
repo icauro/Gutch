@@ -126,7 +126,7 @@ pub(crate) struct SnapshotReconstructStats {
     pub(crate) destination_dir: String,
     pub(crate) staging_dir: String,
     pub(crate) reuse_snapshot_id: Option<String>,
-    pub(crate) reuse_from: Option<String>,
+    pub(crate) reuse_dir: Option<String>,
     pub(crate) file_count: usize,
     pub(crate) required_chunk_count: usize,
     pub(crate) required_bundle_count: usize,
@@ -158,8 +158,8 @@ impl SnapshotReconstructStats {
             destination_dir: result.destination_dir.display().to_string(),
             staging_dir: result.staging_dir.display().to_string(),
             reuse_snapshot_id,
-            reuse_from: execution
-                .reuse_from
+            reuse_dir: execution
+                .reuse_dir
                 .as_ref()
                 .map(|path| path.display().to_string()),
             file_count: manifest.file_count(),

@@ -241,7 +241,7 @@ fn capture(repo: &Path, source: &Path, content: &[u8]) -> String {
     }
     crate::capture::sources::capture_snapshot(&crate::capture::contracts::SnapshotCaptureRequest {
         repo_root: repo.to_path_buf(),
-        source_dir: source.to_path_buf(),
+        source: source.to_path_buf(),
         tags: Default::default(),
         chunk_profile: crate::artifact::profiles::ChunkSizingPreset::Chunk16KiB,
         chunker: crate::artifact::profiles::Chunker::FastCdc,

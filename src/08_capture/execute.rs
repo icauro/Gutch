@@ -120,7 +120,7 @@ pub(crate) fn execute_repo_snapshot_capture(
     };
     let prepared_input = {
         let _span = control.profile_span("capture.prepare_source.prepare_input");
-        prepare_input_path(&request.source_dir)?
+        prepare_input_path(&request.source)?
     };
     let runtime_plan = plan_runtime(&request.runtime_hints);
     let source_inventory = {
@@ -138,7 +138,7 @@ pub(crate) fn execute_repo_snapshot_capture(
         let _span = control.profile_span("capture.prepare_source.resolve_tags");
         let snapshot_tags = request.tags.normalized()?;
         constraints
-            .validate_snapshot_tags(&snapshot_tags, &request.source_dir.display().to_string())?;
+            .validate_snapshot_tags(&snapshot_tags, &request.source.display().to_string())?;
         snapshot_tags
     };
     let build_config = configure_build(request, reuse_state, &repo_paths, &snapshot_tags);

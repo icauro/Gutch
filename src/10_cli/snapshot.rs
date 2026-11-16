@@ -124,7 +124,7 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
             profile,
         ),
         SnapshotCommands::Fetch(arguments) => snapshot_transfer::fetch(arguments, profile),
-        SnapshotCommands::Measure { source_dir, tags } => measure(&source_dir, &tags),
+        SnapshotCommands::Measure { source, tags } => measure(&source, &tags),
     }
 }
 
@@ -154,18 +154,18 @@ fn diff(repo: &Path, from: &str, to: &str, profile: &Profile) -> crate::Result<(
 
 fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
     let CaptureArgs {
-        source_dirs,
-        source_root,
+        sources,
+        discover_from,
         repo,
         tags,
         build_profile,
         runtime,
         confirm,
     } = args;
-    let single_report = source_root.is_none();
+    let single_report = discover_from.is_none();
     let sources = resolve_capture_sources(
-        source_root.clone(),
-        source_dirs,
+        discover_from.clone(),
+        sources,
         SnapshotTagSet::from_compact_strings(&tags)?,
     )?;
     let repo_manifest = load_repo_manifest(&repo)?;
@@ -174,7 +174,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         .iter()
         .map(|source| SnapshotCaptureRequest {
             repo_root: repo.clone(),
-            source_dir: source.path.clone(),
+            source: source.path.clone(),
             tags: source.tags.clone(),
             chunk_profile: build_profile.chunk_profile,
             chunker: build_profile.chunker,
@@ -204,8 +204,8 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         }
     }
     let results = capture_snapshots(&requests)?;
-    if let Some(source_root) = source_root {
-        init_source_config(&source_root)?;
+    if let Some(discover_from) = discover_from {
+        init_source_config(&discover_from)?;
     }
     let mut snapshot_stats = Vec::with_capacity(results.len());
     for (result, source) in results.iter().zip(&sources) {
@@ -374,9 +374,9 @@ fn replace_tags(
     }
 }
 
-fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
+fn measure(source: &Path, tags: &[String]) -> crate::Result<()> {
     let result = measure_snapshot(&SnapshotMeasureRequest {
-        source_dir: source_dir.to_path_buf(),
+        source: source.to_path_buf(),
         tags: SnapshotTagSet::from_compact_strings(tags)?,
         control: OperationControl::default(),
     })?;

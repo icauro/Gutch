@@ -323,7 +323,7 @@ def _write_blender_source_config(
         product_dir / BLENDER_SOURCE_CONFIG_FILE_NAME,
         {
             "ingestion_mode": "explicit",
-            "auto_ingestion_rules": {"ignore_paths": []},
+            "auto_ingestion_rules": {"ignore_folders": []},
             "explicit_ingestion_rules": {"snapshots": snapshots},
         },
     )

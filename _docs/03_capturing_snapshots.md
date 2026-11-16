@@ -46,12 +46,12 @@ The first run writes `builds/.gutch_source_config.json`:
 ```json
 {
   "ingestion_mode": "auto",
-  "auto_ingestion_rules": { "ignore_paths": [] },
+  "auto_ingestion_rules": { "ignore_folders": [] },
   "explicit_ingestion_rules": { "snapshots": [] }
 }
 ```
 
-In `auto` mode every immediate subfolder becomes a snapshot. `ignore_paths`
+In `auto` mode every immediate subfolder becomes a snapshot. `ignore_folders`
 skips subfolders whose names match a pattern; `*` and `?` are wildcards.
 
 In `explicit` mode only listed folders are captured. They may be nested at any

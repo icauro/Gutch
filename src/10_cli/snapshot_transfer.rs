@@ -137,7 +137,7 @@ pub(crate) struct FetchAndReconstructCommand {
     pub(crate) destination: PathBuf,
     pub(crate) staging_dir: Option<PathBuf>,
     pub(crate) reuse_snapshot_id: Option<String>,
-    pub(crate) source_dir: Option<PathBuf>,
+    pub(crate) reuse_dir: Option<PathBuf>,
     pub(crate) runtime_hints: RuntimeResourceHints,
 }
 
@@ -150,7 +150,7 @@ pub(crate) fn fetch_and_reconstruct(
         destination,
         staging_dir,
         reuse_snapshot_id,
-        source_dir,
+        reuse_dir,
         runtime_hints,
     } = command;
     let progress = CliProgressSink::new();
@@ -161,7 +161,7 @@ pub(crate) fn fetch_and_reconstruct(
         destination_dir: destination,
         staging_dir,
         reuse_snapshot_id: reuse_snapshot_id.clone(),
-        reuse_from: source_dir.clone(),
+        reuse_dir: reuse_dir.clone(),
         runtime_hints,
     })?;
     let InstallationFetchAndReconstructResult {

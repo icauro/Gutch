@@ -1,7 +1,7 @@
 //! Repository status and health checks of stored snapshots.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -30,7 +30,7 @@ use crate::repo::snapshot_manifests::snapshot_metadata_path;
 pub struct RepoStatus {
     pub exists: bool,
     pub is_repo: bool,
-    pub repo_root: String,
+    pub repo_root: PathBuf,
     pub name: String,
     pub remote_repo_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -59,7 +59,7 @@ pub struct RepoSnapshotStatus {
     #[serde(default)]
     pub required_artifact_count: usize,
     pub total_logical_size: u64,
-    pub manifest_path: String,
+    pub manifest_path: PathBuf,
     pub missing_bundle_count: usize,
     #[serde(default)]
     pub missing_artifact_count: usize,
@@ -86,17 +86,16 @@ pub fn repo_status(repo_root: &Path) -> Result<RepoStatus> {
 }
 
 fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
-    let repo_root_display = repo_root.display().to_string();
     if !repo_root.exists() {
         return Ok(empty_repo_check_status(
-            repo_root_display,
+            repo_root.to_path_buf(),
             false,
             Some("Path does not exist.".to_string()),
         ));
     }
     if !repo_root.is_dir() {
         return Ok(empty_repo_check_status(
-            repo_root_display,
+            repo_root.to_path_buf(),
             true,
             Some("Path is not a directory.".to_string()),
         ));
@@ -105,7 +104,7 @@ fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     let repo_metadata_path = repo_root.join(REPO_METADATA_FILE);
     if !repo_metadata_path.exists() {
         return Ok(empty_repo_check_status(
-            repo_root_display,
+            repo_root.to_path_buf(),
             true,
             Some("repo_metadata.json was not found.".to_string()),
         ));
@@ -124,7 +123,7 @@ fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     Ok(RepoStatus {
         exists: true,
         is_repo: true,
-        repo_root: repo_root_display,
+        repo_root: repo_root.to_path_buf(),
         name: repo_manifest.repository_name.clone(),
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
         repo_manifest: Some(serde_json::to_value(&repo_manifest)?),
@@ -137,7 +136,7 @@ fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     })
 }
 
-fn empty_repo_check_status(repo_root: String, exists: bool, error: Option<String>) -> RepoStatus {
+fn empty_repo_check_status(repo_root: PathBuf, exists: bool, error: Option<String>) -> RepoStatus {
     RepoStatus {
         exists,
         is_repo: false,
@@ -212,7 +211,7 @@ fn check_snapshot_manifests(
             required_bundle_count,
             required_artifact_count: required_artifacts.len() + unindexed_chunks.len(),
             total_logical_size: manifest.total_logical_size,
-            manifest_path: manifest_path.display().to_string(),
+            manifest_path,
             missing_bundle_count,
             missing_artifact_count,
             source_modified_at: manifest.source_modified_at.clone(),

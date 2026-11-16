@@ -16,7 +16,7 @@ def run(case):
         options = (
             []
             if previous is None
-            else ["--reuse-snapshot", previous, "--reuse-from", destination]
+            else ["--reuse-snapshot", previous, "--reuse-dir", destination]
         )
         result = case.reconstruct(repo, captured["snapshot_id"], destination, *options)
         case.compare(data, destination, f"version-{version}")

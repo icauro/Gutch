@@ -192,7 +192,7 @@ pub(super) fn compute_pull_plan(
     local_only_snapshots.sort();
 
     Ok(RepoPullPlan {
-        repo_root: repo_root.display().to_string(),
+        repo_root: repo_root.to_path_buf(),
         remote_repo_id: repository.id.clone(),
         remote_repo_name: repository.name.clone(),
         repo_manifest_needed,
@@ -622,7 +622,7 @@ pub fn pull_repo(
 
         let mut stats = RepoPullResult {
             command: "repo pull",
-            repo_root: repo_paths.repo_root.display().to_string(),
+            repo_root: repo_paths.repo_root.clone(),
             remote_repo_id: repository.id.clone(),
             repo_manifest_downloaded: false,
             chunk_map_downloaded: false,

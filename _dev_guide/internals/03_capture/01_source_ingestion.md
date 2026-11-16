@@ -23,7 +23,7 @@ host editing tools, fixtures, and self-publish staging.
 
 ## Interaction Flow
 
-1. Gutch loads `.gutch_source_config.json` from the source root or creates the
+1. Gutch loads `.gutch_source_config.json` from the discovery folder or creates the
    default source-discovery skeleton on first use. This config never infers
    snapshot tags from source names.
 2. The configured ingestion mode selects source directories.
@@ -46,8 +46,8 @@ host editing tools, fixtures, and self-publish staging.
 
 ## Ingestion Modes
 
-In `auto` mode, immediate child directories of the source root are snapshot
-sources. `auto_ingestion_rules.ignore_paths` supports simple `*` and `?`
+In `auto` mode, immediate child directories of the discovery folder are snapshot
+sources. `auto_ingestion_rules.ignore_folders` supports simple `*` and `?`
 matching against child folder names. Folder names do not provide tags.
 
 In `explicit` mode, only paths listed in
@@ -80,7 +80,7 @@ constraints.
 Explicit config paths are normalized once: leading `./` is removed,
 backslashes become `/`, duplicate separators and bare `.` collapse, and
 absolute paths or `..` segments are rejected. Every selected source remains
-beneath its source root.
+beneath its discovery folder.
 
 Each source is scanned recursively. Regular files, explicit directories, and
 supported safe internal symbolic links become blueprint entries. There are no

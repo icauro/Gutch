@@ -118,7 +118,7 @@ pub(crate) fn apply_reconstruct_pipeline(
         snapshot_id: request.snapshot_manifest.snapshot_id.clone(),
         destination_dir: request.destination_dir.to_path_buf(),
         staging_dir,
-        reuse_from: request.source_destination_dir.clone(),
+        reuse_dir: request.reuse_dir.clone(),
         reused_chunk_count,
         required_chunk_count,
         required_bundle_count,
@@ -158,7 +158,7 @@ fn create_staging(request: &ReconstructPipelineApplyRequest<'_>) -> Result<Snaps
         request.destination_dir,
         &staging_dir,
         request.repo_root,
-        request.source_destination_dir.as_deref(),
+        request.reuse_dir.as_deref(),
     )
 }
 

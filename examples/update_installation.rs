@@ -98,7 +98,7 @@ fn run(work_dir: &Path) -> Result<()> {
         summary.reused_bytes
     );
 
-    // Without `reuse_from`, content is reused from the destination itself.
+    // Without `reuse_dir`, content is reused from the destination itself.
     let updated = reconstruct_installation(&InstallationReconstructRequest {
         repo_root: repo.root().to_path_buf(),
         snapshot_id: new_id,

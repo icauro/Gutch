@@ -65,12 +65,12 @@ pub struct SnapshotHostVariant {
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotLaunchAction {
-    pub action_name: String,
-    pub executable_path: String,
+    pub name: String,
+    pub executable: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub command_arguments: Vec<String>,
+    pub arguments: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub working_directory_path: Option<String>,
+    pub working_directory: Option<String>,
 }
 
 impl SnapshotProductMetadata {
@@ -149,10 +149,10 @@ impl SnapshotProductMetadata {
                     .actions
                     .iter()
                     .map(|action| SnapshotLaunchAction {
-                        action_name: action.name.clone(),
-                        executable_path: action.executable.clone(),
-                        command_arguments: action.arguments.clone(),
-                        working_directory_path: action.working_directory.clone(),
+                        name: action.name.clone(),
+                        executable: action.executable.clone(),
+                        arguments: action.arguments.clone(),
+                        working_directory: action.working_directory.clone(),
                     })
                     .collect(),
                 external_dependencies: dependencies,
@@ -266,14 +266,14 @@ fn resolved_launch_configuration(
     actions: &[SnapshotLaunchAction],
 ) -> launch::ResolvedLaunchConfiguration {
     launch::ResolvedLaunchConfiguration {
-        primary: actions.first().map(|action| action.action_name.clone()),
+        primary: actions.first().map(|action| action.name.clone()),
         actions: actions
             .iter()
             .map(|action| launch::ResolvedLaunchAction {
-                name: action.action_name.clone(),
-                executable: action.executable_path.clone(),
-                arguments: action.command_arguments.clone(),
-                working_directory: action.working_directory_path.clone(),
+                name: action.name.clone(),
+                executable: action.executable.clone(),
+                arguments: action.arguments.clone(),
+                working_directory: action.working_directory.clone(),
             })
             .collect(),
     }
@@ -297,9 +297,7 @@ pub(crate) fn validate_runtime_actions(
             "snapshot product metadata launch_actions must not be empty",
         ));
     }
-    super::launch::validate_unique_action_names(
-        actions.iter().map(|action| action.action_name.as_str()),
-    )
+    super::launch::validate_unique_action_names(actions.iter().map(|action| action.name.as_str()))
 }
 
 const MAX_RUNTIME_IDENTIFIER_BYTES: usize = 64;

@@ -1522,13 +1522,13 @@ def _write_source_config(
             )
         config = {
             "ingestion_mode": "explicit",
-            "auto_ingestion_rules": {"ignore_paths": []},
+            "auto_ingestion_rules": {"ignore_folders": []},
             "explicit_ingestion_rules": {"snapshots": snapshots},
         }
     else:
         config = {
             "ingestion_mode": "auto",
-            "auto_rules": {"ignore_paths": [BASE_CONTENT_ROOT_NAME]},
+            "auto_rules": {"ignore_folders": [BASE_CONTENT_ROOT_NAME]},
             "explicit_rules": {"snapshots": []},
         }
     _write_json(

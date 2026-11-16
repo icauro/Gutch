@@ -27,7 +27,7 @@ pub struct InstallationFetchAndReconstructRequest {
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
     pub reuse_snapshot_id: Option<String>,
-    pub reuse_from: Option<PathBuf>,
+    pub reuse_dir: Option<PathBuf>,
     pub runtime_hints: RuntimeResourceHints,
 }
 
@@ -70,7 +70,7 @@ pub fn fetch_and_reconstruct_installation(
             let source = LoadedSnapshotSource::load(
                 &prepared.repo_paths,
                 request.reuse_snapshot_id.as_deref(),
-                request.reuse_from.as_deref(),
+                request.reuse_dir.as_deref(),
                 &request.destination_dir,
             )?;
             let reconstruction = prepare_reconstruction(ReconstructInputs {
@@ -97,7 +97,7 @@ pub fn fetch_and_reconstruct_installation(
                     snapshot_manifest: &prepared.snapshot_manifest,
                     destination_dir: &request.destination_dir,
                     staging_dir: request.staging_dir.as_deref(),
-                    source_destination_dir: reconstruction.source_directory,
+                    reuse_dir: reconstruction.reuse_dir,
                     runtime_hints: &request.runtime_hints,
                     existing_artifacts: &prepared.existing_artifacts,
                     pending_artifact_downloads: &pending_artifact_downloads,

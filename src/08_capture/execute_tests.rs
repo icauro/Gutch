@@ -109,7 +109,7 @@ fn test_capture(
 ) -> SnapshotCaptureResult {
     capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.to_path_buf(),
-        source_dir: source_dir.to_path_buf(),
+        source: source_dir.to_path_buf(),
         tags: tags.clone(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
@@ -145,7 +145,7 @@ fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
         destination_dir: destination.clone(),
         staging_dir: None,
         reuse_snapshot_id: None,
-        reuse_from: None,
+        reuse_dir: None,
         runtime_hints: RuntimeResourceHints::default(),
         control: OperationControl::default(),
     })
@@ -180,7 +180,7 @@ fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
     fs::write(source.join("new.txt"), b"new snapshot").unwrap();
     let second = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
-        source_dir: source,
+        source,
         tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::Jc,
@@ -272,7 +272,7 @@ fn cancelled_capture_retains_first_snapshot() {
         .with_cancellation(Arc::new(crate::test_util::TestCancellation::cancelled()));
     let failed = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
-        source_dir: source_b,
+        source: source_b,
         tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
@@ -342,7 +342,7 @@ fn same_id_different_tags_returns_metadata_conflict() {
     .unwrap();
     let conflict = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
-        source_dir: source,
+        source,
         tags: other_tags,
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
@@ -390,10 +390,10 @@ fn recapture_after_product_metadata_edit_is_unchanged() {
         runtime: manifest::SnapshotRuntimeMetadata::Direct(
             manifest::SnapshotDirectRuntimeMetadata {
                 launch_actions: vec![manifest::SnapshotLaunchAction {
-                    action_name: "Play".into(),
-                    executable_path: "game.exe".into(),
-                    command_arguments: Vec::new(),
-                    working_directory_path: None,
+                    name: "Play".into(),
+                    executable: "game.exe".into(),
+                    arguments: Vec::new(),
+                    working_directory: None,
                 }],
                 external_dependencies: Vec::new(),
             },
@@ -541,7 +541,7 @@ fn tampered_blueprint_returns_integrity_conflict() {
 
     let conflict = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
-        source_dir: source,
+        source,
         tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
@@ -624,7 +624,7 @@ fn failed_artifact_write_publishes_no_snapshot() {
     fs::set_permissions(&repo_paths.chunks_root, read_only).unwrap();
     let failed = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
-        source_dir: source_b,
+        source: source_b,
         tags: test_tags(),
         chunk_profile: ChunkSizingPreset::Chunk128KiB,
         chunker: Chunker::FastCdc,
@@ -660,7 +660,7 @@ fn capture_bundle_counts_include_each_referenced_bundle_once() {
         let capture = |mode| {
             capture_snapshot(&SnapshotCaptureRequest {
                 repo_root: repo_root.clone(),
-                source_dir: source_dir.clone(),
+                source: source_dir.clone(),
                 tags: test_tags(),
                 chunk_profile: ChunkSizingPreset::Chunk128KiB,
                 chunker: Chunker::FastCdc,
@@ -725,7 +725,7 @@ fn batch_capture_reuses_chunks_from_earlier_sources_in_the_batch() {
     fs::write(second_source.join("extra.dat"), b"second only").unwrap();
     let request = |source_dir: &Path, version: &str| SnapshotCaptureRequest {
         repo_root: repo_root.clone(),
-        source_dir: source_dir.to_path_buf(),
+        source: source_dir.to_path_buf(),
         tags: manifest::SnapshotTagSet::from_compact_strings(&[
             format!("version={version}"),
             "os=windows".to_string(),

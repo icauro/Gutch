@@ -106,7 +106,7 @@ let control = OperationControl::default()
   reconstruction leaves the destination as it was. An application with its own
   signal can implement `CancellationHook` and use `.with_cancellation(...)`.
 - When updating an installation, `reuse_snapshot_id` names the snapshot that
-  is already installed, and `reuse_from` points to another folder holding it
+  is already installed, and `reuse_dir` points to another folder holding it
   if that is not the destination. Content already there is reused instead of
   read from the repository.
 - `.with_warnings(...)` collects non-fatal conditions, and `.with_profiler(...)`

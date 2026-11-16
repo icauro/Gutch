@@ -37,7 +37,7 @@ pub(crate) struct ReconstructPipelineApplyRequest<'a> {
     pub snapshot_manifest: &'a SnapshotManifest,
     pub destination_dir: &'a Path,
     pub staging_dir: Option<&'a Path>,
-    pub source_destination_dir: Option<PathBuf>,
+    pub reuse_dir: Option<PathBuf>,
     pub runtime_hints: &'a RuntimeResourceHints,
     pub existing_artifacts: &'a HashSet<ArtifactRef>,
     pub pending_artifact_downloads: &'a [PendingArtifactDownload],

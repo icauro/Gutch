@@ -19,7 +19,7 @@ fn fixture() -> (tempfile::TempDir, InstallationReconstructRequest) {
     .unwrap();
     let capture = capture_snapshot(&SnapshotCaptureRequest {
         repo_root: repo.clone(),
-        source_dir: source,
+        source,
         tags: SnapshotTagSet::default(),
         chunk_profile: Default::default(),
         chunker: gutch::api::Chunker::FastCdc,
@@ -40,7 +40,7 @@ fn fixture() -> (tempfile::TempDir, InstallationReconstructRequest) {
         destination_dir: root.path().join("installed"),
         staging_dir: None,
         reuse_snapshot_id: None,
-        reuse_from: None,
+        reuse_dir: None,
         runtime_hints: RuntimeResourceHints {
             jobs: Some(2),
             ..Default::default()
@@ -64,7 +64,7 @@ fn preview(
             destination_dir: request.destination_dir.clone(),
             staging_dir: request.staging_dir.clone(),
             reuse_snapshot_id: request.reuse_snapshot_id.clone(),
-            reuse_from: request.reuse_from.clone(),
+            reuse_dir: request.reuse_dir.clone(),
             publication,
             inspection,
             runtime_hints: request.runtime_hints,

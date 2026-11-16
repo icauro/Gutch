@@ -59,7 +59,7 @@ pub struct InstallationReconstructRequest {
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
     pub reuse_snapshot_id: Option<String>,
-    pub reuse_from: Option<PathBuf>,
+    pub reuse_dir: Option<PathBuf>,
     pub runtime_hints: RuntimeResourceHints,
     pub control: OperationControl,
 }
@@ -73,7 +73,7 @@ pub struct InstallationReconstructResult {
     pub destination_dir: PathBuf,
     pub staging_dir: PathBuf,
     /// The folder content was reused from, when the request named one.
-    pub reuse_from: Option<PathBuf>,
+    pub reuse_dir: Option<PathBuf>,
     /// Chunks copied from content already on disk instead of read from the repository.
     pub reused_chunk_count: usize,
     pub required_chunk_count: usize,

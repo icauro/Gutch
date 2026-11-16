@@ -23,7 +23,7 @@ pub fn plan_capture_snapshots(
             )?;
             plan_capture_source(
                 &request.repo_root,
-                &request.source_dir,
+                &request.source,
                 &request.tags,
                 &request.control,
             )

@@ -162,7 +162,7 @@ pub fn remote_tag_references(
     let referenced_tags = advisory_tag_references(&references);
 
     Ok(RemoteTagReferencesResult {
-        repo_root: repo_paths.repo_root().display().to_string(),
+        repo_root: repo_paths.repo_root().to_path_buf(),
         remote_repo_id,
         referenced_tags,
     })

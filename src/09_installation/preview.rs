@@ -78,7 +78,7 @@ pub struct InstallationPreviewRequest {
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
     pub reuse_snapshot_id: Option<String>,
-    pub reuse_from: Option<PathBuf>,
+    pub reuse_dir: Option<PathBuf>,
     pub publication: InstallationPublication,
     pub inspection: InstallationInspection,
     pub runtime_hints: RuntimeResourceHints,
@@ -140,7 +140,7 @@ pub fn preview_installation(
                     .map(|manifest| SnapshotReconstructSource {
                         snapshot_manifest: manifest,
                         destination_dir: request
-                            .reuse_from
+                            .reuse_dir
                             .as_deref()
                             .unwrap_or(&request.destination_dir),
                     }),

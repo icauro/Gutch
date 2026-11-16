@@ -112,7 +112,7 @@ pub(crate) fn install_snapshot_from_repo(
         let source = LoadedSnapshotSource::load(
             &repo_paths,
             request.reuse_snapshot_id.as_deref(),
-            request.reuse_from.as_deref(),
+            request.reuse_dir.as_deref(),
             &request.destination_dir,
         )?;
         let prepared = prepare_reconstruction(ReconstructInputs {
@@ -138,7 +138,7 @@ pub(crate) fn install_snapshot_from_repo(
                 snapshot_manifest: execution_manifest,
                 destination_dir: &request.destination_dir,
                 staging_dir: request.staging_dir.as_deref(),
-                source_destination_dir: prepared.source_directory,
+                reuse_dir: prepared.reuse_dir,
                 runtime_hints: &request.runtime_hints,
                 existing_artifacts: &existing_artifacts,
                 pending_artifact_downloads: &[],

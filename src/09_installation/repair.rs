@@ -27,7 +27,7 @@ pub fn repair_installation(
             destination_dir: request.destination_dir.clone(),
             staging_dir: request.staging_dir.clone(),
             reuse_snapshot_id: None,
-            reuse_from: None,
+            reuse_dir: None,
             runtime_hints: request.runtime_hints,
             control: request.control.clone(),
         },

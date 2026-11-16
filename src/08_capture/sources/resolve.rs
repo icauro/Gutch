@@ -13,12 +13,12 @@ pub struct ResolvedCaptureSource {
 }
 
 pub fn resolve_capture_sources(
-    source_root: Option<PathBuf>,
-    source_dirs: Vec<PathBuf>,
+    discover_from: Option<PathBuf>,
+    sources: Vec<PathBuf>,
     tags: SnapshotTagSet,
 ) -> Result<Vec<ResolvedCaptureSource>> {
-    let single = source_root.is_none();
-    let sources = collect_capture_sources(source_root, source_dirs)?;
+    let single = discover_from.is_none();
+    let sources = collect_capture_sources(discover_from, sources)?;
     let single = single && sources.len() == 1;
     sources
         .into_iter()
@@ -41,24 +41,23 @@ pub fn resolve_capture_sources(
 }
 
 fn collect_capture_sources(
-    source_root: Option<PathBuf>,
-    explicit_dirs: Vec<PathBuf>,
+    discover_from: Option<PathBuf>,
+    explicit_sources: Vec<PathBuf>,
 ) -> crate::Result<Vec<config::ResolvedSourceSnapshot>> {
     let mut sources: Vec<config::ResolvedSourceSnapshot> = Vec::new();
-    if let Some(source_root) = source_root {
-        if !source_root.is_dir() {
+    if let Some(discover_from) = discover_from {
+        if !discover_from.is_dir() {
             return Err(crate::Error::invalid_input(format!(
-                "source root is not a directory: {}",
-                source_root.display()
+                "discovery folder is not a directory: {}",
+                discover_from.display()
             )));
         }
-        let config = config::SourceConfig::load_or_default(&source_root)?;
-        sources.extend(config.discover_snapshot_sources(&source_root)?);
+        let config = config::SourceConfig::load_or_default(&discover_from)?;
+        sources.extend(config.discover_snapshot_sources(&discover_from)?);
     }
-    for dir in explicit_dirs {
+    for path in explicit_sources {
         sources.push(config::ResolvedSourceSnapshot {
-            path: dir.clone(),
-            relative_path: dir,
+            path,
             config_tags: None,
         });
     }
@@ -67,7 +66,7 @@ fn collect_capture_sources(
     sources.dedup_by(|left, right| left.path == right.path);
     if sources.is_empty() {
         return Err(crate::Error::invalid_input(
-            "capture requires at least one source directory or a source root with snapshot folders",
+            "capture requires at least one source or a discovery folder with snapshot folders",
         ));
     }
 

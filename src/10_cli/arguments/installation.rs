@@ -90,8 +90,8 @@ pub(crate) struct PreviewArgs {
     #[arg(long = "reuse-snapshot", value_name = "ID")]
     pub(crate) source_snapshot: Option<String>,
     /// Directory holding the reusable installed snapshot.
-    #[arg(long = "reuse-from", value_name = "DIR", value_parser = parse_cli_path)]
-    pub(crate) source_dir: Option<PathBuf>,
+    #[arg(long = "reuse-dir", value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) reuse_dir: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
 }
@@ -114,8 +114,8 @@ pub(crate) struct ReconstructArgs {
     #[arg(long = "reuse-snapshot", value_name = "ID")]
     pub(crate) reuse_snapshot_id: Option<String>,
     /// Directory holding the reusable installed snapshot.
-    #[arg(long = "reuse-from", value_name = "DIR", value_parser = parse_cli_path)]
-    pub(crate) source_dir: Option<PathBuf>,
+    #[arg(long = "reuse-dir", value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) reuse_dir: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
     /// Show what would change without applying it.

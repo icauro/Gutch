@@ -98,7 +98,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
         let captured = crate::capture::sources::capture_snapshot(
             &crate::capture::contracts::SnapshotCaptureRequest {
                 repo_root: repo.clone(),
-                source_dir: source.clone(),
+                source: source.clone(),
                 tags: Default::default(),
                 chunk_profile,
                 chunker: crate::artifact::profiles::Chunker::FastCdc,

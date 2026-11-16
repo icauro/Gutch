@@ -11,7 +11,7 @@ use crate::manifest::SnapshotTagSet;
 use crate::progress::OperationControl;
 use crate::repo::tag_references::TagReference;
 use crate::repo::tag_references::TagReferenceStatus;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -179,7 +179,7 @@ pub struct RemoteRepoSummary {
 /// Provider-neutral result listing tags referenced by the remote provider ruleset.
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteTagReferencesResult {
-    pub repo_root: String,
+    pub repo_root: PathBuf,
     pub remote_repo_id: String,
     pub referenced_tags: Vec<TagReferenceStatus>,
 }
@@ -222,7 +222,7 @@ pub enum PullConflictPolicy {
 #[derive(Debug, Serialize)]
 pub struct RepoPullResult {
     pub command: &'static str,
-    pub repo_root: String,
+    pub repo_root: PathBuf,
     pub remote_repo_id: String,
     pub repo_manifest_downloaded: bool,
     pub chunk_map_downloaded: bool,
@@ -238,7 +238,7 @@ pub struct RepoPullResult {
 
 #[derive(Debug, Serialize)]
 pub struct RepoPullPlan {
-    pub repo_root: String,
+    pub repo_root: PathBuf,
     pub remote_repo_id: String,
     pub remote_repo_name: String,
     pub repo_manifest_needed: bool,
@@ -264,7 +264,7 @@ pub struct RepoPushSnapshotChange {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RepoPushPlan {
-    pub repo_root: String,
+    pub repo_root: PathBuf,
     pub remote_repo_id: String,
     pub repo_manifest_changed: bool,
     pub chunk_index_changed: bool,
@@ -279,7 +279,7 @@ pub struct RepoPushPlan {
 #[derive(Debug, Serialize)]
 pub struct RepoPushResult {
     pub command: &'static str,
-    pub repo_root: String,
+    pub repo_root: PathBuf,
     pub remote_repo_id: String,
     pub repo_manifest_uploaded: bool,
     pub chunk_index_uploaded: bool,

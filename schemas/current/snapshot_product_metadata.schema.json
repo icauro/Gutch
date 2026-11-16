@@ -119,19 +119,19 @@
     "SnapshotLaunchAction": {
       "type": "object",
       "properties": {
-        "action_name": {
-          "type": "string"
-        },
-        "command_arguments": {
+        "arguments": {
           "type": "array",
           "items": {
             "type": "string"
           }
         },
-        "executable_path": {
+        "executable": {
           "type": "string"
         },
-        "working_directory_path": {
+        "name": {
+          "type": "string"
+        },
+        "working_directory": {
           "type": [
             "string",
             "null"
@@ -140,8 +140,8 @@
       },
       "additionalProperties": false,
       "required": [
-        "action_name",
-        "executable_path"
+        "name",
+        "executable"
       ]
     },
     "SnapshotRuntimeMetadata": {

@@ -201,7 +201,7 @@ fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
             Some(error) => output::line(format_args!("status: {error}")),
             None => output::line(format_args!(
                 "status: no gutch repo found at {}",
-                status.repo_root
+                status.repo_root.display()
             )),
         }
         return Ok(());
@@ -211,7 +211,7 @@ fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
     output::line(format_args!("Repository"));
     output::line(format_args!("name: {}", status.name));
     output::line(format_args!("remote_repo_id: {remote_repo_id}"));
-    output::line(format_args!("repo_root: {}", status.repo_root));
+    output::line(format_args!("repo_root: {}", status.repo_root.display()));
     output::line(format_args!("snapshots: {}", status.snapshots.len()));
     output::line(format_args!("bundles: {}", status.bundle_count));
     output::line(format_args!("bundle_bytes: {}", status.bundle_bytes));

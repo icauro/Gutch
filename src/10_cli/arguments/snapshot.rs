@@ -18,7 +18,7 @@ pub(crate) enum SnapshotCommands {
     Measure {
         /// Directory or file to measure.
         #[arg(long = "source", value_name = "PATH", value_parser = parse_cli_path)]
-        source_dir: PathBuf,
+        source: PathBuf,
         /// Snapshot tag, as KEY=VALUE; repeatable.
         #[arg(long = "tag", value_name = "KEY=VALUE")]
         tags: Vec<String>,
@@ -68,10 +68,10 @@ pub(crate) struct CaptureArgs {
     pub(crate) repo: PathBuf,
     /// Directory or file to capture; repeatable.
     #[arg(long = "source", value_name = "PATH", value_parser = parse_cli_path)]
-    pub(crate) source_dirs: Vec<PathBuf>,
+    pub(crate) sources: Vec<PathBuf>,
     /// Capture every configured source found under DIR.
     #[arg(long = "discover-from", value_name = "DIR", value_parser = parse_cli_path)]
-    pub(crate) source_root: Option<PathBuf>,
+    pub(crate) discover_from: Option<PathBuf>,
     /// Snapshot tag, as KEY=VALUE; repeatable.
     #[arg(long = "tag", value_name = "KEY=VALUE")]
     pub(crate) tags: Vec<String>,

@@ -70,15 +70,16 @@ impl Repo {
         &self.root
     }
 
-    /// Captures `source_dir` as a snapshot with the given `key=value` tags.
+    /// Captures `source`, a folder or a single file, as a snapshot with the
+    /// given `key=value` tags.
     pub fn capture(
         &self,
-        source_dir: impl AsRef<Path>,
+        source: impl AsRef<Path>,
         tags: &[(&str, &str)],
     ) -> Result<SnapshotCaptureResult> {
         crate::capture::sources::capture_snapshot(&SnapshotCaptureRequest {
             repo_root: self.root.clone(),
-            source_dir: source_dir.as_ref().to_path_buf(),
+            source: source.as_ref().to_path_buf(),
             tags: SnapshotTagSet::from_pairs(tags.iter().copied())?,
             ..Default::default()
         })

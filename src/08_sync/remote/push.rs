@@ -269,7 +269,7 @@ fn plan_push_from_local(
     unchanged.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
     to_remove.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
     Ok(RepoPushPlan {
-        repo_root: repo_paths.repo_root.display().to_string(),
+        repo_root: repo_paths.repo_root.clone(),
         remote_repo_id: repository.id.clone(),
         repo_manifest_changed,
         chunk_index_changed,
@@ -451,7 +451,7 @@ pub fn push_repo(
             );
             let mut stats = RepoPushResult {
                 command: "repo push",
-                repo_root: repo_paths.repo_root.display().to_string(),
+                repo_root: repo_paths.repo_root.clone(),
                 remote_repo_id: repository.id.clone(),
                 repo_manifest_uploaded: false,
                 chunk_index_uploaded: false,

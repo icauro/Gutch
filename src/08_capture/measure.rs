@@ -11,7 +11,7 @@ use std::path::PathBuf;
 /// A source to measure and the tags its capture would carry.
 #[derive(Debug, Clone, Default)]
 pub struct SnapshotMeasureRequest {
-    pub source_dir: PathBuf,
+    pub source: PathBuf,
     pub tags: SnapshotTagSet,
     pub control: OperationControl,
 }
@@ -33,7 +33,7 @@ pub struct SnapshotMeasureResult {
 pub fn measure_snapshot(request: &SnapshotMeasureRequest) -> crate::Result<SnapshotMeasureResult> {
     request.control.checkpoint()?;
     let _measure_span = request.control.profile_span("snapshot.measure");
-    let input = prepare_input_path(&request.source_dir)?;
+    let input = prepare_input_path(&request.source)?;
     let (result, _) = build_directory(&input.dir, &BuildConfig::for_snapshot(&request.tags))?;
     request.control.checkpoint()?;
     let mut chunks = HashMap::new();

@@ -23,8 +23,8 @@ struct ComparableEntry {
 
 #[derive(Debug, Serialize)]
 pub struct PathComparisonResult {
-    pub expected_path: String,
-    pub actual_path: String,
+    pub expected_path: PathBuf,
+    pub actual_path: PathBuf,
     pub expected_file_count: usize,
     pub actual_file_count: usize,
     pub matched_file_count: usize,
@@ -86,8 +86,8 @@ pub fn compare_paths(expected: &Path, actual: &Path) -> crate::Result<PathCompar
         && missing_files.is_empty()
         && extra_files.is_empty();
     Ok(PathComparisonResult {
-        expected_path: expected.display().to_string(),
-        actual_path: actual.display().to_string(),
+        expected_path: expected.to_path_buf(),
+        actual_path: actual.to_path_buf(),
         expected_file_count: expected_files.len(),
         actual_file_count: actual_file_map.len(),
         matched_file_count: matched_files.len(),

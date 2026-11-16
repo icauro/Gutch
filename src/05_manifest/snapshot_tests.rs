@@ -34,7 +34,7 @@ fn manifest_serialization_roundtrip() {
     let json = serde_json::to_string_pretty(&m.metadata()).unwrap();
     assert!(json.contains("\"tags\": {"));
     assert!(json.contains("\"arch\": \"x86_64\""));
-    assert!(!json.contains("\"executable_path\": \"Game.exe\""));
+    assert!(!json.contains("\"executable\": \"Game.exe\""));
     assert!(!json.contains("\"exclusive\""));
     assert!(!json.contains("\"files\""));
     let m2: SnapshotMetadata = serde_json::from_str(&json).unwrap();
@@ -77,10 +77,10 @@ fn host_variant_runtime_uses_launcher_host_tags() {
                 variant_id: "current-host".into(),
                 host_tag_requirements: requirements,
                 launch_actions: vec![SnapshotLaunchAction {
-                    action_name: "Play".into(),
-                    executable_path: "Game.exe".into(),
-                    command_arguments: Vec::new(),
-                    working_directory_path: None,
+                    name: "Play".into(),
+                    executable: "Game.exe".into(),
+                    arguments: Vec::new(),
+                    working_directory: None,
                 }],
                 external_dependencies: Vec::new(),
             }],
@@ -103,10 +103,10 @@ fn host_variant_rejects_requirements_that_could_never_match() {
                     variant_id: "windows".into(),
                     host_tag_requirements: vec![requirement.into()],
                     launch_actions: vec![SnapshotLaunchAction {
-                        action_name: "Play".into(),
-                        executable_path: "Game.exe".into(),
-                        command_arguments: Vec::new(),
-                        working_directory_path: None,
+                        name: "Play".into(),
+                        executable: "Game.exe".into(),
+                        arguments: Vec::new(),
+                        working_directory: None,
                     }],
                     external_dependencies: Vec::new(),
                 }],
@@ -122,10 +122,10 @@ fn host_variants_that_can_match_one_host_are_rejected() {
         variant_id: id.into(),
         host_tag_requirements: requirements.iter().map(|r| r.to_string()).collect(),
         launch_actions: vec![SnapshotLaunchAction {
-            action_name: "Play".into(),
-            executable_path: "Game.exe".into(),
-            command_arguments: Vec::new(),
-            working_directory_path: None,
+            name: "Play".into(),
+            executable: "Game.exe".into(),
+            arguments: Vec::new(),
+            working_directory: None,
         }],
         external_dependencies: Vec::new(),
     };

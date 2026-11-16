@@ -22,7 +22,7 @@ def run(case):
         json.dumps(
             {
                 "ingestion_mode": "auto",
-                "auto_ingestion_rules": {"ignore_paths": [".archives"]},
+                "auto_ingestion_rules": {"ignore_folders": [".archives"]},
             }
         )
     )

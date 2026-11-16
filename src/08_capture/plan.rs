@@ -10,13 +10,13 @@ use crate::progress::OperationControl;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::summarize_snapshot_tags;
 
-/// Plans a capture of `source_dir` into the repository at `repo_root`.
+/// Plans a capture of `source` into the repository at `repo_root`.
 ///
 /// The CLI plans before it asks for confirmation, so the planning work is
 /// recorded in the same profile as the capture that follows.
 pub(crate) fn plan_capture_source(
     repo_root: &Path,
-    source_dir: &Path,
+    source: &Path,
     tags: &SnapshotTagSet,
     control: &OperationControl,
 ) -> Result<SnapshotCapturePlan> {
@@ -25,17 +25,17 @@ pub(crate) fn plan_capture_source(
     repository
         .constraints
         .unwrap_or_default()
-        .validate_snapshot_tags(tags, &source_dir.display().to_string())?;
+        .validate_snapshot_tags(tags, &source.display().to_string())?;
 
     let snapshot_tags = tags.normalized()?;
-    let folder_name = source_dir
+    let folder_name = source
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
             crate::Error::invalid_input(format!(
                 "invalid source snapshot path: {}",
-                source_dir.display()
+                source.display()
             ))
         })?
         .to_string();
@@ -44,7 +44,7 @@ pub(crate) fn plan_capture_source(
     // content-derived snapshot ID always creates a new snapshot.
     Ok(SnapshotCapturePlan {
         folder_name,
-        path: source_dir.display().to_string(),
+        source: source.to_path_buf(),
         version_tag: summary.version_tag,
         os: summary.os,
         arch: summary.arch,

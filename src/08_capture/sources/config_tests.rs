@@ -1,15 +1,15 @@
 use super::*;
 use crate::filesystem;
 
-fn write_config(source_root: &Path, json: &str) {
-    filesystem::write(&source_root.join(SOURCE_CONFIG_FILE_NAME), json).unwrap();
+fn write_config(discover_from: &Path, json: &str) {
+    filesystem::write(&discover_from.join(SOURCE_CONFIG_FILE_NAME), json).unwrap();
 }
 
 #[test]
 fn default_skeleton_is_auto_mode() {
     let config = SourceConfig::default_skeleton();
     assert_eq!(config.ingestion_mode, IngestionMode::Auto);
-    assert!(config.auto_ingestion_rules.ignore_paths.is_empty());
+    assert!(config.auto_ingestion_rules.ignore_folders.is_empty());
     assert!(config.explicit_ingestion_rules.snapshots.is_empty());
 }
 
@@ -61,14 +61,14 @@ fn auto_discovery_filters_ignore_paths_and_skips_files() {
     std::fs::write(temp.path().join("notes.txt"), b"x").unwrap();
     write_config(
         temp.path(),
-        r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":[".archives"]}}"#,
+        r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_folders":[".archives"]}}"#,
     );
     let config = SourceConfig::load(temp.path()).unwrap().unwrap();
 
     let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();
 
     assert_eq!(snapshots.len(), 1);
-    assert_eq!(snapshots[0].relative_path, PathBuf::from("game-win"));
+    assert_eq!(snapshots[0].path, temp.path().join("game-win"));
     assert!(snapshots[0].config_tags.is_none());
 }
 
@@ -90,10 +90,7 @@ fn explicit_discovery_resolves_nested_paths_with_tags() {
     let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();
 
     assert_eq!(snapshots.len(), 1);
-    assert_eq!(
-        snapshots[0].relative_path,
-        PathBuf::from("versions/4.6-stable/linux-x86_64")
-    );
+    assert_eq!(snapshots[0].path, nested);
     let tags = snapshots[0].config_tags.as_ref().unwrap();
     assert_eq!(tags.get("version").unwrap(), "4.6_stable");
     assert_eq!(tags.get("os").unwrap(), "linux");
@@ -148,7 +145,7 @@ fn auto_discovery_rejects_separators_in_ignore_paths() {
     let temp = tempfile::tempdir().unwrap();
     write_config(
         temp.path(),
-        r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":["deep/nested"]}}"#,
+        r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_folders":["deep/nested"]}}"#,
     );
     let config = SourceConfig::load(temp.path()).unwrap().unwrap();
     assert!(
@@ -168,7 +165,7 @@ fn dormant_mode_object_is_not_validated() {
     // empty snapshots, which must be ignored because it is dormant.
     write_config(
         temp.path(),
-        r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_paths":[]},"explicit_ingestion_rules":{"snapshots":[]}}"#,
+        r#"{"ingestion_mode":"auto","auto_ingestion_rules":{"ignore_folders":[]},"explicit_ingestion_rules":{"snapshots":[]}}"#,
     );
     let config = SourceConfig::load(temp.path()).unwrap().unwrap();
     let snapshots = config.discover_snapshot_sources(temp.path()).unwrap();

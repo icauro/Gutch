@@ -173,7 +173,7 @@ fn pipeline_plan_copies_identical_source_file_without_bundle_dependency() {
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
-            source_destination_dir: Some(source_root.clone()),
+            reuse_dir: Some(source_root.clone()),
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &HashSet::new(),
             pending_artifact_downloads: &[],
@@ -373,7 +373,7 @@ fn pipeline_reconstructs_mixed_source_and_loose_chunks_with_shared_executor() {
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
-            source_destination_dir: Some(source_root.clone()),
+            reuse_dir: Some(source_root.clone()),
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(2),
                 memory_budget_bytes: NonZeroU64::new(137 * 1024 * 1024),
@@ -442,7 +442,7 @@ fn pipeline_reconstructs_from_loose_chunk_artifact() {
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
-            source_destination_dir: None,
+            reuse_dir: None,
             runtime_hints: &RuntimeResourceHints::default(),
             existing_artifacts: &existing_artifacts,
             pending_artifact_downloads: &[],
@@ -582,7 +582,7 @@ fn bundled_pipeline_reads_bundle_once_and_writes_shared_chunks_to_ranges() {
             snapshot_manifest: &snapshot_manifest,
             destination_dir: &destination,
             staging_dir: None,
-            source_destination_dir: None,
+            reuse_dir: None,
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(2),
                 memory_budget_bytes: NonZeroU64::new(137 * 1024 * 1024),
@@ -688,7 +688,7 @@ fn pipeline_verifies_ready_file_before_next_artifact_without_verifying_partial_f
             snapshot_manifest: &snapshot,
             destination_dir: &destination,
             staging_dir: None,
-            source_destination_dir: None,
+            reuse_dir: None,
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(1),
                 ..Default::default()
@@ -795,7 +795,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
             snapshot_manifest: &snapshot,
             destination_dir: &destination,
             staging_dir: None,
-            source_destination_dir: None,
+            reuse_dir: None,
             runtime_hints: &RuntimeResourceHints {
                 jobs: Some(1),
                 ..Default::default()

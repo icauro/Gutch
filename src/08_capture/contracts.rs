@@ -15,7 +15,7 @@ use std::path::PathBuf;
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotCapturePlan {
     pub folder_name: String,
-    pub path: String,
+    pub source: PathBuf,
     pub version_tag: String,
     pub os: String,
     pub arch: String,
@@ -26,7 +26,7 @@ pub struct SnapshotCapturePlan {
 #[derive(Debug, Clone, Default)]
 pub struct SnapshotCaptureRequest {
     pub repo_root: PathBuf,
-    pub source_dir: PathBuf,
+    pub source: PathBuf,
     pub tags: SnapshotTagSet,
     pub chunk_profile: ChunkSizingPreset,
     pub chunker: Chunker,

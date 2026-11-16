@@ -57,7 +57,8 @@ pub(crate) fn push(
     output::record(&stats)?;
     output::line(format_args!(
         "pushed repo {} to remote repo {}",
-        stats.repo_root, stats.remote_repo_id
+        stats.repo_root.display(),
+        stats.remote_repo_id
     ));
     output::line(format_args!(
         "snapshots added: {}, removed: {}, updated: {}, unchanged: {}",
@@ -113,7 +114,7 @@ pub(crate) fn pull(
     output::record(&stats)?;
     output::line(format_args!(
         "pulled repo {} from remote repo {} ({})",
-        stats.repo_root,
+        stats.repo_root.display(),
         stats.remote_repo_id,
         if prune { "with prune" } else { "no prune" }
     ));
@@ -228,7 +229,7 @@ pub(crate) fn tag_references(repo: PathBuf, host: &CommandLineHost<'_>) -> crate
     let result: RemoteTagReferencesResult = remote_tag_references(&repo, provider)?;
     output::record(&result)?;
 
-    output::line(format_args!("repo: {}", result.repo_root));
+    output::line(format_args!("repo: {}", result.repo_root.display()));
     output::line(format_args!("remote_repo_id: {}", result.remote_repo_id));
     for tag in &result.referenced_tags {
         let values = if tag.referenced_values.is_empty() {
@@ -257,7 +258,7 @@ fn scope_label(entry: &RemoteRepoSummary) -> &str {
 
 fn print_push_plan(plan: &RepoPushPlan) {
     output::line(format_args!("Push plan"));
-    output::line(format_args!("repo: {}", plan.repo_root));
+    output::line(format_args!("repo: {}", plan.repo_root.display()));
     output::line(format_args!(
         "snapshots: local={} remote={}",
         plan.snapshot_count, plan.remote_snapshot_count
@@ -273,7 +274,7 @@ fn print_push_plan(plan: &RepoPushPlan) {
 
 fn print_pull_plan(plan: &RepoPullPlan) {
     output::line(format_args!("Pull plan"));
-    output::line(format_args!("repo: {}", plan.repo_root));
+    output::line(format_args!("repo: {}", plan.repo_root.display()));
     output::line(format_args!(
         "remote: repo {} ({})",
         plan.remote_repo_id, plan.remote_repo_name

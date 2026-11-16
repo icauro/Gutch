@@ -1,13 +1,13 @@
-//! Source-root ingestion config (`.gutch_source_config.json`).
+//! Discovery-folder ingestion config (`.gutch_source_config.json`).
 //!
-//! A source root is the directory passed as `--discover-from` to
-//! `snapshot capture --discover-from` —
-//! the directory whose (possibly nested) subdirectories are snapshot sources.
+//! The discovery folder is the directory passed to
+//! `snapshot capture --discover-from`: the directory whose (possibly nested)
+//! subdirectories are snapshot sources.
 //!
 //! The config selects an ingestion mode:
 //!
 //! - `auto` (default): snapshot sources are the immediate subdirectories of the
-//!   source root, filtered by `auto_ingestion_rules.ignore_paths` (plain folder-name
+//!   discovery folder, filtered by `auto_ingestion_rules.ignore_folders` (plain folder-name
 //!   fnmatch). Auto discovery assigns no tags.
 //! - `explicit`: snapshot sources are exactly the `explicit_ingestion_rules.snapshots`
 //!   paths at any depth, with tags declared per entry. Folder names are
@@ -45,7 +45,7 @@ pub enum IngestionMode {
 pub struct AutoIngestionRules {
     /// Literal folder names matched against immediate subdirectory names during
     /// `auto` discovery (simple fnmatch: `*` and `?`; no separators allowed).
-    pub ignore_paths: Vec<String>,
+    pub ignore_folders: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -57,7 +57,7 @@ pub struct ExplicitIngestionRules {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
 pub struct SnapshotRule {
-    /// Relative path from the source root to the snapshot source folder.
+    /// Relative path from the discovery folder to the snapshot source folder.
     pub path: String,
     /// `key=value` compact tags applied to this snapshot (same format as CLI
     /// `--tag`). CLI `--tag` values still win over these.
@@ -72,15 +72,13 @@ pub struct SourceConfig {
     pub explicit_ingestion_rules: ExplicitIngestionRules,
 }
 
-/// A snapshot source resolved from the config (or from an explicit `--dir`).
+/// A snapshot source resolved from the config (or from an explicit `--source`).
 #[derive(Debug, Clone)]
 pub struct ResolvedSourceSnapshot {
-    /// Absolute path to the snapshot source directory.
+    /// Absolute path to the snapshot source.
     pub path: PathBuf,
-    /// Path relative to the source root (`/`-separated segments).
-    pub relative_path: PathBuf,
     /// Tags declared in the config entry (explicit mode); `None` in auto mode
-    /// or for explicit `--dir` arguments. Tags are never inferred from names.
+    /// or for explicit `--source` arguments. Tags are never inferred from names.
     pub config_tags: Option<SnapshotTagSet>,
 }
 
@@ -92,8 +90,8 @@ impl SourceConfig {
         }
     }
 
-    pub fn load(source_root: &Path) -> Result<Option<Self>> {
-        let path = source_root.join(SOURCE_CONFIG_FILE_NAME);
+    pub fn load(discover_from: &Path) -> Result<Option<Self>> {
+        let path = discover_from.join(SOURCE_CONFIG_FILE_NAME);
         if !path.is_file() {
             return Ok(None);
         }
@@ -102,59 +100,59 @@ impl SourceConfig {
 
     /// Load the config or fall back to the default `auto` skeleton without
     /// creating a file (used by read-only consumers such as repo status reads).
-    pub fn load_or_default(source_root: &Path) -> Result<Self> {
-        Ok(Self::load(source_root)?.unwrap_or_else(Self::default_skeleton))
+    pub fn load_or_default(discover_from: &Path) -> Result<Self> {
+        Ok(Self::load(discover_from)?.unwrap_or_else(Self::default_skeleton))
     }
 
     /// Load the config, creating the default skeleton on first use.
-    pub fn load_or_create(source_root: &Path) -> Result<Self> {
-        if let Some(config) = Self::load(source_root)? {
+    pub fn load_or_create(discover_from: &Path) -> Result<Self> {
+        if let Some(config) = Self::load(discover_from)? {
             return Ok(config);
         }
         let config = Self::default_skeleton();
-        config.write(source_root)?;
+        config.write(discover_from)?;
         Ok(config)
     }
 
-    pub fn write(&self, source_root: &Path) -> Result<()> {
-        let path = source_root.join(SOURCE_CONFIG_FILE_NAME);
+    pub fn write(&self, discover_from: &Path) -> Result<()> {
+        let path = discover_from.join(SOURCE_CONFIG_FILE_NAME);
         let text = serde_json::to_string_pretty(self)
             .map_err(|err| Error::invalid_input(format!("serialize source config: {err}")))?;
         filesystem::write(&path, text)
     }
 
-    /// Resolve the snapshot sources for this config under `source_root`.
+    /// Resolve the snapshot sources for this config under `discover_from`.
     ///
     /// Validates the active mode only: `explicit` requires non-empty unique
     /// `snapshots` whose normalized paths exist as directories; `auto` requires
-    /// `ignore_paths` to be plain folder names.
+    /// `ignore_folders` to be plain folder names.
     pub fn discover_snapshot_sources(
         &self,
-        source_root: &Path,
+        discover_from: &Path,
     ) -> Result<Vec<ResolvedSourceSnapshot>> {
         match self.ingestion_mode {
-            IngestionMode::Auto => self.discover_auto(source_root),
-            IngestionMode::Explicit => self.discover_explicit(source_root),
+            IngestionMode::Auto => self.discover_auto(discover_from),
+            IngestionMode::Explicit => self.discover_explicit(discover_from),
         }
     }
 
-    fn discover_auto(&self, source_root: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
-        for pattern in &self.auto_ingestion_rules.ignore_paths {
+    fn discover_auto(&self, discover_from: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
+        for pattern in &self.auto_ingestion_rules.ignore_folders {
             if pattern.is_empty() || pattern.contains('/') || pattern.contains('\\') {
                 return Err(Error::invalid_input(format!(
-                    "auto_ingestion_rules.ignore_paths entries must be plain folder names, got '{}'",
+                    "auto_ingestion_rules.ignore_folders entries must be plain folder names, got '{}'",
                     pattern
                 )));
             }
         }
-        if !source_root.is_dir() {
+        if !discover_from.is_dir() {
             return Err(Error::invalid_input(format!(
                 "source root is not a directory: {}",
-                source_root.display()
+                discover_from.display()
             )));
         }
         let mut snapshots = Vec::new();
-        for entry in fs::read_dir(source_root)? {
+        for entry in fs::read_dir(discover_from)? {
             let entry = entry?;
             let path = entry.path();
             if !path.is_dir() {
@@ -169,7 +167,7 @@ impl SourceConfig {
                 })?;
             if self
                 .auto_ingestion_rules
-                .ignore_paths
+                .ignore_folders
                 .iter()
                 .any(|pattern| fnmatch_name(&name, pattern))
             {
@@ -177,15 +175,14 @@ impl SourceConfig {
             }
             snapshots.push(ResolvedSourceSnapshot {
                 path,
-                relative_path: PathBuf::from(&name),
                 config_tags: None,
             });
         }
-        snapshots.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+        snapshots.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(snapshots)
     }
 
-    fn discover_explicit(&self, source_root: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
+    fn discover_explicit(&self, discover_from: &Path) -> Result<Vec<ResolvedSourceSnapshot>> {
         if self.explicit_ingestion_rules.snapshots.is_empty() {
             return Err(Error::invalid_input(
                 "explicit ingestion mode requires at least one snapshot in explicit_ingestion_rules.snapshots",
@@ -207,8 +204,7 @@ impl SourceConfig {
                     rule.path
                 ))
             })?;
-            let relative_path = PathBuf::from(&normalized);
-            let path = source_root.join(&relative_path);
+            let path = discover_from.join(&normalized);
             if !path.is_dir() {
                 return Err(Error::invalid_input(format!(
                     "explicit snapshot path does not exist or is not a directory: {}",
@@ -217,11 +213,10 @@ impl SourceConfig {
             }
             snapshots.push(ResolvedSourceSnapshot {
                 path,
-                relative_path,
                 config_tags: Some(tags),
             });
         }
-        snapshots.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+        snapshots.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(snapshots)
     }
 }
@@ -298,8 +293,8 @@ pub fn fnmatch_name(name: &str, pattern: &str) -> bool {
 }
 
 /// Persist the default discovery configuration only if the root has none.
-pub fn init_source_config(source_root: &Path) -> Result<()> {
-    SourceConfig::load_or_create(source_root).map(|_| ())
+pub fn init_source_config(discover_from: &Path) -> Result<()> {
+    SourceConfig::load_or_create(discover_from).map(|_| ())
 }
 
 #[cfg(test)]

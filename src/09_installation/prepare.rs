@@ -30,7 +30,7 @@ impl LoadedSnapshotSource {
     pub(super) fn load(
         repo_paths: &RepoPaths,
         reuse_snapshot_id: Option<&str>,
-        source_dir: Option<&Path>,
+        reuse_dir: Option<&Path>,
         destination_dir: &Path,
     ) -> Result<Option<Self>> {
         let Some(reuse_snapshot_id) = reuse_snapshot_id else {
@@ -38,7 +38,7 @@ impl LoadedSnapshotSource {
         };
         Ok(Some(Self {
             snapshot_manifest: load_snapshot_manifest(repo_paths, reuse_snapshot_id)?,
-            directory: source_dir.unwrap_or(destination_dir).to_path_buf(),
+            directory: reuse_dir.unwrap_or(destination_dir).to_path_buf(),
         }))
     }
 
@@ -85,13 +85,13 @@ pub(crate) struct ReconstructInputs<'a> {
 
 pub(crate) struct PreparedReconstruction {
     pub plan: ReconstructPipelinePlan,
-    pub source_directory: Option<PathBuf>,
+    pub reuse_dir: Option<PathBuf>,
 }
 
 pub(crate) fn prepare_reconstruction(
     inputs: ReconstructInputs<'_>,
 ) -> Result<PreparedReconstruction> {
-    let source_directory = inputs
+    let reuse_dir = inputs
         .source
         .as_ref()
         .map(|source| source.destination_dir.to_path_buf());
@@ -107,8 +107,5 @@ pub(crate) fn prepare_reconstruction(
         inputs.existing_artifacts,
         verified_source.as_ref().map(VerifiedSource::source),
     )?;
-    Ok(PreparedReconstruction {
-        plan,
-        source_directory,
-    })
+    Ok(PreparedReconstruction { plan, reuse_dir })
 }
