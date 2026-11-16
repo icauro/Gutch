@@ -163,6 +163,7 @@ pub use crate::sync::fetch_types::SnapshotFetchRequest;
 pub use crate::sync::fetch_types::SnapshotFetchResult;
 pub use crate::sync::remote::PullConflictPolicy;
 pub use crate::sync::remote::RemoteArtifactSource;
+pub use crate::sync::remote::RemoteArtifactTarget;
 pub use crate::sync::remote::RemoteBundleSource;
 pub use crate::sync::remote::RemoteRepository;
 pub use crate::sync::remote::RemoteRepositoryCommandProvider;

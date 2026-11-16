@@ -8,6 +8,7 @@ use super::local_hashes::local_snapshot_blueprint_hash_b3;
 use super::local_hashes::local_snapshot_metadata_hash_b3;
 use super::local_hashes::local_snapshot_product_metadata_hash_b3;
 use super::progress::RemoteProgress;
+use super::provider::RemoteArtifactTarget;
 use super::provider::RemoteRepository;
 use super::provider::RemoteRepositoryProvider;
 use super::provider::RemoteRepositoryReader;
@@ -297,9 +298,9 @@ impl<P: RemoteRepositoryWriter + ?Sized> PushContext<'_, P> {
             "Uploading snapshot metadata",
             Some(snapshot_id.clone()),
         );
-        self.provider.upload_snapshot_metadata(
+        self.provider.upload_artifact(
             self.repository,
-            remote_snapshot,
+            RemoteArtifactTarget::SnapshotMetadata(remote_snapshot),
             serialize_snapshot_metadata_for_remote(manifest)?,
             self.control,
         )?;
@@ -311,9 +312,9 @@ impl<P: RemoteRepositoryWriter + ?Sized> PushContext<'_, P> {
             "Uploading snapshot blueprints",
             Some(snapshot_id.clone()),
         );
-        self.provider.upload_snapshot_blueprint(
+        self.provider.upload_artifact(
             self.repository,
-            remote_snapshot,
+            RemoteArtifactTarget::SnapshotBlueprint(remote_snapshot),
             filesystem::read(&snapshot_blueprint_path(self.repo_paths, snapshot_id)?)?,
             self.control,
         )?;
@@ -326,9 +327,9 @@ impl<P: RemoteRepositoryWriter + ?Sized> PushContext<'_, P> {
             Some(snapshot_id.clone()),
         );
         if let Some(bytes) = serialize_snapshot_product_metadata_for_remote(manifest)? {
-            self.provider.upload_snapshot_product_metadata(
+            self.provider.upload_artifact(
                 self.repository,
-                remote_snapshot,
+                RemoteArtifactTarget::SnapshotProductMetadata(remote_snapshot),
                 bytes,
                 self.control,
             )?;
@@ -368,8 +369,12 @@ impl<P: RemoteRepositoryWriter + ?Sized> PushContext<'_, P> {
                 "Uploading bundles",
                 Some(bundle_id.clone()),
             );
-            self.provider
-                .upload_bundle(self.repository, &bundle_id, bundle_bytes, self.control)?;
+            self.provider.upload_artifact(
+                self.repository,
+                RemoteArtifactTarget::Bundle(&bundle_id),
+                bundle_bytes,
+                self.control,
+            )?;
             stats.bundle_uploaded_count += 1;
             progress.report(
                 ProgressPhase::UploadBundle,
@@ -481,8 +486,9 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             None,
         );
         if plan.repo_manifest_changed {
-            provider.upload_repository_metadata(
+            provider.upload_artifact(
                 &repository,
+                RemoteArtifactTarget::RepositoryMetadata,
                 filesystem::read(&repo_paths.repo_metadata_path)?,
                 &control,
             )?;
@@ -496,8 +502,9 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
                 None,
             );
             if plan.chunk_index_changed {
-                provider.upload_chunk_index(
+                provider.upload_artifact(
                     &repository,
+                    RemoteArtifactTarget::ChunkIndex,
                     filesystem::read(&repo_paths.chunk_map_path)?,
                     &control,
                 )?;

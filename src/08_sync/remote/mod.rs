@@ -19,6 +19,7 @@ pub use link::list_remote_repositories;
 pub use link::unbind_remote_repo;
 pub use provider::PullConflictPolicy;
 pub use provider::RemoteArtifactSource;
+pub use provider::RemoteArtifactTarget;
 pub use provider::RemoteBundleSource;
 pub use provider::RemoteRepository;
 pub use provider::RemoteRepositoryCommandProvider;

@@ -183,56 +183,33 @@ impl RemoteRepositoryWriter for MemoryProvider {
         Ok(remote)
     }
 
-    fn upload_repository_metadata(
+    fn upload_artifact(
         &self,
         _repository: &RemoteRepository,
+        target: RemoteArtifactTarget<'_>,
         bytes: Vec<u8>,
         _control: &OperationControl,
     ) -> Result<()> {
-        self.0.lock().unwrap().metadata = bytes;
-        Ok(())
-    }
-
-    fn upload_chunk_index(
-        &self,
-        _repository: &RemoteRepository,
-        bytes: Vec<u8>,
-        _control: &OperationControl,
-    ) -> Result<()> {
-        self.0.lock().unwrap().chunk_index = bytes;
-        Ok(())
-    }
-
-    fn upload_snapshot_metadata(
-        &self,
-        _repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
-        bytes: Vec<u8>,
-        _control: &OperationControl,
-    ) -> Result<()> {
-        self.update(snapshot, |stored| stored.metadata = bytes);
-        Ok(())
-    }
-
-    fn upload_snapshot_blueprint(
-        &self,
-        _repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
-        bytes: Vec<u8>,
-        _control: &OperationControl,
-    ) -> Result<()> {
-        self.update(snapshot, |stored| stored.blueprint = bytes);
-        Ok(())
-    }
-
-    fn upload_snapshot_product_metadata(
-        &self,
-        _repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
-        bytes: Vec<u8>,
-        _control: &OperationControl,
-    ) -> Result<()> {
-        self.update(snapshot, |stored| stored.product_metadata = Some(bytes));
+        match target {
+            RemoteArtifactTarget::RepositoryMetadata => self.0.lock().unwrap().metadata = bytes,
+            RemoteArtifactTarget::ChunkIndex => self.0.lock().unwrap().chunk_index = bytes,
+            RemoteArtifactTarget::SnapshotMetadata(snapshot) => {
+                self.update(snapshot, |stored| stored.metadata = bytes)
+            }
+            RemoteArtifactTarget::SnapshotBlueprint(snapshot) => {
+                self.update(snapshot, |stored| stored.blueprint = bytes)
+            }
+            RemoteArtifactTarget::SnapshotProductMetadata(snapshot) => {
+                self.update(snapshot, |stored| stored.product_metadata = Some(bytes))
+            }
+            RemoteArtifactTarget::Bundle(bundle_id) => {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .bundles
+                    .insert(bundle_id.to_string(), bytes);
+            }
+        }
         Ok(())
     }
 
@@ -247,21 +224,6 @@ impl RemoteRepositoryWriter for MemoryProvider {
 
     fn bundle_exists(&self, _repository: &RemoteRepository, bundle_id: &str) -> Result<bool> {
         Ok(self.0.lock().unwrap().bundles.contains_key(bundle_id))
-    }
-
-    fn upload_bundle(
-        &self,
-        _repository: &RemoteRepository,
-        bundle_id: &str,
-        bytes: Vec<u8>,
-        _control: &OperationControl,
-    ) -> Result<()> {
-        self.0
-            .lock()
-            .unwrap()
-            .bundles
-            .insert(bundle_id.to_string(), bytes);
-        Ok(())
     }
 
     fn reconcile_bundles(

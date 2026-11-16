@@ -67,6 +67,18 @@ pub struct RemoteBundleSource {
     pub source: RemoteArtifactSource,
 }
 
+/// A stored remote object that [`RemoteRepositoryWriter::upload_artifact`]
+/// replaces.
+#[derive(Debug, Clone, Copy)]
+pub enum RemoteArtifactTarget<'a> {
+    RepositoryMetadata,
+    ChunkIndex,
+    SnapshotMetadata(&'a RemoteSnapshot),
+    SnapshotBlueprint(&'a RemoteSnapshot),
+    SnapshotProductMetadata(&'a RemoteSnapshot),
+    Bundle(&'a str),
+}
+
 /// Read-side control-plane and artifact-source operations required by Gutch.
 pub trait RemoteRepositoryReader {
     fn resolve_repository(
@@ -113,40 +125,10 @@ pub trait RemoteRepositoryWriter {
         tags: &SnapshotTagSet,
     ) -> Result<RemoteSnapshot>;
 
-    fn upload_repository_metadata(
+    fn upload_artifact(
         &self,
         repository: &RemoteRepository,
-        bytes: Vec<u8>,
-        control: &OperationControl,
-    ) -> Result<()>;
-
-    fn upload_chunk_index(
-        &self,
-        repository: &RemoteRepository,
-        bytes: Vec<u8>,
-        control: &OperationControl,
-    ) -> Result<()>;
-
-    fn upload_snapshot_metadata(
-        &self,
-        repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
-        bytes: Vec<u8>,
-        control: &OperationControl,
-    ) -> Result<()>;
-
-    fn upload_snapshot_blueprint(
-        &self,
-        repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
-        bytes: Vec<u8>,
-        control: &OperationControl,
-    ) -> Result<()>;
-
-    fn upload_snapshot_product_metadata(
-        &self,
-        repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
+        target: RemoteArtifactTarget<'_>,
         bytes: Vec<u8>,
         control: &OperationControl,
     ) -> Result<()>;
@@ -158,14 +140,6 @@ pub trait RemoteRepositoryWriter {
     ) -> Result<()>;
 
     fn bundle_exists(&self, repository: &RemoteRepository, bundle_id: &str) -> Result<bool>;
-
-    fn upload_bundle(
-        &self,
-        repository: &RemoteRepository,
-        bundle_id: &str,
-        bytes: Vec<u8>,
-        control: &OperationControl,
-    ) -> Result<()>;
 
     fn reconcile_bundles(
         &self,
