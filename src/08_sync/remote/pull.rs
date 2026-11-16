@@ -75,6 +75,7 @@ pub(super) fn compute_pull_plan(
     repo_paths: &RepoPaths,
     repository: &RemoteRepo,
     snapshots: &[RemoteSnapshot],
+    selected: &[String],
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
     let repo_manifest_needed = decide_artifact(
@@ -104,6 +105,9 @@ pub(super) fn compute_pull_plan(
     let mut local_chunk_index = None;
     let mut verified_artifacts = VerifiedArtifacts::new();
     for snapshot in snapshots {
+        if !selected.is_empty() && !selected.contains(&snapshot.snapshot_id) {
+            continue;
+        }
         // A snapshot whose artifacts are still uploading cannot be pulled yet.
         if !snapshot.artifact_ready {
             snapshots_to_skip.push(snapshot.snapshot_id.clone());
@@ -212,10 +216,33 @@ pub(crate) fn plan_pull(
     repo_root: &Path,
     repository: &RemoteRepo,
     snapshots: &[RemoteSnapshot],
+    selected: &[String],
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
     let repo_paths = RepoPaths::from_repo_root(repo_root);
-    compute_pull_plan(repo_root, &repo_paths, repository, snapshots, policy)
+    check_selected_snapshots(snapshots, selected)?;
+    compute_pull_plan(
+        repo_root,
+        &repo_paths,
+        repository,
+        snapshots,
+        selected,
+        policy,
+    )
+}
+
+fn check_selected_snapshots(snapshots: &[RemoteSnapshot], selected: &[String]) -> Result<()> {
+    for snapshot_id in selected {
+        if !snapshots
+            .iter()
+            .any(|snapshot| &snapshot.snapshot_id == snapshot_id)
+        {
+            return Err(Error::InvalidInput(format!(
+                "the remote has no snapshot '{snapshot_id}'"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn source_bytes(
@@ -312,6 +339,11 @@ pub struct RepoPullRequest {
     pub on_conflict: PullConflictPolicy,
     /// Delete local snapshots that the remote no longer has.
     pub prune: bool,
+    /// Download only these snapshots; empty downloads all of them. Pruning
+    /// still compares against every snapshot the remote has. A copy pulled
+    /// this way lacks the other snapshots, and pushing it would delete them
+    /// from the remote, so pull everything before a push.
+    pub snapshot_ids: Vec<String>,
     pub control: OperationControl,
 }
 
@@ -327,7 +359,13 @@ pub fn plan_pull_repo(
         bound_remote_repo_id.as_deref(),
     )?;
     let snapshots = provider.list_snapshots(&repository)?;
-    plan_pull(repo_root, &repository, &snapshots, request.on_conflict)
+    plan_pull(
+        repo_root,
+        &repository,
+        &snapshots,
+        &request.snapshot_ids,
+        request.on_conflict,
+    )
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -612,7 +650,15 @@ pub fn pull_repo(
                 .entry(snapshot.snapshot_id.as_str())
                 .or_insert(snapshot);
         }
-        let plan = compute_pull_plan(repo_root, &repo_paths, &repository, &snapshots, policy)?;
+        check_selected_snapshots(&snapshots, &request.snapshot_ids)?;
+        let plan = compute_pull_plan(
+            repo_root,
+            &repo_paths,
+            &repository,
+            &snapshots,
+            &request.snapshot_ids,
+            policy,
+        )?;
         control.checkpoint()?;
         let context = PullContext {
             repo: repo_root,

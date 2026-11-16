@@ -349,6 +349,52 @@ fn prune_removes_local_only_snapshots_and_their_bundles_without_requesting_them(
 }
 
 #[test]
+fn pull_downloads_only_the_selected_snapshots() {
+    let root = tempfile::tempdir().unwrap();
+    let origin = root.path().join("origin");
+    let first = capture(&origin, &root.path().join("source"), &[3; 64 * 1024]);
+    let first_bundles = bundle_ids(&origin);
+    let second = capture(&origin, &root.path().join("source"), &[4; 64 * 1024]);
+    bind(&origin);
+    let provider = MemoryProvider::default();
+    push(&origin, &provider).unwrap();
+
+    let clone = root.path().join("clone");
+    let pull_only = |snapshot_ids: Vec<String>| {
+        pull_repo(
+            &RepoPullRequest {
+                repo_root: clone.clone(),
+                on_conflict: PullConflictPolicy::KeepRemote,
+                prune: true,
+                snapshot_ids,
+                ..Default::default()
+            },
+            &provider,
+        )
+    };
+    let error = pull_only(vec!["missing".into()]).unwrap_err();
+    assert!(
+        error.to_string().contains("no snapshot 'missing'"),
+        "{error}"
+    );
+
+    pull_only(vec![first.clone()]).unwrap();
+    let local_ids =
+        crate::repo::inventory::list_repo_snapshot_ids(&RepoPaths::from_repo_root(&clone));
+    assert_eq!(local_ids.unwrap(), vec![first.clone()]);
+    assert_eq!(bundle_ids(&clone), first_bundles);
+
+    // The kept snapshot is on the remote, so pruning leaves it alone.
+    pull_only(vec![second.clone()]).unwrap();
+    let mut expected = vec![first, second];
+    expected.sort();
+    let local_ids =
+        crate::repo::inventory::list_repo_snapshot_ids(&RepoPaths::from_repo_root(&clone));
+    assert_eq!(local_ids.unwrap(), expected);
+    assert_eq!(bundle_ids(&clone), bundle_ids(&origin));
+}
+
+#[test]
 fn push_fails_when_a_required_bundle_is_missing_locally() {
     let root = tempfile::tempdir().unwrap();
     let origin = root.path().join("origin");

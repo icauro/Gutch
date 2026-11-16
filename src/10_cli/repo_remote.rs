@@ -9,7 +9,6 @@ use crate::cli::control_with_profile;
 use crate::cli::output;
 use crate::cli::progress::CliProgressSink;
 use crate::cli::prompt_yes_no;
-use crate::sync::remote::PullConflictPolicy;
 use crate::sync::remote::RemoteRepoBindRequest;
 use crate::sync::remote::RemoteRepoCreateRequest;
 use crate::sync::remote::RemoteRepoSummary;
@@ -80,11 +79,9 @@ pub(crate) fn push(
     Ok(())
 }
 
+/// Pulls as `request` says; its control is replaced with the CLI's own.
 pub(crate) fn pull(
-    repo: PathBuf,
-    remote: Option<String>,
-    policy: PullConflictPolicy,
-    prune: bool,
+    mut request: RepoPullRequest,
     confirm: ConfirmArgs,
     host: &CommandLineHost<'_>,
     profile: &Profile,
@@ -92,13 +89,7 @@ pub(crate) fn pull(
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
     let repo_provider = provider.repo_provider();
-    let mut request = RepoPullRequest {
-        repo_root: repo,
-        remote_repo_id: remote,
-        on_conflict: policy,
-        prune,
-        control: control_with_profile(profile),
-    };
+    request.control = control_with_profile(profile);
     let plan = plan_pull_repo(&request, repo_provider)?;
     print_pull_plan(&plan);
     output::record(&plan)?;
@@ -116,7 +107,11 @@ pub(crate) fn pull(
         "pulled repo {} from remote repo {} ({})",
         stats.repo_root.display(),
         stats.remote_repo_id,
-        if prune { "with prune" } else { "no prune" }
+        if request.prune {
+            "with prune"
+        } else {
+            "no prune"
+        }
     ));
     output::line(format_args!(
         "snapshots downloaded: {}, skipped: {}, bundles downloaded: {}, bundles skipped: {}",

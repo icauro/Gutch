@@ -3,6 +3,7 @@
 pub(crate) mod artifacts;
 pub(crate) mod cleanup;
 pub(crate) mod coordination;
+pub(crate) mod file_read;
 pub(crate) mod index;
 pub(crate) mod init_policy;
 pub(crate) mod inventory;

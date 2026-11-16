@@ -111,6 +111,7 @@ pub use crate::installation::verify_installation;
 // Repository operations and remote providers
 pub use crate::artifact::bundle::BundleTableEntry;
 pub use crate::repo::artifacts::inspect_bundle;
+pub use crate::repo::file_read::{SnapshotFileReadRequest, read_snapshot_file};
 pub use crate::repo::init_policy::RepoInitPathKind;
 pub use crate::repo::init_policy::RepoInitPlan;
 pub use crate::repo::init_policy::RepoInitRequest;

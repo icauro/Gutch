@@ -12,6 +12,7 @@ use crate::installation::{
     InstallationRepairResult, InstallationVerifyRequest, InstallationVerifyResult,
 };
 use crate::manifest::SnapshotTagSet;
+use crate::repo::file_read::{SnapshotFileReadRequest, read_snapshot_file};
 use crate::repo::init_policy::{RepoInitRequest, init_repo};
 use crate::repo::paths::RepoPaths;
 use crate::repo::snapshot_manifests::{SnapshotDiffRequest, diff_snapshots};
@@ -133,6 +134,17 @@ impl Repo {
             repo_root: self.root.clone(),
             from_snapshot_id: from_snapshot_id.to_owned(),
             to_snapshot_id: to_snapshot_id.to_owned(),
+            ..Default::default()
+        })
+    }
+
+    /// Returns one file of a snapshot without installing it; `path` uses `/`
+    /// separators. See [`read_snapshot_file`].
+    pub fn read_file(&self, snapshot_id: &str, path: &str) -> Result<Vec<u8>> {
+        read_snapshot_file(&SnapshotFileReadRequest {
+            repo_root: self.root.clone(),
+            snapshot_id: snapshot_id.to_owned(),
+            path: path.to_owned(),
             ..Default::default()
         })
     }

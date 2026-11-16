@@ -22,6 +22,13 @@ println!("{issues}");                              // 0 missing, 0 corrupt, 0 ex
 The handle also has `repair`, `diff`, `push` and `pull`. Each method fills in
 the operation's request with its defaults; for any other option, build the
 request yourself, as described below.
+
+`repo.read_file(&snapshot_id, "docs/readme.txt")?` returns one file of a
+snapshot without installing it. It decodes only the bundles that hold the
+file's chunks, checks the content against the snapshot's hashes, and returns
+it in memory. The repository must hold those bundles: pull with
+`RepoPullRequest::snapshot_ids` to fetch one snapshot, its metadata and its
+bundles, without the rest of the remote.
 [`examples/capture_and_install.rs`](../examples/capture_and_install.rs) is
 this program with argument handling:
 
@@ -71,7 +78,7 @@ receives preview events, is passed beside the request. Simple lookups, such as
 | Area | Functions | Types |
 | --- | --- | --- |
 | Repository | `init_repo`, `plan_init_repo`, `verify_repo`, `rename_repo`, `rebuild_repo_index` | `RepoInitRequest`, `RepoInitPlan`, `RepoInitResult`, `RepoVerifyRequest`, ... |
-| Snapshot | `capture_snapshot`, `plan_capture_snapshot`, `measure_snapshot`, `diff_snapshots`, `delete_snapshot` | `SnapshotCaptureRequest`, `SnapshotCapturePlan`, `SnapshotCaptureResult`, ... |
+| Snapshot | `capture_snapshot`, `plan_capture_snapshot`, `measure_snapshot`, `diff_snapshots`, `read_snapshot_file`, `delete_snapshot` | `SnapshotCaptureRequest`, `SnapshotCapturePlan`, `SnapshotCaptureResult`, `SnapshotFileReadRequest`, ... |
 | Installation | `reconstruct_installation`, `verify_installation`, `repair_installation`, `plan_repair_installation`, `preview_installation` | `InstallationReconstructRequest`, `InstallationVerifyRequest`, `InstallationRepairRequest`, `InstallationRepairPlan`, `InstallationPreviewRequest`, ... |
 | Remote | `push_repo`, `plan_push_repo`, `pull_repo`, `plan_pull_repo`, `bind_remote_repo`, `create_remote_repo`, `unbind_remote_repo` | `RepoPushRequest`, `RepoPushPlan`, `RepoPushResult`, `RepoPullRequest`, ... |
 

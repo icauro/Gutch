@@ -67,12 +67,17 @@ pub(crate) fn run(
             remote_repo_id,
             on_conflict,
             prune,
+            snapshot_ids,
             confirm,
         } => repo_remote::pull(
-            repo,
-            remote_repo_id,
-            on_conflict,
-            prune,
+            crate::sync::remote::RepoPullRequest {
+                repo_root: repo,
+                remote_repo_id,
+                on_conflict,
+                prune,
+                snapshot_ids,
+                ..Default::default()
+            },
             confirm,
             host,
             profile,

@@ -154,6 +154,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
         &paths,
         &remote,
         std::slice::from_ref(&snapshot),
+        &[],
         PullConflictPolicy::KeepRemote,
     )
     .unwrap();
@@ -167,6 +168,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
         &paths,
         &remote,
         &[snapshot],
+        &[],
         PullConflictPolicy::KeepRemote,
     )
     .unwrap();
@@ -196,7 +198,7 @@ fn pull_plan_preserves_local_repository_metadata_and_index() {
         (PullConflictPolicy::KeepNewer, false),
         (PullConflictPolicy::KeepRemote, true),
     ] {
-        let plan = compute_pull_plan(root.path(), &paths, &remote, &[], policy).unwrap();
+        let plan = compute_pull_plan(root.path(), &paths, &remote, &[], &[], policy).unwrap();
         assert_eq!(plan.repo_manifest_needed, download);
         assert_eq!(plan.chunk_map_needed, download);
     }

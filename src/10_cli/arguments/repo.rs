@@ -98,6 +98,11 @@ pub(crate) enum RepoCommands {
         /// Delete local snapshots that the remote no longer has.
         #[arg(long)]
         prune: bool,
+        /// Download only this snapshot; repeat for more. Pull without it
+        /// before pushing, since a push removes remote snapshots this copy
+        /// lacks.
+        #[arg(long = "snapshot", value_name = "ID")]
+        snapshot_ids: Vec<String>,
         #[command(flatten)]
         confirm: ConfirmArgs,
     },

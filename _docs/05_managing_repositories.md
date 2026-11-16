@@ -127,6 +127,9 @@ A repository can be bound to a remote copy on a server:
 follows `--on-conflict`: `keep-newer` (default), `keep-local` or
 `keep-remote`. `--prune` deletes local snapshots that the remote no longer
 has. `--remote-repo-id` pulls from a remote other than the bound one.
+`--snapshot ID`, repeatable, downloads only those snapshots and the bundles
+they need. A copy pulled that way lacks the other snapshots, and a push from it
+would delete them from the remote, so pull everything before you push.
 
 These commands need a connection to a server, which the application that
 embeds Gutch provides; its documentation says how to sign in and what
