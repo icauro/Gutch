@@ -201,6 +201,5 @@ pub use crate::transfer::types::TransferConcurrencyPolicy;
 pub use crate::transfer::types::TransferStats;
 
 // CLI hosting
-pub use crate::cli::CommandLineHost;
-pub use crate::cli::RemoteProviderFactory;
-pub use crate::cli::run_command_line;
+#[cfg(feature = "cli")]
+pub use crate::cli::{CommandLineHost, RemoteProviderFactory, run_command_line};

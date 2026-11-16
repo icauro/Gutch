@@ -50,7 +50,7 @@ fn decode_artifact_table(bytes: &[u8]) -> Result<Vec<Arc<super::records::Indexed
         }
         previous_artifact_id = Some(artifact_id);
         artifacts.push(Arc::new(super::records::IndexedArtifact {
-            bundle_id: smol_str::SmolStr::new(artifact_id.to_hex()),
+            bundle_id: std::sync::Arc::<str>::from(artifact_id.to_hex()),
             artifact_size,
             storage_mode: ArtifactStorageMode::Bundled,
         }));
@@ -96,7 +96,7 @@ fn read_chunk_index_binary(groups: &[Vec<u8>]) -> Result<ChunkIndex> {
             }
             (
                 Arc::new(super::records::IndexedArtifact {
-                    bundle_id: smol_str::SmolStr::new(chunk_hash.to_hex()),
+                    bundle_id: std::sync::Arc::<str>::from(chunk_hash.to_hex()),
                     artifact_size: chunk_ordinal_or_artifact_size,
                     storage_mode: ArtifactStorageMode::LooseChunks,
                 }),
@@ -155,7 +155,7 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &ChunkIndex) -> Resul
             ));
         }
         if entry.storage_mode == ArtifactStorageMode::Bundled {
-            let id = entry.bundle_id.as_str();
+            let id = entry.bundle_id.as_ref();
             if let Some((_, size)) = artifacts.get(id) {
                 if *size != entry.artifact_size {
                     return Err(Error::artifact("inconsistent indexed artifact sizes"));
@@ -197,7 +197,7 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &ChunkIndex) -> Resul
         write_u32(
             &mut chunk_group,
             match entry.storage_mode {
-                ArtifactStorageMode::Bundled => artifact_rows[entry.bundle_id.as_str()],
+                ArtifactStorageMode::Bundled => artifact_rows[entry.bundle_id.as_ref()],
                 ArtifactStorageMode::LooseChunks => LOOSE_CHUNK_ARTIFACT_ROW,
             },
         )?;

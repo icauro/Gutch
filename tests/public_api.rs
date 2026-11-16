@@ -5,10 +5,12 @@ use gutch::api::{
 };
 use std::sync::Arc;
 
+#[cfg(feature = "cli")]
 fn run_from_args<const N: usize>(args: [&str; N]) -> gutch::api::Result<()> {
     gutch::api::run_command_line(args, &gutch::api::CommandLineHost::default())
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn comparison_mismatch_returns_to_the_embedding_host() {
     let root = tempfile::tempdir().unwrap();
@@ -33,6 +35,7 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
     assert!(matches!(result, Err(Error::Verify(_))), "{result:?}");
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn command_line_usage_errors_keep_the_parser_message_and_exit_code() {
     let error = run_from_args(["gutch", "--bogus"]).unwrap_err();
@@ -46,6 +49,7 @@ fn command_line_usage_errors_keep_the_parser_message_and_exit_code() {
     assert!(!message.contains("Invalid input"), "{message}");
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn structured_output_requires_yes_instead_of_prompting_without_the_plan() {
     use gutch::api::*;
@@ -76,6 +80,7 @@ fn structured_output_requires_yes_instead_of_prompting_without_the_plan() {
     assert!(message.contains("--yes"), "{message}");
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     use gutch::api::Chunker;
@@ -87,6 +92,7 @@ fn api_and_cli_capture_preserve_equivalent_content_tags_and_profiles() {
     }
 }
 
+#[cfg(feature = "cli")]
 fn assert_api_and_cli_capture_equivalent(
     chunker: gutch::api::Chunker,
     cli_chunker: &str,

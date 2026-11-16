@@ -63,6 +63,7 @@ impl RemoteRepoReader for EmptyReader {
     }
 }
 
+#[cfg(feature = "cli")]
 #[test]
 fn conflict_policy_values_match_the_cli_spelling() {
     use clap::ValueEnum;

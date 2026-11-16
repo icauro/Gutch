@@ -6,7 +6,6 @@ use std::fs;
 
 #[test]
 fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
-    use clap::ValueEnum;
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
     let mut seed = 17u64;
@@ -23,7 +22,7 @@ fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
             })
             .collect();
         fs::write(&path, &data).unwrap();
-        for preset in ChunkSizingPreset::value_variants() {
+        for preset in &ChunkSizingPreset::ALL {
             let profile = ChunkSizingProfile::for_preset(*preset);
             let expected = chunk_bytes(&data, &profile);
             let (actual, _) =
@@ -192,7 +191,6 @@ fn repeated_chunk_scans_have_identical_boundaries() {
 fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
     use crate::artifact::jc::{JumpChunker, Parameters};
     use crate::artifact::profiles::{ChunkSizingPreset, Chunker};
-    use clap::ValueEnum;
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
     let mut seed = 917u64;
@@ -207,7 +205,7 @@ fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
     for size in [0, 1, 32768, 524288, 524289, 1048576, data.len()] {
         let bytes = &data[..size];
         fs::write(&path, bytes).unwrap();
-        for preset in ChunkSizingPreset::value_variants() {
+        for preset in &ChunkSizingPreset::ALL {
             let profile = ChunkSizingProfile::for_preset(*preset).with_chunker(Chunker::Jc);
             let boundary = JumpChunker::new(
                 profile.min_chunk_bytes as usize,

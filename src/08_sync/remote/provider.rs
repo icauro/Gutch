@@ -211,7 +211,8 @@ pub trait RemoteRepoService {
 }
 
 /// Which copy pull keeps when a local file differs from the remote one.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum PullConflictPolicy {
     KeepLocal,
     KeepRemote,

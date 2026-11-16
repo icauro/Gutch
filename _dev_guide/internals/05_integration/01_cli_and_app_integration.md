@@ -51,8 +51,14 @@ before starting; successful earlier captures remain if a later capture fails.
 It is not an atomic multi-snapshot transaction.
 
 `run_command_line(args, &CommandLineHost)` is the single command-line entry
-point and returns failures to its embedding host. Failed path comparison
-and repository verification write their requested reports and then return an
+point and returns failures to its embedding host. It and `src/10_cli/` exist
+only with the default `cli` feature, which also brings clap and indicatif;
+library types derive `clap::ValueEnum` only under that feature, and items used
+only by command-line reports are allowed to be dead without it. Check both
+builds: `cargo clippy -p gutch --no-default-features --all-targets`.
+
+Failed path comparison and repository verification write their requested
+reports and then return an
 error; the executable maps that error to exit status 1, or 2 for command-line
 usage errors. Declining a confirmation returns `Cancelled`, so a cancelled
 command never exits successfully. Command handlers do not terminate the host

@@ -191,7 +191,7 @@ fn recover_artifact_chunks(
         ArtifactRef::Bundle { id } => {
             let mut reader = BundleReader::open(File::open(path)?)?;
             reader.verify_identity(id)?;
-            let shared_id = smol_str::SmolStr::new(id);
+            let shared_id = std::sync::Arc::clone(id);
             Ok(reader
                 .entries()
                 .iter()
@@ -252,8 +252,8 @@ fn add_recovered_chunk(
     } else {
         ChunkLocation::ConflictingSize
     };
-    if (entry.bundle_id.as_str(), entry.chunk_ordinal)
-        < (previous.bundle_id.as_str(), previous.chunk_ordinal)
+    if (entry.bundle_id.as_ref(), entry.chunk_ordinal)
+        < (previous.bundle_id.as_ref(), previous.chunk_ordinal)
     {
         entries.insert(hash, entry);
     }

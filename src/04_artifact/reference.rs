@@ -11,7 +11,7 @@ use std::borrow::Cow;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ArtifactRef {
     // Many chunks share a bundle, so retain the index's shared identifier storage.
-    Bundle { id: smol_str::SmolStr },
+    Bundle { id: std::sync::Arc<str> },
     LooseChunk { hash: ChunkHash },
 }
 

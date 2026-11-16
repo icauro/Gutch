@@ -16,46 +16,51 @@ unused_dependencies = "deny"
 [lints]
 workspace = true
 
+[features]
+default = ["cli"]
+# The `gutch` command line: `run_command_line` and its argument parser and
+# progress bars. Embedding hosts that bring their own interface can turn it off.
+cli = ["dep:clap", "dep:indicatif"]
+
 [dependencies]
-blake3 = { version = "1.8.7", features = ["mmap", "rayon"] }
 # BLAKE3 hashing (chunk/bundle integrity)
-zstd = { version = "0.13.3", features = ["experimental"] }
-# Zstandard compression (bundle compression)
-lz4 = "1.28.1"
+blake3 = { version = "1.8.7", features = ["mmap", "rayon"] }
+# Zstandard compression (bundle compression); `experimental` exposes the
+# working-memory estimates used for the memory budget.
+zstd = { version = "0.13.4", features = ["experimental"] }
 # LZ4 compression (optional compression profile)
-serde = { version = "1.0.228", features = ["derive", "rc"] }
-# Serialization framework
-serde_json = "1.0.150"
+lz4 = "1.28.1"
+# Serialization framework; `rc` serializes the shared index records.
+serde = { version = "1.0.229", features = ["derive", "rc"] }
 # JSON parsing (manifests, configs)
-clap = { version = "4.6.1", features = ["derive"] }
-# CLI argument parsing for generic Gutch commands
-walkdir = "2.5.0"
+serde_json = "1.0.154"
 # Recursive directory traversal
-chrono = "0.4.45"
+walkdir = "2.5.0"
 # Date/time (timestamps in manifests)
-thiserror = "2.0.18"
+chrono = "0.4.45"
 # Custom error type derivation
-rayon = "1.12.0"
+thiserror = "2.0.21"
 # Data parallelism (parallel chunk hashing)
-num_cpus = "1.17.0"
-# Physical and logical CPU counts for runtime defaults
-tempfile = "3.27.0"
+rayon = "1.12.0"
 # Temporary files/dirs (staging during reconstruct)
-reqwest = { version = "0.13.4", features = [
+tempfile = "3.27.0"
+# HTTP client (bundle downloads from signed URLs)
+reqwest = { version = "0.13.5", default-features = false, features = [
     "blocking",
-    "json",
-    "multipart",
+    "http2",
     "rustls",
+    "system-proxy",
 ] }
-# HTTP client (bundle downloads from signed URLs) default-features = false,
-indicatif = "0.18.4"
-# CLI progress bars (download/install progress)
-smol_str = { version = "0.3.2", features = ["serde"] }
-# Small owned strings for clone-heavy metadata
-urlencoding = "2.1.3"
+# Unicode path normalization for cross-platform path constraints
 unicode-normalization = "0.1"
-tokio = { version = "1.52.1", features = ["rt-multi-thread", "time", "macros"] }
+# Async runtime for parallel, cancellable downloads
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "time", "macros"] }
+# CPU core counts and memory size for runtime defaults
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+# CLI argument parsing (`cli` feature)
+clap = { version = "4.6.7", features = ["derive"], optional = true }
+# CLI progress bars (`cli` feature)
+indicatif = { version = "0.18.6", optional = true }
 
 [dev-dependencies]
 # Independent boundary oracle for the Gutch-owned FastCDC implementation.

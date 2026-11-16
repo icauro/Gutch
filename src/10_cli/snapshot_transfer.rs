@@ -185,11 +185,12 @@ fn resolve_artifact_urls(
     control: &OperationControl,
 ) -> crate::Result<Vec<ArtifactDownload>> {
     control.checkpoint()?;
-    let separator = if endpoint.contains('?') { "&" } else { "?" };
-    let request_url = format!(
-        "{endpoint}{separator}ids={}",
-        urlencoding::encode(&bundle_ids.join(","))
-    );
+    let mut request_url = reqwest::Url::parse(endpoint).map_err(|err| {
+        crate::Error::InvalidInput(format!("bundle URL endpoint '{endpoint}': {err}"))
+    })?;
+    request_url
+        .query_pairs_mut()
+        .append_pair("ids", &bundle_ids.join(","));
     let mut request = client.get(request_url);
     if let Some(session_id) = session_id {
         request = request.bearer_auth(session_id);

@@ -90,7 +90,7 @@ pub(crate) fn available_chunk_sizes(
     for (_, entry) in &chunk_index.entries {
         if entry.storage_mode == ArtifactStorageMode::Bundled {
             *raw_bytes_by_bundle
-                .entry(entry.bundle_id.as_str())
+                .entry(entry.bundle_id.as_ref())
                 .or_insert(0u64) += u64::from(entry.raw_size);
         }
     }
@@ -101,7 +101,7 @@ pub(crate) fn available_chunk_sizes(
             .map(|(chunk_hash, entry)| {
                 let path_exists = match entry.storage_mode {
                     ArtifactStorageMode::Bundled => {
-                        available_bundle_ids.contains(entry.bundle_id.as_str())
+                        available_bundle_ids.contains(entry.bundle_id.as_ref())
                     }
                     ArtifactStorageMode::LooseChunks => chunk_path(paths, *chunk_hash).is_file(),
                 };
@@ -109,7 +109,7 @@ pub(crate) fn available_chunk_sizes(
                     let encoded_size_estimate = match entry.storage_mode {
                         ArtifactStorageMode::Bundled => {
                             u64::from(entry.artifact_size) * u64::from(entry.raw_size)
-                                / raw_bytes_by_bundle[entry.bundle_id.as_str()]
+                                / raw_bytes_by_bundle[entry.bundle_id.as_ref()]
                         }
                         ArtifactStorageMode::LooseChunks => u64::from(entry.artifact_size),
                     };
@@ -128,7 +128,7 @@ pub(crate) fn add_built_bundles_to_chunk_index(
 ) -> Result<()> {
     let mut updates = Vec::new();
     for bundle in bundles {
-        let shared_bundle_id = smol_str::SmolStr::new(&bundle.bundle_id);
+        let shared_bundle_id = std::sync::Arc::<str>::from(bundle.bundle_id.as_str());
         for (ordinal, chunk) in bundle.entries.iter().enumerate() {
             updates.push((
                 chunk.chunk_hash,
@@ -198,8 +198,8 @@ mod tests {
         let loose_path = chunk_path(&paths, loose_hash);
         std::fs::create_dir_all(loose_path.parent().unwrap()).unwrap();
         std::fs::write(&loose_path, encoded).unwrap();
-        let bundle_a = smol_str::SmolStr::new("a1".repeat(32));
-        let bundle_b = smol_str::SmolStr::new("b2".repeat(32));
+        let bundle_a = std::sync::Arc::<str>::from("a1".repeat(32));
+        let bundle_b = std::sync::Arc::<str>::from("b2".repeat(32));
         let rows = [
             (hash_for(1), bundle_a.clone(), 101, 1, 10, Bundled),
             (loose_hash, loose_id, loose_size, 0, 4, LooseChunks),

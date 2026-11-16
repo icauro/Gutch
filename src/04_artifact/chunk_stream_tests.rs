@@ -1,6 +1,5 @@
 use super::*;
 use crate::artifact::profiles::ChunkSizingPreset;
-use clap::ValueEnum;
 use fastcdc::v2020::{FastCDC, Normalization};
 use std::io::{self, Cursor};
 use std::sync::Arc;
@@ -64,7 +63,7 @@ fn compare(bytes: &[u8], profile: &ChunkSizingProfile, hint: u64, read_limit: us
 #[test]
 fn every_preset_matches_upstream_across_refills_and_short_reads() {
     let bytes = random_bytes(2 * 1024 * 1024 + 37, 917);
-    for preset in ChunkSizingPreset::value_variants() {
+    for preset in &ChunkSizingPreset::ALL {
         let profile = ChunkSizingProfile::for_preset(*preset);
         for (hint, limit) in [
             (0, 4093),
@@ -95,7 +94,7 @@ fn repeated_bytes_and_largest_windows_preserve_exact_boundaries() {
 #[test]
 fn randomized_profiles_and_inputs_match_upstream() {
     bolero::check!().for_each(|input: &[u8]| {
-        let presets = ChunkSizingPreset::value_variants();
+        let presets = ChunkSizingPreset::ALL;
         let index = input.first().copied().unwrap_or(0) as usize % presets.len();
         let profile = ChunkSizingProfile::for_preset(presets[index]);
         compare(input, &profile, input.len() as u64, 113);

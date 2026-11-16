@@ -42,7 +42,10 @@ pub(crate) fn build_thread_pool(
 
 pub(crate) fn plan_runtime(hints: &RuntimeResourceHints) -> RuntimePlan {
     let logical_workers = available_parallelism().map_or(1, NonZeroUsize::get);
-    let default_workers = num_cpus::get_physical().max(1).min(logical_workers);
+    let default_workers = sysinfo::System::physical_core_count()
+        .unwrap_or(1)
+        .max(1)
+        .min(logical_workers);
     let worker_count = hints
         .jobs
         .unwrap_or(default_workers)

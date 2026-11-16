@@ -31,7 +31,8 @@ pub(super) const ARGUMENT_FIELDS: usize = 8;
 pub(super) const BLOCK_EVENTS: usize = 32;
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileMode {
     #[default]

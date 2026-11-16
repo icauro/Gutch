@@ -1,50 +1,52 @@
 //! Packaging profiles: chunker, chunk and bundle sizing, storage mode and compression.
 
-use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
 
 /// CLI names are short; serialized names pin the exact boundary algorithm.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum Chunker {
     #[default]
     #[serde(rename = "fastcdc-v2020")]
-    #[value(name = "fastcdc")]
+    #[cfg_attr(feature = "cli", value(name = "fastcdc"))]
     FastCdc,
     #[serde(rename = "jc-v1.1.0")]
-    #[value(name = "jc")]
+    #[cfg_attr(feature = "cli", value(name = "jc"))]
     Jc,
     #[serde(rename = "ram-v1")]
-    #[value(name = "vram256")]
+    #[cfg_attr(feature = "cli", value(name = "vram256"))]
     Vram256,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum ArtifactStorageMode {
     #[serde(rename = "bundled")]
-    #[value(name = "bundled")]
+    #[cfg_attr(feature = "cli", value(name = "bundled"))]
     #[default]
     Bundled,
     #[serde(rename = "loose_chunks")]
-    #[value(name = "loose-chunks")]
+    #[cfg_attr(feature = "cli", value(name = "loose-chunks"))]
     LooseChunks,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CompressionKind {
     #[serde(rename = "none")]
-    #[value(name = "none")]
+    #[cfg_attr(feature = "cli", value(name = "none"))]
     None,
     #[default]
     #[serde(rename = "zstd")]
-    #[value(name = "zstd")]
+    #[cfg_attr(feature = "cli", value(name = "zstd"))]
     Zstd,
     #[serde(rename = "lz4")]
-    #[value(name = "lz4")]
+    #[cfg_attr(feature = "cli", value(name = "lz4"))]
     Lz4,
 }
 
@@ -67,75 +69,97 @@ impl ArtifactStorageMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum ChunkSizingPreset {
     #[serde(rename = "chunk_512B")]
-    #[value(name = "512B")]
+    #[cfg_attr(feature = "cli", value(name = "512B"))]
     Chunk512B,
     #[serde(rename = "chunk_1KiB")]
-    #[value(name = "1KiB")]
+    #[cfg_attr(feature = "cli", value(name = "1KiB"))]
     Chunk1KiB,
     #[serde(rename = "chunk_2KiB")]
-    #[value(name = "2KiB")]
+    #[cfg_attr(feature = "cli", value(name = "2KiB"))]
     Chunk2KiB,
     #[serde(rename = "chunk_4KiB")]
-    #[value(name = "4KiB")]
+    #[cfg_attr(feature = "cli", value(name = "4KiB"))]
     Chunk4KiB,
     #[serde(rename = "chunk_8KiB")]
-    #[value(name = "8KiB")]
+    #[cfg_attr(feature = "cli", value(name = "8KiB"))]
     Chunk8KiB,
     #[serde(rename = "chunk_16KiB")]
-    #[value(name = "16KiB")]
+    #[cfg_attr(feature = "cli", value(name = "16KiB"))]
     Chunk16KiB,
     #[serde(rename = "chunk_32KiB")]
-    #[value(name = "32KiB")]
+    #[cfg_attr(feature = "cli", value(name = "32KiB"))]
     Chunk32KiB,
     #[serde(rename = "chunk_64KiB")]
-    #[value(name = "64KiB")]
+    #[cfg_attr(feature = "cli", value(name = "64KiB"))]
     Chunk64KiB,
     #[serde(rename = "chunk_128KiB")]
-    #[value(name = "128KiB")]
+    #[cfg_attr(feature = "cli", value(name = "128KiB"))]
     #[default]
     Chunk128KiB,
     #[serde(rename = "chunk_256KiB")]
-    #[value(name = "256KiB")]
+    #[cfg_attr(feature = "cli", value(name = "256KiB"))]
     Chunk256KiB,
     #[serde(rename = "chunk_512KiB")]
-    #[value(name = "512KiB")]
+    #[cfg_attr(feature = "cli", value(name = "512KiB"))]
     Chunk512KiB,
     #[serde(rename = "chunk_1MiB")]
-    #[value(name = "1MiB")]
+    #[cfg_attr(feature = "cli", value(name = "1MiB"))]
     Chunk1MiB,
     #[serde(rename = "chunk_2MiB")]
-    #[value(name = "2MiB")]
+    #[cfg_attr(feature = "cli", value(name = "2MiB"))]
     Chunk2MiB,
     #[serde(rename = "chunk_4MiB")]
-    #[value(name = "4MiB")]
+    #[cfg_attr(feature = "cli", value(name = "4MiB"))]
     Chunk4MiB,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, Default)]
+impl ChunkSizingPreset {
+    /// Every preset, smallest first.
+    pub const ALL: [Self; 14] = [
+        Self::Chunk512B,
+        Self::Chunk1KiB,
+        Self::Chunk2KiB,
+        Self::Chunk4KiB,
+        Self::Chunk8KiB,
+        Self::Chunk16KiB,
+        Self::Chunk32KiB,
+        Self::Chunk64KiB,
+        Self::Chunk128KiB,
+        Self::Chunk256KiB,
+        Self::Chunk512KiB,
+        Self::Chunk1MiB,
+        Self::Chunk2MiB,
+        Self::Chunk4MiB,
+    ];
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum BundleSizingPreset {
     #[serde(rename = "bundle_4MiB")]
-    #[value(name = "4MiB")]
+    #[cfg_attr(feature = "cli", value(name = "4MiB"))]
     Bundle4MiB,
     #[serde(rename = "bundle_8MiB")]
-    #[value(name = "8MiB")]
+    #[cfg_attr(feature = "cli", value(name = "8MiB"))]
     #[default]
     Bundle8MiB,
     #[serde(rename = "bundle_16MiB")]
-    #[value(name = "16MiB")]
+    #[cfg_attr(feature = "cli", value(name = "16MiB"))]
     Bundle16MiB,
     #[serde(rename = "bundle_32MiB")]
-    #[value(name = "32MiB")]
+    #[cfg_attr(feature = "cli", value(name = "32MiB"))]
     Bundle32MiB,
     #[serde(rename = "bundle_64MiB")]
-    #[value(name = "64MiB")]
+    #[cfg_attr(feature = "cli", value(name = "64MiB"))]
     Bundle64MiB,
     #[serde(rename = "bundle_128MiB")]
-    #[value(name = "128MiB")]
+    #[cfg_attr(feature = "cli", value(name = "128MiB"))]
     Bundle128MiB,
 }
 

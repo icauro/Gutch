@@ -465,14 +465,14 @@ fn chunk_index_write_and_load_roundtrip() {
         loaded
             .entries
             .get(&test_chunk_hash("chunk-a"))
-            .map(|entry| entry.bundle_id.as_str()),
+            .map(|entry| entry.bundle_id.as_ref()),
         Some(test_hash("bundle-1").as_str())
     );
     assert_eq!(
         loaded
             .entries
             .get(&test_chunk_hash("chunk-c"))
-            .map(|entry| entry.bundle_id.as_str()),
+            .map(|entry| entry.bundle_id.as_ref()),
         Some(test_hash("bundle-2").as_str())
     );
     assert!(!loaded.entries.contains_key(&test_chunk_hash("nonexistent")));
@@ -526,8 +526,8 @@ fn incremental_chunk_index_matches_rebuilt_bundle_index() {
         rebuilt
             .entries
             .get(&chunk_hash)
-            .map(|entry| entry.bundle_id.as_str()),
-        Some(bundle_id.as_str())
+            .map(|entry| entry.bundle_id.as_ref()),
+        Some(bundle_id.as_ref())
     );
 }
 

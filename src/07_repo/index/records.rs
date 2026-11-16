@@ -15,7 +15,7 @@ pub(crate) struct ChunkIndex {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct IndexedArtifact {
     pub artifact_size: u32,
-    pub bundle_id: smol_str::SmolStr,
+    pub bundle_id: std::sync::Arc<str>,
     pub storage_mode: ArtifactStorageMode,
 }
 
@@ -37,7 +37,7 @@ impl ChunkIndexEntry {
     pub fn new(
         artifact_size: u32,
         chunk_ordinal: u32,
-        bundle_id: smol_str::SmolStr,
+        bundle_id: std::sync::Arc<str>,
         raw_size: u32,
         storage_mode: ArtifactStorageMode,
     ) -> Self {

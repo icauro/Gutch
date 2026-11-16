@@ -19,7 +19,10 @@ fn default_jobs_use_physical_parallelism() {
         .map(|value| value.get())
         .unwrap_or(1)
         .max(1);
-    let physical_workers = num_cpus::get_physical().max(1).min(logical_workers);
+    let physical_workers = sysinfo::System::physical_core_count()
+        .unwrap_or(1)
+        .max(1)
+        .min(logical_workers);
     let plan = plan_runtime(&RuntimeResourceHints::default());
     assert_eq!(plan.worker_count, physical_workers);
 }

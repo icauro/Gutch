@@ -6,7 +6,7 @@ rust-version = "1.100"
 license = "MIT"
 
 [dependencies]
-gutch = { path = ".." }
+gutch = { path = "..", features = ["cli"] }
 
 [lints]
 workspace = true

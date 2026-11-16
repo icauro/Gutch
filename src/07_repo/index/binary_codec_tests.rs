@@ -23,7 +23,7 @@ fn independent_index_fixture_rejects_damaged_framing_and_trailing_bytes() {
     let mut bytes = metadata::encode(CHUNK_INDEX_BINARY_MAGIC, &[artifacts, chunks]).unwrap();
     let index = load_chunk_index_binary_from_bytes(&bytes).unwrap();
     let entry = index.entries.get(&ChunkHash::from_bytes([9; 32])).unwrap();
-    assert_eq!(entry.bundle_id.as_str(), "07".repeat(32));
+    assert_eq!(entry.bundle_id.as_ref(), "07".repeat(32));
     assert_eq!(entry.artifact_size, 200);
     assert_eq!(entry.raw_size, 128);
     for offset in [0, 15, 16, 18, 72, 108] {
@@ -42,7 +42,7 @@ fn independent_index_fixture_rejects_damaged_framing_and_trailing_bytes() {
 fn mixed_storage_roundtrip_is_deterministic_and_shares_artifacts() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index");
-    let bundle = smol_str::SmolStr::new("07".repeat(32));
+    let bundle = std::sync::Arc::<str>::from("07".repeat(32));
     let loose = ChunkHash::from_bytes([3; 32]);
     let mut index = crate::repo::index::ChunkIndex {
         entries: [

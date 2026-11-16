@@ -211,6 +211,14 @@ if let Err(error) = run_command_line(std::env::args_os(), &host) {
 called only when a command needs the remote, so local commands work without
 a connection.
 
+The command line is the crate's `cli` feature, on by default. An application
+with its own interface can leave it out, which also leaves out its argument
+parser and progress bars:
+
+```toml
+gutch = { version = "1", default-features = false }
+```
+
 ## Further reading
 
 The [integration contract](../_dev_guide/internals/05_integration/01_cli_and_app_integration.md)

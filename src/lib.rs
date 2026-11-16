@@ -5,6 +5,8 @@
 
 #![warn(clippy::all)]
 #![warn(rust_2024_compatibility)]
+// Some results and helpers exist only for the command line's reports.
+#![cfg_attr(not(feature = "cli"), allow(dead_code, unused_imports))]
 
 // Folder prefixes are dependency layers: a module uses only lower-numbered
 // modules, so a lexical listing of `src/` shows the dependency order.
@@ -14,6 +16,7 @@ pub mod api;
 mod artifact;
 #[path = "08_capture/mod.rs"]
 mod capture;
+#[cfg(feature = "cli")]
 #[path = "10_cli/mod.rs"]
 mod cli;
 #[path = "00_error/mod.rs"]

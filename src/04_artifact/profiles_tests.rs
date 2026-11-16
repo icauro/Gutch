@@ -11,7 +11,7 @@ fn expanded_presets_chunk_real_input_and_preserve_short_files() {
             state as u8
         })
         .collect::<Vec<_>>();
-    for preset in ChunkSizingPreset::value_variants() {
+    for preset in &ChunkSizingPreset::ALL {
         let profile = ChunkSizingProfile::for_preset(*preset);
         let chunks = crate::artifact::chunk::chunk_bytes(&data, &profile);
         assert_eq!(
@@ -39,7 +39,7 @@ fn expanded_presets_chunk_real_input_and_preserve_short_files() {
 
 #[test]
 fn chunk_presets_cover_every_power_of_two() {
-    let presets = ChunkSizingPreset::value_variants();
+    let presets = ChunkSizingPreset::ALL;
     assert_eq!(presets.len(), 14);
     let mut averages = presets
         .iter()

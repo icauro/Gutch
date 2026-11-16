@@ -66,7 +66,6 @@ fn scalar_and_avx2_match_reference_at_edges_and_unaligned_offsets() {
 #[test]
 fn streaming_and_capture_preserve_ram_boundaries_and_hashes() {
     use crate::artifact::profiles::{ChunkSizingPreset, ChunkSizingProfile, Chunker};
-    use clap::ValueEnum;
     struct ShortRead(Cursor<Vec<u8>>);
     impl Read for ShortRead {
         fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
@@ -87,7 +86,7 @@ fn streaming_and_capture_preserve_ram_boundaries_and_hashes() {
     let path = temp.path().join("source");
     for size in [0, 511, 524289, 1_048_577, data.len()] {
         fs::write(&path, &data[..size]).unwrap();
-        for &preset in ChunkSizingPreset::value_variants() {
+        for &preset in &ChunkSizingPreset::ALL {
             let profile = ChunkSizingProfile::for_preset(preset).with_chunker(Chunker::Vram256);
             let window = profile.avg_chunk_bytes as usize;
             let maximum = profile.max_chunk_bytes as usize;
