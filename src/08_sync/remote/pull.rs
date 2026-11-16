@@ -85,14 +85,17 @@ pub(super) fn compute_pull_plan(
         local_file_mtime(&repo_paths.repo_metadata_path),
         policy,
     ) == ArtifactDecision::Fetch;
-    let chunk_map_needed = decide_artifact(
-        repo_paths.chunk_map_path.exists(),
-        local_chunk_map_hash_b3(repo_paths)?,
-        &repository.chunk_map_hash_b3,
-        &repository.updated_at,
-        local_file_mtime(&repo_paths.chunk_map_path),
-        policy,
-    ) == ArtifactDecision::Fetch;
+    // A remote without a chunk index hash has none to fetch: it was pushed
+    // before anything was captured.
+    let chunk_map_needed = !repository.chunk_map_hash_b3.trim().is_empty()
+        && decide_artifact(
+            repo_paths.chunk_map_path.exists(),
+            local_chunk_map_hash_b3(repo_paths)?,
+            &repository.chunk_map_hash_b3,
+            &repository.updated_at,
+            local_file_mtime(&repo_paths.chunk_map_path),
+            policy,
+        ) == ArtifactDecision::Fetch;
 
     let mut snapshots_to_download = Vec::new();
     let mut snapshots_to_skip = Vec::new();

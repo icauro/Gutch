@@ -528,6 +528,34 @@ fn object_store_remote_round_trips_a_repository() {
 }
 
 #[test]
+fn a_repository_pushed_before_its_first_capture_can_be_pulled() {
+    let root = tempfile::tempdir().unwrap();
+    let remote = ObjectStoreRemote::new(MemoryStore::default());
+    let origin = root.path().join("origin");
+    crate::repo::paths::ensure_repo_layout(&RepoPaths::from_repo_root(&origin), "fixture").unwrap();
+    let remote_repo_id = create_remote_repo(
+        &RemoteRepoCreateRequest {
+            repo_root: origin.clone(),
+            scope_id: "team".into(),
+            ..Default::default()
+        },
+        &remote,
+    )
+    .unwrap()
+    .remote_repo_id;
+    push_to(&origin, &remote).unwrap();
+
+    let copy = root.path().join("copy");
+    pull_from(&copy, &remote_repo_id, &remote);
+
+    assert!(
+        RepoPaths::from_repo_root(&copy)
+            .repo_metadata_path
+            .is_file()
+    );
+}
+
+#[test]
 fn object_store_remote_allows_one_push_at_a_time() {
     let root = tempfile::tempdir().unwrap();
     let remote = ObjectStoreRemote::new(MemoryStore::default());

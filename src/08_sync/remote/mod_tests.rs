@@ -214,7 +214,8 @@ fn pull_planning_accepts_a_reader_without_host_or_http() {
 
     assert_eq!(plan.remote_repo_id, "remote-1");
     assert!(plan.repo_manifest_needed);
-    assert!(plan.chunk_map_needed);
+    // The reader reports no chunk index hash: the remote has none to fetch.
+    assert!(!plan.chunk_map_needed);
     assert!(plan.snapshots_to_download.is_empty());
 }
 
