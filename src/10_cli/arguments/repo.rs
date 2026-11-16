@@ -10,81 +10,96 @@ use crate::sync::remote::PullConflictPolicy;
 
 #[derive(Subcommand)]
 pub(crate) enum RepoCommands {
+    /// Create a repository.
+    Init {
+        /// Directory to initialize.
+        #[arg(long = "repo", value_name = "DIR", value_parser = parse_cli_path)]
+        path: PathBuf,
+        /// Filesystems whose filename rules every snapshot must satisfy.
+        #[arg(
+            long = "filesystem",
+            value_name = "TARGET",
+            value_enum,
+            value_delimiter = ','
+        )]
+        targets: Vec<FilesystemTarget>,
+        /// JSON file containing the complete repository constraints object.
+        #[arg(long = "constraints-file", value_name = "FILE", value_parser = parse_cli_path, conflicts_with = "targets")]
+        constraints: Option<PathBuf>,
+        /// Initialize even if the directory is not empty.
+        #[arg(long)]
+        force: bool,
+        #[command(flatten)]
+        dry_run: DryRunArgs,
+    },
+    /// Show local repository state.
+    Status {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        repo: PathBuf,
+    },
+    /// Change the local display name, leaving the directory and remote name unchanged.
+    Rename {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        repo: PathBuf,
+        /// New display name.
+        #[arg(long)]
+        name: String,
+        #[command(flatten)]
+        dry_run: DryRunArgs,
+    },
+    /// Verify stored repository metadata and artifacts.
+    Verify {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        repo: PathBuf,
+        /// Verify only this snapshot.
+        #[arg(long = "snapshot", value_name = "ID")]
+        snapshot_id: Option<String>,
+        /// Also verify every chunk hash.
+        #[arg(long)]
+        strict: bool,
+    },
     /// Show or change filename compatibility, tag rules and matching tag keys.
     Constraints {
         #[command(subcommand)]
         command: ConstraintCommands,
     },
-    /// Inspect or rebuild the repository chunk index.
+    /// Rebuild the repository chunk index.
     Index {
         #[command(subcommand)]
         command: RepoIndexCommands,
     },
-    Init {
-        /// JSON file containing the complete repository constraints object.
-        #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
-        constraints: Option<PathBuf>,
-        #[arg(long = "filesystem", value_enum, value_delimiter = ',')]
-        targets: Vec<FilesystemTarget>,
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        path: PathBuf,
-        #[arg(long = "force")]
-        force: bool,
-        #[command(flatten)]
-        dry_run: DryRunArgs,
+    /// Create, bind and inspect the remote repository.
+    Remote {
+        #[command(subcommand)]
+        command: RemoteCommands,
     },
     /// Synchronize local repository state to its bound remote.
     Push {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[command(flatten)]
         confirm: ConfirmArgs,
     },
     /// Synchronize remote repository data locally; does not update installations.
     Pull {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "remote")]
+        /// Remote repository ID; defaults to the bound remote.
+        #[arg(long, value_name = "ID")]
         remote: Option<String>,
-        #[arg(long = "on-conflict", value_enum, default_value = "keep-newer")]
+        /// How to resolve snapshots changed on both sides.
+        #[arg(long, value_enum, default_value = "keep-newer")]
         on_conflict: PullConflictPolicy,
-        #[arg(long = "prune")]
+        /// Delete local snapshots that the remote no longer has.
+        #[arg(long)]
         prune: bool,
         #[command(flatten)]
         confirm: ConfirmArgs,
-    },
-    Remote {
-        #[command(subcommand)]
-        command: RemoteCommands,
-    },
-    /// Change the local display name, leaving the directory and remote name unchanged.
-    Rename {
-        #[arg(long, value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long)]
-        name: String,
-        #[command(flatten)]
-        dry_run: DryRunArgs,
-    },
-    Tags {
-        #[command(subcommand)]
-        command: RepoTagsCommands,
-    },
-    /// Show local repository state.
-    #[command(name = "status")]
-    Status {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-    },
-    /// Verify stored repository metadata and artifacts.
-    Verify {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: Option<String>,
-        /// Use strict artifact verification.
-        #[arg(long = "strict")]
-        strict: bool,
     },
 }
 
@@ -93,7 +108,8 @@ pub(crate) enum RepoIndexCommands {
     /// Verify artifacts and rebuild the chunk index, replacing it only after a
     /// complete, successful rebuild.
     Rebuild {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[command(flatten)]
         dry_run: DryRunArgs,
@@ -102,28 +118,36 @@ pub(crate) enum RepoIndexCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum ConstraintCommands {
+    /// Show the repository constraints.
     Show {
-        #[arg(long, value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
     },
+    /// Replace the repository constraints.
     Set {
-        #[arg(long, value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
+        /// Filesystems whose filename rules every snapshot must satisfy.
         #[arg(
             long = "filesystem",
+            value_name = "TARGET",
             value_enum,
             value_delimiter = ',',
             required_unless_present = "constraints"
         )]
         targets: Vec<FilesystemTarget>,
         /// JSON file containing the complete replacement constraints object.
-        #[arg(long = "constraints-file", value_parser = parse_cli_path, conflicts_with = "targets")]
+        #[arg(long = "constraints-file", value_name = "FILE", value_parser = parse_cli_path, conflicts_with = "targets")]
         constraints: Option<PathBuf>,
         #[command(flatten)]
         dry_run: DryRunArgs,
     },
+    /// Remove all repository constraints.
     Clear {
-        #[arg(long, value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
         #[command(flatten)]
         dry_run: DryRunArgs,
@@ -132,35 +156,39 @@ pub(crate) enum ConstraintCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum RemoteCommands {
+    /// List the remote repositories the provider can access.
     List,
     /// Create a remote repository and bind the local repository to it.
     Create {
-        #[arg(long, value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long)]
+        /// Provider-defined scope that will own the remote repository.
+        #[arg(long, value_name = "ID")]
         scope_id: String,
     },
     /// Bind to an existing remote repository without synchronizing content.
     Bind {
-        #[arg(long, value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long)]
+        /// Remote repository to bind.
+        #[arg(long, value_name = "ID")]
         remote_repo_id: String,
     },
     /// Remove the binding; retain remote content unless --delete-remote is supplied.
     Unbind {
-        #[arg(long, value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
+        /// Also delete the remote repository.
         #[arg(long)]
         delete_remote: bool,
     },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum RepoTagsCommands {
     /// Inspect advisory tag references supplied by the remote provider.
-    References {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
+    TagReferences {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
     },
 }

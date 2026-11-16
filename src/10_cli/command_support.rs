@@ -282,20 +282,15 @@ pub(crate) fn parse_artifact_downloads(
     artifact_args
         .iter()
         .map(|artifact_arg| {
-            let Some((artifact_id, url)) = artifact_arg.split_once('=') else {
-                return Err(crate::Error::invalid_input(format!(
-                    "invalid --artifact value '{}'; use <artifact-id>=<url>",
-                    artifact_arg
-                )));
-            };
-            let artifact_id = artifact_id.trim();
-            let url = url.trim();
-            if artifact_id.is_empty() || url.is_empty() {
-                return Err(crate::Error::invalid_input(format!(
-                    "invalid --artifact value '{}'; use <artifact-id>=<url>",
-                    artifact_arg
-                )));
-            }
+            let (artifact_id, url) = artifact_arg
+                .split_once('=')
+                .map(|(id, url)| (id.trim(), url.trim()))
+                .filter(|(id, url)| !id.is_empty() && !url.is_empty())
+                .ok_or_else(|| {
+                    crate::Error::invalid_input(format!(
+                        "invalid --artifact-url value '{artifact_arg}'; use ARTIFACT_ID=URL"
+                    ))
+                })?;
 
             Ok(ArtifactDownload {
                 artifact_id: artifact_id.to_string(),

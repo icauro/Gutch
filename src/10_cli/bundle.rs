@@ -1,4 +1,4 @@
-//! `bundle inspect` command.
+//! `debug inspect-bundle` command.
 
 use crate::cli::output;
 use crate::cli::reporting::ratio_pct;

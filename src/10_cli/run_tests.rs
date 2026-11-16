@@ -14,8 +14,8 @@ fn identifies_only_commands_that_need_a_remote_provider() {
     assert!(requires_remote_provider([
         "gutch",
         "repo",
-        "tags",
-        "references",
+        "remote",
+        "tag-references",
         "--repo",
         repo
     ]));
@@ -111,7 +111,7 @@ fn every_structured_output_carries_the_output_version() {
             "--json",
             "--output",
             &path("failed.json"),
-            "--error-json-out",
+            "--error-output",
             &path("error.json"),
         ])
         .is_err()

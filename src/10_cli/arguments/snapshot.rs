@@ -12,22 +12,44 @@ use super::shared::{
 
 #[derive(Subcommand)]
 pub(crate) enum SnapshotCommands {
+    /// Capture source trees as deduplicated, compressed snapshots.
+    Capture(CaptureArgs),
+    /// Measure fresh-capture storage with default packaging presets and no repository reuse.
+    Measure {
+        /// Directory or file to measure.
+        #[arg(long = "source", value_name = "PATH", value_parser = parse_cli_path)]
+        source_dir: PathBuf,
+        /// Snapshot tag, as KEY=VALUE; repeatable.
+        #[arg(long = "tag", value_name = "KEY=VALUE")]
+        tags: Vec<String>,
+    },
+    /// List stored snapshots.
+    List {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        repo: PathBuf,
+    },
     /// Compare stored snapshot trees without reconstructing files.
     Diff {
-        #[arg(long, value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long)]
+        /// Snapshot to compare from.
+        #[arg(long, value_name = "ID")]
         from: String,
-        #[arg(long)]
+        /// Snapshot to compare to.
+        #[arg(long, value_name = "ID")]
         to: String,
     },
-    /// Capture source trees as deduplicated, compressed snapshots.
-    #[command(name = "capture")]
-    Capture(CaptureArgs),
+    /// Download snapshot data and artifacts into a repository without reconstructing files.
+    Fetch(FetchArgs),
+    /// Delete a snapshot and the artifacts only it uses.
     Delete {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
-        #[arg(long = "snapshot")]
+        /// Snapshot to delete.
+        #[arg(long = "snapshot", value_name = "ID")]
         snapshot_id: String,
         #[command(flatten)]
         confirm: ConfirmArgs,
@@ -37,30 +59,43 @@ pub(crate) enum SnapshotCommands {
         #[command(subcommand)]
         command: SnapshotTagsCommands,
     },
-    List {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-    },
-    /// Measure fresh-capture storage with default packaging presets and no repository reuse.
-    Measure {
-        #[arg(short, long = "source", value_parser = parse_cli_path)]
-        source_dir: PathBuf,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-    },
-    /// Download snapshot data and artifacts into a repository without reconstructing files.
-    Fetch(FetchArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct CaptureArgs {
+    /// Repository directory.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) repo: PathBuf,
+    /// Directory or file to capture; repeatable.
+    #[arg(long = "source", value_name = "PATH", value_parser = parse_cli_path)]
+    pub(crate) source_dirs: Vec<PathBuf>,
+    /// Capture every configured source found under DIR.
+    #[arg(long = "discover-from", value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) source_root: Option<PathBuf>,
+    /// Snapshot tag, as KEY=VALUE; repeatable.
+    #[arg(long = "tag", value_name = "KEY=VALUE")]
+    pub(crate) tags: Vec<String>,
+    #[command(flatten)]
+    pub(crate) build_profile: ArtifactBuildProfileArgs,
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    #[command(flatten)]
+    pub(crate) confirm: ConfirmArgs,
 }
 
 #[derive(Args)]
 pub(crate) struct FetchArgs {
-    #[arg(long = "repo", value_parser = parse_cli_path)]
+    /// Repository directory.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
     pub(crate) repo: PathBuf,
-    #[arg(long = "snapshot")]
+    /// Snapshot to download.
+    #[arg(long = "snapshot", value_name = "ID")]
     pub(crate) snapshot_id: String,
-    #[arg(long = "snapshot-metadata-url")]
+    /// Authorized URL of the snapshot metadata.
+    #[arg(long = "snapshot-metadata-url", value_name = "URL")]
     pub(crate) metadata_url: String,
-    #[arg(long = "blueprint-url")]
+    /// Authorized URL of the snapshot blueprint.
+    #[arg(long = "blueprint-url", value_name = "URL")]
     pub(crate) blueprint_url: String,
     #[command(flatten)]
     pub(crate) sources: FetchSourceArgs,
@@ -72,38 +107,24 @@ pub(crate) struct FetchArgs {
 pub(crate) enum SnapshotTagsCommands {
     /// Replace the complete tag set; omitted keys are removed.
     Replace {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         repo: PathBuf,
+        /// Snapshot whose tags to replace.
         #[arg(
             long = "snapshot",
+            value_name = "ID",
             required_unless_present = "tags_file",
             conflicts_with = "tags_file"
         )]
         snapshot_id: Option<String>,
-        #[arg(long = "tag", conflicts_with = "tags_file")]
+        /// New tag, as KEY=VALUE; repeatable.
+        #[arg(long = "tag", value_name = "KEY=VALUE", conflicts_with = "tags_file")]
         tags: Vec<String>,
         /// JSON object mapping snapshot IDs to complete {"key_value": {...}} tag sets.
-        #[arg(long, value_parser = parse_cli_path)]
+        #[arg(long, value_name = "FILE", value_parser = parse_cli_path)]
         tags_file: Option<PathBuf>,
         #[command(flatten)]
         confirm: ConfirmArgs,
     },
-}
-
-#[derive(Args)]
-pub(crate) struct CaptureArgs {
-    #[arg(short, long = "source", value_parser = parse_cli_path)]
-    pub(crate) source_dirs: Vec<PathBuf>,
-    #[arg(long = "discover-from", value_parser = parse_cli_path)]
-    pub(crate) source_root: Option<PathBuf>,
-    #[arg(long = "repo", value_parser = parse_cli_path)]
-    pub(crate) repo: PathBuf,
-    #[arg(long = "tag")]
-    pub(crate) tags: Vec<String>,
-    #[command(flatten)]
-    pub(crate) build_profile: ArtifactBuildProfileArgs,
-    #[command(flatten)]
-    pub(crate) runtime: RuntimeArgs,
-    #[command(flatten)]
-    pub(crate) confirm: ConfirmArgs,
 }

@@ -92,15 +92,12 @@ with the provider; Gutch receives authorized operations and artifact sources.
 repo init/status/rename/verify
 repo constraints show/set/clear
 repo index rebuild
-repo remote list/create/bind/unbind
+repo remote list/create/bind/unbind/tag-references
 repo push/pull
-repo tags references
 snapshot capture/measure/list/diff/fetch/delete
 snapshot tags replace
 installation preview/reconstruct/verify/repair
-bundle inspect
-tree compare
-debug corrupt-installation
+debug compare-trees/corrupt-installation/inspect-bundle
 ```
 
 `capture` stores source trees as snapshots. `fetch` downloads snapshot data and
@@ -189,7 +186,7 @@ gutch-cli repo constraints clear --repo REPO
 `constraints show` reads the policy and `constraints clear` removes it. No targets are enabled by default.
 Policy updates fail if existing snapshots violate the new requirements.
 
-Every operational command accepts `--error-json-out ABSOLUTE_FILE`. Structured
+Every command accepts the global `--error-output FILE`. Structured
 reports retain filename and directory-promotion failure details in this file.
 The same report is included as `error_details` in failed `--json` results and
 the final `--json-lines` summary; the existing `error` string remains readable.
@@ -233,7 +230,7 @@ prompt fails instead and asks for `--yes`; review the plan with `--dry-run`
 first. Failures after dispatch return structured error information and a
 nonzero status; parser failures print Clap diagnostics and exit with status 2.
 
-Every `--json` object, every `--json-lines` line, and the `--error-json-out`
+Every `--json` object, every `--json-lines` line, and the `--error-output`
 report carry `output_version: "1.0.0"`. The version follows semantic
 versioning: added fields raise the minor version, and removed or changed fields
 raise the major version. Nested objects are covered by the top-level version.

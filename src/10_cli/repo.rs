@@ -4,7 +4,6 @@ use crate::cli::ConstraintCommands;
 use crate::cli::Profile;
 use crate::cli::RemoteCommands;
 use crate::cli::RepoCommands;
-use crate::cli::RepoTagsCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::arguments::DryRunArgs;
 use crate::cli::arguments::RepoIndexCommands;
@@ -78,6 +77,7 @@ pub(crate) fn run(
         ),
         RepoCommands::Remote { command } => match command {
             RemoteCommands::List => repo_remote::list(remote_provider),
+            RemoteCommands::TagReferences { repo } => tag_references(repo, remote_provider),
             RemoteCommands::Create { repo, scope_id } => {
                 repo_remote::create(repo, scope_id, remote_provider)
             }
@@ -104,9 +104,6 @@ pub(crate) fn run(
                 rename_repo(&repo, &name)
             }
         }
-        RepoCommands::Tags {
-            command: RepoTagsCommands::References { repo },
-        } => tag_references(repo, remote_provider),
         RepoCommands::Status { repo } => status(&repo, profile),
         RepoCommands::Verify {
             repo,

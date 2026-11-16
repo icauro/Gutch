@@ -1,4 +1,4 @@
-//! The root command and the small command families: debug, bundle and tree.
+//! The root command, its global options and the `debug` family.
 
 use super::installation::InstallationCommands;
 use super::repo::RepoCommands;
@@ -16,31 +16,33 @@ use std::path::PathBuf;
     about = "Capture snapshots and reconstruct verified installation trees"
 )]
 pub(crate) struct Cli {
-    /// Write structured failures, including filename violations and promotion recovery details.
-    #[arg(long = "error-json-out", global = true, value_parser = parse_cli_path)]
-    pub(crate) error_json_out: Option<PathBuf>,
-    #[arg(long, short = 'v', global = true)]
-    pub(crate) verbose: bool,
-
-    /// Diagnostic profiling: off, coarse summary, or sampled detailed timelines.
-    #[arg(long, global = true, value_enum, default_value_t = crate::profiling::ProfileMode::Off)]
-    pub(crate) profile: ProfileMode,
-    /// Report directory; required for detailed, optional for summary.
-    #[arg(long = "profile-dir", global = true, value_parser = parse_cli_path)]
-    pub(crate) profile_out: Option<PathBuf>,
-
     /// Print a single structured result on stdout.
-    #[arg(long, global = true, conflicts_with = "json_lines")]
+    #[arg(long, global = true, conflicts_with = "json_lines", help_heading = GLOBAL)]
     pub(crate) json: bool,
     /// Stream structured events and a final summary.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = GLOBAL)]
     pub(crate) json_lines: bool,
-    /// Write the selected output format to a file.
-    #[arg(long, global = true, value_parser = parse_cli_path)]
+    /// Write the selected output format to FILE instead of stdout.
+    #[arg(long, global = true, value_name = "FILE", value_parser = parse_cli_path, help_heading = GLOBAL)]
     pub(crate) output: Option<PathBuf>,
+    /// Write a structured failure report, including filename violations and
+    /// promotion recovery details, to FILE.
+    #[arg(long, global = true, value_name = "FILE", value_parser = parse_cli_path, help_heading = GLOBAL)]
+    pub(crate) error_output: Option<PathBuf>,
+    /// Print additional details.
+    #[arg(long, short = 'v', global = true, help_heading = GLOBAL)]
+    pub(crate) verbose: bool,
+    /// Diagnostic profiling: off, coarse summary, or sampled detailed timelines.
+    #[arg(long, global = true, value_enum, default_value_t = ProfileMode::Off, help_heading = GLOBAL)]
+    pub(crate) profile: ProfileMode,
+    /// Profile report directory; required for detailed, optional for summary.
+    #[arg(long = "profile-dir", global = true, value_name = "DIR", value_parser = parse_cli_path, help_heading = GLOBAL)]
+    pub(crate) profile_out: Option<PathBuf>,
     #[command(subcommand)]
     pub(crate) command: Commands,
 }
+
+const GLOBAL: &str = "Global options";
 
 #[derive(Subcommand)]
 pub(crate) enum Commands {
@@ -49,7 +51,7 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: RepoCommands,
     },
-    /// Capture and manage stored snapshots.
+    /// Capture, list, compare and manage stored snapshots.
     Snapshot {
         #[command(subcommand)]
         command: SnapshotCommands,
@@ -59,49 +61,41 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: InstallationCommands,
     },
+    /// Diagnostic tools for testing and support.
     Debug {
         #[command(subcommand)]
         command: DebugCommands,
-    },
-    Bundle {
-        #[command(subcommand)]
-        command: BundleCommands,
-    },
-    /// Compare physical filesystem trees.
-    Tree {
-        #[command(subcommand)]
-        command: TreeCommands,
     },
 }
 
 #[derive(Subcommand)]
 pub(crate) enum DebugCommands {
+    /// Compare two physical filesystem trees and fail on any difference.
+    CompareTrees {
+        /// Tree or file with the expected content.
+        #[arg(long, value_name = "PATH", value_parser = parse_cli_path)]
+        expected: PathBuf,
+        /// Tree or file to check.
+        #[arg(long, value_name = "PATH", value_parser = parse_cli_path)]
+        actual: PathBuf,
+    },
+    /// Damage an installation as a JSON plan describes, to exercise repair.
     CorruptInstallation {
-        #[arg(short, long, value_parser = parse_cli_path)]
+        /// Installation directory to damage.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
         destination: PathBuf,
-        #[arg(long = "plan", value_parser = parse_cli_path)]
+        /// JSON corruption plan.
+        #[arg(long, value_name = "FILE", value_parser = parse_cli_path)]
         plan: PathBuf,
         /// Apply the plan without asking for confirmation.
-        #[arg(long = "yes")]
+        #[arg(long)]
         yes: bool,
     },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum BundleCommands {
-    Inspect {
-        #[arg(short, long, value_parser = parse_cli_path)]
+    /// List the entries stored in a bundle file.
+    InspectBundle {
+        /// Bundle file to read.
+        #[arg(long, value_name = "FILE", value_parser = parse_cli_path)]
         bundle: PathBuf,
-    },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum TreeCommands {
-    Compare {
-        #[arg(long = "expected", value_parser = parse_cli_path)]
-        expected: PathBuf,
-        #[arg(long = "actual", value_parser = parse_cli_path)]
-        actual: PathBuf,
     },
 }
 

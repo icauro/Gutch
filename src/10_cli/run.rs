@@ -31,7 +31,6 @@ where
                 RemoteCommands::Unbind { delete_remote, .. } => delete_remote,
                 _ => true,
             },
-            RepoCommands::Tags { .. } => true,
             _ => false,
         },
         _ => false,
@@ -90,7 +89,7 @@ where
     };
     set_verbose_output_enabled(cli.verbose);
     let profile_out = cli.profile_out.clone();
-    let error_json_out = cli.error_json_out.clone();
+    let error_output = cli.error_output.clone();
     if (cli.profile == ProfileMode::Off && profile_out.is_some())
         || (cli.profile == ProfileMode::Detailed && profile_out.is_none())
     {
@@ -100,7 +99,7 @@ where
     }
     let mode = cli.profile;
     let profiler = (mode != ProfileMode::Off).then(|| Arc::new(Profiler::new(mode)));
-    // Begin inside the exported result so its failure still reaches --error-json-out.
+    // Begin inside the exported result so its failure still reaches --error-output.
     let command_result = output::begin(&cli).and_then(|()| {
         let _command_span = profiler
             .as_ref()
@@ -109,7 +108,7 @@ where
     });
     let output_result = output::finish(&command_result);
     let command_result = command_result.and(output_result);
-    if let (Err(error), Some(path)) = (&command_result, error_json_out) {
+    if let (Err(error), Some(path)) = (&command_result, error_output) {
         let details = output::versioned(error.diagnostic_report());
         if let Err(export_error) =
             reporting::ensure_parent_directory(&path).and_then(|_| write_json(&path, &details))

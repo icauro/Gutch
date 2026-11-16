@@ -1,4 +1,4 @@
-//! `tree compare` command.
+//! `debug compare-trees` command.
 
 use std::path::PathBuf;
 

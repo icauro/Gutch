@@ -58,7 +58,7 @@ def run(case):
             "--json",
             "--output",
             output_path,
-            "--error-json-out",
+            "--error-output",
             error_path,
             success=False,
         )
@@ -117,7 +117,7 @@ def run(case):
             "--json",
             "--output",
             output_path,
-            "--error-json-out",
+            "--error-output",
             unavailable / "error.json",
             success=False,
         )

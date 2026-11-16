@@ -1,7 +1,6 @@
 use super::super::InstallationCommands;
 use super::super::RemoteCommands;
 use super::super::RepoCommands;
-use super::super::RepoTagsCommands;
 use super::super::shared::ConfirmArgs;
 use super::super::shared::TransferPolicyArg;
 use super::Cli;
@@ -96,8 +95,8 @@ fn parses_generic_scope_and_tag_reference_commands() {
     let cli = Cli::try_parse_from([
         "gutch",
         "repo",
-        "tags",
-        "references",
+        "remote",
+        "tag-references",
         "--repo",
         if cfg!(windows) {
             r"D:\Repos\creator"
@@ -109,8 +108,8 @@ fn parses_generic_scope_and_tag_reference_commands() {
     assert!(matches!(
         cli.command,
         Commands::Repo {
-            command: RepoCommands::Tags {
-                command: RepoTagsCommands::References { .. }
+            command: RepoCommands::Remote {
+                command: RemoteCommands::TagReferences { .. }
             }
         }
     ));
@@ -322,6 +321,9 @@ fn rejects_retired_operation_names() {
         vec!["installation", "plan"],
         vec!["repo", "rebuild-index"],
         vec!["path", "compare"],
+        vec!["tree", "compare"],
+        vec!["bundle", "inspect"],
+        vec!["repo", "tags"],
     ] {
         let error = Cli::try_parse_from(iter::once("gutch").chain(command))
             .err()
@@ -481,7 +483,7 @@ fn reconstruct_fetch_sources_require_fetch() {
             "repo",
             "--snapshot",
             "snapshot",
-            "-d",
+            "--destination",
             "out",
             source,
             "value",
@@ -490,4 +492,26 @@ fn reconstruct_fetch_sources_require_fetch() {
         .unwrap_or_else(|| panic!("{source} without --fetch should be rejected"));
         assert!(error.to_string().contains("--fetch"), "{source}: {error}");
     }
+}
+
+#[test]
+fn every_command_and_option_explains_itself() {
+    fn missing(command: &clap::Command, path: &str, found: &mut Vec<String>) {
+        let path = format!("{path} {}", command.get_name());
+        if command.get_about().is_none() {
+            found.push(path.clone());
+        }
+        for arg in command.get_arguments() {
+            if arg.get_help().is_none() && !matches!(arg.get_id().as_str(), "help" | "version") {
+                found.push(format!("{path} --{}", arg.get_id()));
+            }
+        }
+        for subcommand in command.get_subcommands() {
+            missing(subcommand, &path, found);
+        }
+    }
+    use clap::CommandFactory;
+    let mut found = Vec::new();
+    missing(&Cli::command(), "", &mut found);
+    assert!(found.is_empty(), "missing help: {found:#?}");
 }

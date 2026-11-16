@@ -31,10 +31,11 @@ pub(crate) fn parse_cli_path(value: &str) -> Result<PathBuf, String> {
 
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct RuntimeArgs {
-    #[arg(long = "jobs")]
+    /// Worker threads (default: available parallelism).
+    #[arg(long, value_name = "N")]
     pub(crate) jobs: Option<usize>,
     /// Shared working-memory budget in MiB (default: 25% of usable RAM).
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=u64::MAX / (1024 * 1024)))]
+    #[arg(long, value_name = "MIB", value_parser = clap::value_parser!(u64).range(1..=u64::MAX / (1024 * 1024)))]
     pub(crate) memory_budget_mib: Option<u64>,
 }
 
@@ -51,25 +52,32 @@ impl RuntimeArgs {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub(crate) enum TransferPolicyArg {
+    /// Keep --transfer-concurrency downloads in flight.
     Fixed,
+    /// Start at --transfer-concurrency and grow up to --transfer-max-concurrency.
     Adaptive,
 }
 
 #[derive(Debug, Clone, Copy, Args)]
 pub(crate) struct TransferArgs {
+    /// How many downloads to run at once.
     #[arg(
         long = "transfer-policy",
         value_enum,
         default_value_t = TransferPolicyArg::Fixed
     )]
     pub(crate) policy: TransferPolicyArg,
+    /// Concurrent downloads, or the adaptive starting point.
     #[arg(
         long = "transfer-concurrency",
+        value_name = "N",
         default_value_t = DEFAULT_TRANSFER_CONCURRENCY
     )]
     pub(crate) concurrency: usize,
+    /// Adaptive concurrency ceiling.
     #[arg(
         long = "transfer-max-concurrency",
+        value_name = "N",
         default_value_t = DEFAULT_ADAPTIVE_TRANSFER_MAXIMUM
     )]
     pub(crate) maximum: usize,
@@ -91,19 +99,26 @@ impl TransferArgs {
 /// while it flattens no other argument struct.
 #[derive(Args)]
 pub(crate) struct FetchSourceArgs {
-    #[arg(long = "product-metadata-url")]
+    /// Authorized URL of the snapshot product metadata.
+    #[arg(long = "product-metadata-url", value_name = "URL")]
     pub(crate) product_metadata_url: Option<String>,
-    #[arg(long = "repo-metadata-url")]
+    /// Authorized URL of the repository metadata.
+    #[arg(long = "repo-metadata-url", value_name = "URL")]
     pub(crate) repo_metadata_url: Option<String>,
-    #[arg(long = "chunk-index-url")]
+    /// Authorized URL of the chunk index.
+    #[arg(long = "chunk-index-url", value_name = "URL")]
     pub(crate) chunk_index_url: Option<String>,
-    #[arg(long = "bundle-downloads-endpoint")]
+    /// Endpoint that returns download URLs for requested bundles.
+    #[arg(long = "bundle-downloads-endpoint", value_name = "URL")]
     pub(crate) bundle_downloads_endpoint: Option<String>,
-    #[arg(long = "session-id")]
+    /// Session ID sent to the bundle downloads endpoint.
+    #[arg(long = "session-id", value_name = "ID")]
     pub(crate) session_id: Option<String>,
-    #[arg(long = "artifact-url")]
+    /// Direct artifact download, as ARTIFACT_ID=URL; repeatable.
+    #[arg(long = "artifact-url", value_name = "ID=URL")]
     pub(crate) artifacts: Vec<String>,
-    #[arg(long = "artifact-url-manifest", value_parser = parse_cli_path)]
+    /// JSON file mapping artifact IDs to direct download URLs.
+    #[arg(long = "artifact-url-manifest", value_name = "FILE", value_parser = parse_cli_path)]
     pub(crate) artifact_url_manifest: Option<PathBuf>,
 }
 
@@ -133,15 +148,18 @@ pub(crate) struct ArtifactBuildProfileArgs {
     #[arg(long, value_enum, default_value_t = crate::artifact::profiles::Chunker::FastCdc)]
     pub(crate) chunker: Chunker,
     /// Chunk sizing preset (algorithm-specific target, not a fixed chunk size).
-    #[arg(short = 'C', long = "chunk-preset", value_enum, default_value_t = crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB)]
+    #[arg(long = "chunk-preset", value_enum, default_value_t = crate::artifact::profiles::ChunkSizingPreset::Chunk128KiB)]
     pub(crate) chunk_profile: ChunkSizingPreset,
     /// Bundle sizing preset.
-    #[arg(short = 'B', long = "bundle-preset", value_enum, default_value_t = crate::artifact::profiles::BundleSizingPreset::Bundle8MiB)]
+    #[arg(long = "bundle-preset", value_enum, default_value_t = crate::artifact::profiles::BundleSizingPreset::Bundle8MiB)]
     pub(crate) bundle_profile: BundleSizingPreset,
+    /// Compression applied to stored artifacts.
     #[arg(long = "compression-algorithm", value_enum, default_value_t = crate::artifact::profiles::CompressionKind::Zstd)]
     pub(crate) compression_algorithm: CompressionKind,
-    #[arg(long = "compression-level")]
+    /// Compression level; defaults to the algorithm's own default.
+    #[arg(long = "compression-level", value_name = "LEVEL")]
     pub(crate) compression_level: Option<i32>,
+    /// Store chunks packed in bundles or as loose files.
     #[arg(long = "storage-mode", value_enum, default_value_t = crate::artifact::profiles::ArtifactStorageMode::Bundled)]
     pub(crate) storage_mode: ArtifactStorageMode,
 }

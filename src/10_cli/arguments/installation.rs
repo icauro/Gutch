@@ -6,45 +6,52 @@ use clap::{Args, Subcommand, ValueEnum};
 
 use super::shared::{ConfirmArgs, FetchSourceArgs, RuntimeArgs, TransferArgs, parse_cli_path};
 
-#[derive(Args)]
-pub(crate) struct ReconstructArgs {
-    #[arg(long = "repo", value_parser = parse_cli_path)]
-    pub(crate) repo: PathBuf,
-    #[arg(long = "snapshot")]
-    pub(crate) snapshot_id: String,
-    #[arg(short, long, value_parser = parse_cli_path)]
-    pub(crate) destination: PathBuf,
-    #[arg(long = "staging-dir", value_parser = parse_cli_path)]
-    pub(crate) staging_dir: Option<PathBuf>,
-    #[arg(long = "reuse-snapshot")]
-    pub(crate) source_snapshot_id: Option<String>,
-    #[arg(long = "reuse-from", value_parser = parse_cli_path)]
-    pub(crate) source_dir: Option<PathBuf>,
-    #[command(flatten)]
-    pub(crate) runtime: RuntimeArgs,
-    /// Show what would change without applying it.
-    #[arg(long, conflicts_with = "fetch")]
-    pub(crate) dry_run: bool,
-    /// Fetch authorized snapshot data and artifacts while reconstructing.
-    #[arg(long)]
-    pub(crate) fetch: bool,
-    #[arg(
-        long = "snapshot-metadata-url",
-        required_if_eq("fetch", "true"),
-        requires = "fetch"
-    )]
-    pub(crate) metadata_url: Option<String>,
-    #[arg(
-        long = "blueprint-url",
-        required_if_eq("fetch", "true"),
-        requires = "fetch"
-    )]
-    pub(crate) blueprint_url: Option<String>,
-    /// Used only with `--fetch`.
-    #[command(flatten)]
-    pub(crate) sources: FetchSourceArgs,
-    #[command(flatten)]
-    pub(crate) transfer: TransferArgs,
+#[derive(Subcommand)]
+pub(crate) enum InstallationCommands {
+    /// Preview installation changes without modifying files.
+    Preview(PreviewArgs),
+    /// Reconstruct a verified tree, replacing the entire destination including extra files.
+    #[command(mut_group("FetchSourceArgs", |group| group.requires("fetch")))]
+    Reconstruct(Box<ReconstructArgs>),
+    /// Verify expected content hashes and report missing, corrupt and extra entries.
+    Verify {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        repo: PathBuf,
+        /// Snapshot the installation should match.
+        #[arg(long = "snapshot", value_name = "ID")]
+        snapshot_id: String,
+        /// Installation directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        destination: PathBuf,
+        /// Additionally verify chunk hashes. Default installation verification hashes full files.
+        #[arg(long)]
+        strict: bool,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
+    },
+    /// Repair missing or corrupt content, preserving extra files unless removal is requested.
+    Repair {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        repo: PathBuf,
+        /// Snapshot the installation should match.
+        #[arg(long = "snapshot", value_name = "ID")]
+        snapshot_id: String,
+        /// Installation directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        destination: PathBuf,
+        /// Directory for staged files; defaults to one beside the destination.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        staging_dir: Option<PathBuf>,
+        /// Remove entries absent from the target snapshot. Repair preserves them by default.
+        #[arg(long)]
+        remove_extra_files: bool,
+        #[command(flatten)]
+        runtime: RuntimeArgs,
+        #[command(flatten)]
+        confirm: ConfirmArgs,
+    },
 }
 
 /// How a previewed installation would be published.
@@ -58,68 +65,84 @@ pub(crate) enum PreviewPublication {
 
 #[derive(Args)]
 pub(crate) struct PreviewArgs {
-    #[arg(long, value_parser = parse_cli_path)]
+    /// Repository directory.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
     pub(crate) repo: PathBuf,
-    #[arg(long = "snapshot")]
+    /// Snapshot to install.
+    #[arg(long = "snapshot", value_name = "ID")]
     pub(crate) snapshot_id: String,
-    #[arg(long, value_parser = parse_cli_path)]
+    /// Installation directory.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
     pub(crate) destination: PathBuf,
-    #[arg(long = "staging-dir", value_parser = parse_cli_path)]
+    /// Directory for staged files; defaults to one beside the destination.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
     pub(crate) staging_dir: Option<PathBuf>,
+    /// Which publication to preview: repair or whole reconstruction.
     #[arg(long = "mode", value_enum, default_value = "selective")]
     pub(crate) publication: PreviewPublication,
     /// Remove entries absent from the target snapshot; they are kept by default.
-    #[arg(long = "remove-extra-files")]
+    #[arg(long)]
     pub(crate) remove_extra_files: bool,
+    /// Compare metadata only, without hashing file content.
     #[arg(long)]
     pub(crate) metadata_only: bool,
-    #[arg(long = "reuse-snapshot")]
+    /// Installed snapshot whose content may be reused.
+    #[arg(long = "reuse-snapshot", value_name = "ID")]
     pub(crate) source_snapshot: Option<String>,
-    #[arg(long = "reuse-from", value_parser = parse_cli_path)]
+    /// Directory holding the reusable installed snapshot.
+    #[arg(long = "reuse-from", value_name = "DIR", value_parser = parse_cli_path)]
     pub(crate) source_dir: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
 }
 
-#[derive(Subcommand)]
-pub(crate) enum InstallationCommands {
-    /// Reconstruct a verified tree, replacing the entire destination including extra files.
-    #[command(mut_group("FetchSourceArgs", |group| group.requires("fetch")))]
-    Reconstruct(Box<ReconstructArgs>),
-
-    /// Preview installation changes without modifying files.
-    Preview(PreviewArgs),
-
-    /// Verify expected content hashes and report missing, corrupt and extra entries.
-    Verify {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: String,
-        #[arg(short, long, value_parser = parse_cli_path)]
-        destination: PathBuf,
-        /// Additionally verify chunk hashes. Default installation verification hashes full files.
-        #[arg(long = "strict")]
-        strict: bool,
-        #[command(flatten)]
-        runtime: RuntimeArgs,
-    },
-    /// Repair missing or corrupt content, preserving extra files unless removal is requested.
-    Repair {
-        #[arg(long = "repo", value_parser = parse_cli_path)]
-        repo: PathBuf,
-        #[arg(long = "snapshot")]
-        snapshot_id: String,
-        #[arg(short, long, value_parser = parse_cli_path)]
-        destination: PathBuf,
-        #[arg(long = "staging-dir", value_parser = parse_cli_path)]
-        staging_dir: Option<PathBuf>,
-        /// Remove entries absent from the target snapshot. Repair preserves them by default.
-        #[arg(long = "remove-extra-files")]
-        remove_extra_files: bool,
-        #[command(flatten)]
-        runtime: RuntimeArgs,
-        #[command(flatten)]
-        confirm: ConfirmArgs,
-    },
+#[derive(Args)]
+pub(crate) struct ReconstructArgs {
+    /// Repository directory.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) repo: PathBuf,
+    /// Snapshot to reconstruct.
+    #[arg(long = "snapshot", value_name = "ID")]
+    pub(crate) snapshot_id: String,
+    /// Installation directory; its current content is replaced.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) destination: PathBuf,
+    /// Directory for staged files; defaults to one beside the destination.
+    #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) staging_dir: Option<PathBuf>,
+    /// Installed snapshot whose content may be reused.
+    #[arg(long = "reuse-snapshot", value_name = "ID")]
+    pub(crate) source_snapshot_id: Option<String>,
+    /// Directory holding the reusable installed snapshot.
+    #[arg(long = "reuse-from", value_name = "DIR", value_parser = parse_cli_path)]
+    pub(crate) source_dir: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    /// Show what would change without applying it.
+    #[arg(long, conflicts_with = "fetch")]
+    pub(crate) dry_run: bool,
+    /// Fetch authorized snapshot data and artifacts while reconstructing.
+    #[arg(long)]
+    pub(crate) fetch: bool,
+    /// Authorized URL of the snapshot metadata; requires --fetch.
+    #[arg(
+        long = "snapshot-metadata-url",
+        value_name = "URL",
+        required_if_eq("fetch", "true"),
+        requires = "fetch"
+    )]
+    pub(crate) metadata_url: Option<String>,
+    /// Authorized URL of the snapshot blueprint; requires --fetch.
+    #[arg(
+        long = "blueprint-url",
+        value_name = "URL",
+        required_if_eq("fetch", "true"),
+        requires = "fetch"
+    )]
+    pub(crate) blueprint_url: Option<String>,
+    /// Used only with `--fetch`.
+    #[command(flatten)]
+    pub(crate) sources: FetchSourceArgs,
+    #[command(flatten)]
+    pub(crate) transfer: TransferArgs,
 }

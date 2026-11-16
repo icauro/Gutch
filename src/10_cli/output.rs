@@ -7,7 +7,7 @@ use std::io::Write;
 use std::mem;
 
 /// The version of every structured object Gutch prints: each `--json` result,
-/// each `--json-lines` line, and the `--error-json-out` report.
+/// each `--json-lines` line, and the `--error-output` report.
 pub(crate) const OUTPUT_VERSION: &str = "1.0.0";
 
 /// Add [`OUTPUT_VERSION`] to a structured object.

@@ -1,11 +1,9 @@
 //! Routes a parsed command to its family handler.
 
-use crate::cli::BundleCommands;
 use crate::cli::Cli;
 use crate::cli::Commands;
 use crate::cli::DebugCommands;
 use crate::cli::Profile;
-use crate::cli::TreeCommands;
 use crate::cli::bundle;
 use crate::cli::installation;
 use crate::cli::installation::CorruptCommand;
@@ -24,26 +22,21 @@ pub(crate) fn run(
         Commands::Repo { command } => repo::run(command, remote_provider, profile),
         Commands::Snapshot { command } => snapshot::run(command, profile),
         Commands::Installation { command } => run_installation(command, profile),
-        Commands::Debug {
-            command:
-                DebugCommands::CorruptInstallation {
+        Commands::Debug { command } => match command {
+            DebugCommands::CompareTrees { expected, actual } => tree::compare(expected, actual),
+            DebugCommands::CorruptInstallation {
+                destination,
+                plan,
+                yes,
+            } => installation::corrupt(
+                CorruptCommand {
                     destination,
                     plan,
                     yes,
                 },
-        } => installation::corrupt(
-            CorruptCommand {
-                destination,
-                plan,
-                yes,
-            },
-            profile,
-        ),
-        Commands::Bundle { command } => match command {
-            BundleCommands::Inspect { bundle } => bundle::inspect(bundle),
-        },
-        Commands::Tree { command } => match command {
-            TreeCommands::Compare { expected, actual } => tree::compare(expected, actual),
+                profile,
+            ),
+            DebugCommands::InspectBundle { bundle } => bundle::inspect(bundle),
         },
     }
 }

@@ -16,7 +16,7 @@ gutch-cli snapshot capture --source /home/user/builds/1.0.0-windows-x86_64-base 
 
 The standalone executable runs local artifact commands directly. Embedded hosts
 can supply a remote command provider for `repo remote bind`, `repo remote create`, `repo push`,
-`repo pull`, `repo remote list`, `repo remote unbind`, and `repo tags references`.
+`repo pull`, `repo remote list`, `repo remote unbind`, and `repo remote tag-references`.
 The generic `--scope-id` is opaque to Gutch; the provider defines its meaning.
 See the [provider integration contract](_docs/05_integration/01_cli_and_app_integration.md).
 
@@ -98,5 +98,5 @@ Tag replacement removes omitted keys. Index rebuild replaces the local index onl
 after successful verification; `--dry-run` reports without replacing it. Initialize or replace
 repository constraints from JSON with `--constraints-file FILE`.
 
-`tree compare --expected SOURCE --actual INSTALLATION` compares physical trees;
+`debug compare-trees --expected SOURCE --actual INSTALLATION` compares physical trees;
 `snapshot diff` compares stored snapshot trees without reconstructing them.

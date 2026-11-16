@@ -30,7 +30,7 @@ def run(case):
         repo,
         "--filesystem",
         target,
-        "--error-json-out",
+        "--error-output",
         error_path,
         success=False,
     )
@@ -54,7 +54,7 @@ def run(case):
         "--source",
         source,
         "--yes",
-        "--error-json-out",
+        "--error-output",
         error_path,
         success=False,
     )
@@ -73,7 +73,7 @@ def run(case):
         cache = case.payload / "rejected-cache"
         case.command(
             *fetch_arguments(case, cache, snapshot, repo, server.url),
-            "--error-json-out",
+            "--error-output",
             error_path,
             success=False,
         )

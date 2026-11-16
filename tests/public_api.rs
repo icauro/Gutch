@@ -19,8 +19,8 @@ fn comparison_mismatch_returns_to_the_embedding_host() {
     );
     let result = gutch::api::run_from_args([
         "gutch",
-        "tree",
-        "compare",
+        "debug",
+        "compare-trees",
         "--expected",
         expected.to_str().unwrap(),
         "--actual",
