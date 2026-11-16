@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "gutch"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "bolero",
@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "gutch-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "gutch",
 ]
