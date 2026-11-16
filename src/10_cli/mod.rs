@@ -14,7 +14,6 @@ mod run;
 mod session;
 pub(crate) mod snapshot;
 pub(crate) mod snapshot_transfer;
-pub(crate) mod tags;
 pub(crate) mod tree;
 
 pub(crate) use arguments::BundleCommands;

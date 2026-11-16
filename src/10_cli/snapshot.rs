@@ -28,8 +28,8 @@ use crate::cli::reporting::profile_mode;
 use crate::cli::reporting::ratio_pct;
 use crate::cli::reporting::write_stats_json_output;
 use crate::cli::snapshot_transfer;
-use crate::cli::tags::parse_cli_tags;
 use crate::filesystem;
+use crate::manifest::SnapshotTagSet;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::ProfileMode;
 use crate::repo::read::load_gutch_repo_manifest;
@@ -152,8 +152,11 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         yes,
     } = args;
     let single_report = source_root.is_none();
-    let sources =
-        resolve_capture_sources(source_root.clone(), source_dirs, parse_cli_tags(&tags)?)?;
+    let sources = resolve_capture_sources(
+        source_root.clone(),
+        source_dirs,
+        SnapshotTagSet::from_compact_strings(&tags)?,
+    )?;
     let (repo_paths, repo_manifest) = load_gutch_repo_manifest(&repo)?;
     let requests = sources
         .iter()
@@ -313,7 +316,7 @@ fn replace_tags(
         BTreeMap::from([(
             snapshot_id
                 .ok_or_else(|| crate::Error::invalid_input("select a snapshot or tags file"))?,
-            parse_cli_tags(tags)?,
+            SnapshotTagSet::from_compact_strings(tags)?,
         )])
     };
     if replacements.is_empty() {
@@ -344,7 +347,7 @@ fn replace_tags(
 }
 
 fn measure(source_dir: &Path, tags: &[String]) -> crate::Result<()> {
-    let result = estimate_snapshot(source_dir, &parse_cli_tags(tags)?)?;
+    let result = estimate_snapshot(source_dir, &SnapshotTagSet::from_compact_strings(tags)?)?;
     let estimate = &result.estimate;
     output::record(&serde_json::json!({
         "file_count": result.file_count,

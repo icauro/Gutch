@@ -752,3 +752,20 @@ fn batch_capture_reuses_chunks_from_earlier_sources_in_the_batch() {
         test_reconstruct_and_strict_verify(&repo_root, &result.snapshot_id);
     }
 }
+
+#[test]
+fn direct_capture_and_retag_reject_hyphenated_tag_values() {
+    let mut explicit = manifest::SnapshotTagSet::default();
+    explicit
+        .key_value
+        .insert("released_at".into(), "2026-09-07".into());
+    assert!(explicit.normalized().is_err());
+    let error = retag_snapshot_by_id(
+        Path::new("unused"),
+        "unused",
+        explicit,
+        &OperationControl::default(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("hyphens"));
+}

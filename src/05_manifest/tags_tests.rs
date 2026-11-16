@@ -71,3 +71,32 @@ fn shared_tag_contract() {
         );
     }
 }
+
+#[test]
+fn compact_strings_use_one_value_per_key() {
+    let parsed =
+        SnapshotTagSet::from_compact_strings(&["loader=fabric".into(), "os=windows".into()])
+            .unwrap();
+    assert_eq!(parsed.get("loader"), Some("fabric"));
+    assert_eq!(parsed.get("os"), Some("windows"));
+}
+
+#[test]
+fn compact_strings_reject_bare_values() {
+    let error = SnapshotTagSet::from_compact_strings(&["alpha".into()]).unwrap_err();
+    assert!(error.to_string().contains("key=value"));
+}
+
+#[test]
+fn normalized_keeps_explicit_tags() {
+    let mut explicit = SnapshotTagSet::default();
+    explicit.insert("release_channel", "nightly").unwrap();
+    explicit.insert("loader", "fabric").unwrap();
+
+    assert_eq!(explicit.normalized().unwrap(), explicit);
+}
+
+#[test]
+fn normalized_allows_tagless_snapshots() {
+    assert!(SnapshotTagSet::default().normalized().unwrap().is_empty());
+}

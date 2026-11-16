@@ -449,7 +449,8 @@ impl SnapshotManifest {
         self.entries.push(SnapshotEntry::File(file));
     }
 
-    pub fn set_files(&mut self, files: Vec<FileManifest>) {
+    #[cfg(test)]
+    pub(crate) fn set_files(&mut self, files: Vec<FileManifest>) {
         self.entries = files.into_iter().map(SnapshotEntry::File).collect();
     }
 }
