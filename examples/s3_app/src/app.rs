@@ -584,8 +584,8 @@ impl App {
         if ui
             .button("List files")
             .on_hover_text(
-                "Download this snapshot, without the others, into the local cache \
-                 and list its files. Installing it afterwards downloads nothing more.",
+                "Download this snapshot's file list, without any file data, into \
+                 the local cache and list its files.",
             )
             .clicked()
         {
@@ -617,9 +617,9 @@ impl App {
                             if ui
                                 .button("Save a copy…")
                                 .on_hover_text(
-                                    "Write this one file anywhere on your computer, read \
-                                     straight from the cached snapshot and checked against \
-                                     its hashes. Nothing is installed.",
+                                    "Write this one file anywhere on your computer. Only \
+                                     the data blocks holding it are downloaded, and the file \
+                                     is checked against its hashes. Nothing is installed.",
                                 )
                                 .clicked()
                             {

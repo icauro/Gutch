@@ -227,15 +227,31 @@ fn browsing_a_snapshot_downloads_only_that_snapshot() {
     };
     let (wanted, other) = (id_tagged("version=1.0"), id_tagged("version=1.1"));
 
+    let bundle_count = || count_files(&temp.path().join("cache2/team/game/bundles"));
     let files = second.files(&repo_id, &wanted, control()).unwrap();
     assert_eq!(files, [("data/a.txt".to_owned(), 3000)]);
+    assert_eq!(bundle_count(), 0, "listing files downloads no bundles");
     let target = temp.path().join("a.txt");
     second
         .save_file(&repo_id, &wanted, "data/a.txt", &target, control())
         .unwrap();
     assert_eq!(fs::read_to_string(&target).unwrap(), "first\n".repeat(500));
+    assert_eq!(bundle_count(), 1);
 
     // The other snapshot was never downloaded into this machine's copy.
     let local = Repo::open(temp.path().join("cache2/team/game")).unwrap();
     assert!(local.read_file(&other, "data/a.txt").is_err());
+}
+
+fn count_files(dir: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| {
+            let path = entry.path();
+            if path.is_dir() { count_files(&path) } else { 1 }
+        })
+        .sum()
 }

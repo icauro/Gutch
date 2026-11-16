@@ -64,16 +64,18 @@ described in
 [Storage remotes](../../_docs/08_embedding_gutch.md#storage-remotes).
 
 The app keeps a copy of each repository it opens in the local cache folder
-(`CACHE/SCOPE/NAME`). Installing, verifying, repairing, listing files and
-saving a file download only the snapshot they use, with its metadata and
-bundles; snapshots already in the copy are not downloaded again. Saving a
-file reads it straight from those bundles with `read_snapshot_file`.
+(`CACHE/SCOPE/NAME`). Installing, verifying and repairing download only the
+snapshot they use, with its metadata and bundles; snapshots already in the
+copy are not downloaded again. Listing files downloads the snapshot's metadata
+and no bundles (`PullBundles::None`). Saving a file downloads only the bundles
+holding it (`PullBundles::Files`) and reads it from them with
+`read_snapshot_file`.
 
 A capture first pulls every snapshot, goes into the copy and is then pushed.
 It needs the full copy because a push makes the bucket match the copy, and it
 would delete snapshots the copy lacks.
 
-Bundles are compressed as a whole, so listing or saving one file still
-downloads the snapshot's bundles, not only that file's bytes.
+Bundles are compressed as a whole, so saving a file downloads each bundle it
+touches in full; small files that share a bundle come along.
 [`src/ops.rs`](src/ops.rs) has these operations without the window, and its
 tests run them against an in-memory store.
