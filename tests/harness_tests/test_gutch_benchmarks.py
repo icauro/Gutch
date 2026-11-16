@@ -1232,7 +1232,7 @@ def test_combined_trace_preserves_worker_activity_and_gaps(tmp_path: Path) -> No
     for source in (first, second):
         source.write_text(json.dumps({"traceEvents": events}))
     combine_labeled_traces([("lane", first), ("lane", second)], output)
-    combined = json.loads(output.read_text())["traceEvents"]
+    combined = json.loads(output.read_text(encoding="utf-8"))["traceEvents"]
     workers = [event for event in combined if event["name"] == "thread_name"]
     assert len(workers) == 1
     assert len({event["tid"] for event in workers}) == 1
@@ -1256,7 +1256,7 @@ def test_successful_cleanup_retains_trace(tmp_path: Path) -> None:
     layout.finish()
     assert not lane.root.exists()
     for name in ("trace.json",):
-        assert json.loads((layout.root / name).read_text()) == {"traceEvents": []}
+        assert json.loads((layout.root / name).read_text(encoding="utf-8")) == {"traceEvents": []}
 
 
 def test_perfetto_url_changes_when_trace_contents_change(

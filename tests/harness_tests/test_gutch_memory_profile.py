@@ -23,7 +23,7 @@ def test_sampler_streams_samples_and_does_not_invent_os_counters(tmp_path):
     assert result["sampled_peak_rss_bytes"] == 8192
     assert result["observed_os_peak_working_set_bytes"] is None
     assert result["sampled_peak_private_bytes"] is None
-    sample = json.loads(timeline.read_text())
+    sample = json.loads(timeline.read_text(encoding="utf-8"))
     assert sample["rss_bytes"] == 8192
     assert sample["cpu_seconds"] == 0.375
 

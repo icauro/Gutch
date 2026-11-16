@@ -14,6 +14,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--product", type=Path, required=True)
     args = parser.parse_args()
+    if platform.machine().lower() not in {"x86_64", "amd64"}:
+        # The C++ reference uses AVX2 intrinsics directly.
+        parser.error("RAM diagnosis needs an x86-64 machine with AVX2")
     product = args.product.resolve()
     output = ROOT / ".artifacts/tests/vram-diagnosis"
     output.mkdir(parents=True, exist_ok=True)
@@ -58,7 +61,7 @@ def main():
             ],
             cwd=ROOT,
             stderr=log,
-            text=True,
+            text=True, encoding="utf-8",
         )
     items = [json.loads(line) for line in build.splitlines() if line.startswith("{")]
     rust_executable = next(
@@ -76,10 +79,10 @@ def main():
                 "upstream": "8e2697cbf6332ac5da6dc615bfab82a720e820e4",
                 "compiler_flags": flags,
                 "g++": subprocess.check_output(
-                    ["g++", "--version"], text=True
+                    ["g++", "--version"], text=True, encoding="utf-8"
                 ).splitlines()[0],
                 "rustc": subprocess.check_output(
-                    ["rustc", "--version"], text=True
+                    ["rustc", "--version"], text=True, encoding="utf-8"
                 ).strip(),
                 "platform": platform.platform(),
                 "scope": "single worker; input loaded before timing",
@@ -116,8 +119,8 @@ def main():
             stdout=log,
             stderr=log,
         )
-    cpp = json.loads((output / "cpp.json").read_text())
-    rust = json.loads((output / "rust.json").read_text())
+    cpp = json.loads((output / "cpp.json").read_text(encoding="utf-8"))
+    rust = json.loads((output / "rust.json").read_text(encoding="utf-8"))
     for window in (8192, 131072):
         selected = [
             r for r in cpp if r["window"] == window and r["variant"] != "reference-avx2"

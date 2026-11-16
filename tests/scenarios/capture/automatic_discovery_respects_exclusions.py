@@ -31,7 +31,7 @@ def run(case):
     )
     snapshots = list((repo / "snapshots").glob("*/snapshot_metadata.json"))
     assert len(snapshots) == 1
-    tags = json.loads(snapshots[0].read_text())["tags"]["key_value"]
+    tags = json.loads(snapshots[0].read_text(encoding="utf-8"))["tags"]["key_value"]
     # Auto discovery without configured tag rules does not infer tags from names.
     assert tags == {}
     destination = case.payload / "installed"

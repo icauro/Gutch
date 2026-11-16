@@ -18,12 +18,12 @@ class Services:
 
     def reserve_network(self):
         identifiers = subprocess.check_output(
-            ["docker", "network", "ls", "-q"], text=True
+            ["docker", "network", "ls", "-q"], text=True, encoding="utf-8"
         ).split()
         networks = (
             json.loads(
                 subprocess.check_output(
-                    ["docker", "network", "inspect", *identifiers], text=True
+                    ["docker", "network", "inspect", *identifiers], text=True, encoding="utf-8"
                 )
             )
             if identifiers
@@ -48,7 +48,7 @@ class Services:
                     self.project,
                 ],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8",
             )
             if result.returncode == 0:
                 self.network_created = True
@@ -74,7 +74,7 @@ class Services:
                 "GUTCH_TEST_IMAGE": self.project + "-builder",
             },
             check=True,
-            text=True,
+            text=True, encoding="utf-8",
             stdout=subprocess.PIPE if capture else None,
         )
         return result.stdout.strip() if capture else None

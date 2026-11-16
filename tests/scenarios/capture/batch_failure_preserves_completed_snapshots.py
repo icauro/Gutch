@@ -37,7 +37,7 @@ def run(case):
     )
     snapshots = list((repo / "snapshots").glob("*/snapshot_metadata.json"))
     assert len(snapshots) == 1
-    assert json.loads(snapshots[0].read_text())["tags"]["key_value"] == {
+    assert json.loads(snapshots[0].read_text(encoding="utf-8"))["tags"]["key_value"] == {
         "version": "1.0.0"
     }
     destination = case.payload / "completed-snapshot"

@@ -44,7 +44,7 @@ def main():
                 "--message-format=json",
             ],
             cwd=ROOT,
-            text=True,
+            text=True, encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=log,
             check=True,
@@ -83,7 +83,7 @@ def main():
         "warmups": 1,
         "platform": platform.platform(),
         "processor": platform.processor(),
-        "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+        "rustc": subprocess.check_output(["rustc", "--version"], text=True, encoding="utf-8").strip(),
         "scope": "single-thread release; base resident during timings; updated files read individually in untimed reuse analysis; medians of rotating variant order",
     }
     (output / "metadata.json").write_text(

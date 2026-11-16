@@ -35,7 +35,7 @@ def run(case):
     destination = case.payload / "installed"
     case.reconstruct(repo, snapshots[0].parent.name, destination)
     case.compare(data, destination)
-    assert json.loads(snapshots[0].read_text())["tags"]["key_value"] == {
+    assert json.loads(snapshots[0].read_text(encoding="utf-8"))["tags"]["key_value"] == {
         "arch": "x86_64",
         "os": "windows",
     }

@@ -10,8 +10,11 @@ def stop_process(process):
     if os.name == "nt":
         import psutil
 
-        parent = psutil.Process(process.pid)
-        children = parent.children(recursive=True)
+        try:
+            children = psutil.Process(process.pid).children(recursive=True)
+        except psutil.NoSuchProcess:
+            # The command exited after the poll above; nothing is left to stop.
+            children = []
         for child in reversed(children):
             try:
                 child.kill()

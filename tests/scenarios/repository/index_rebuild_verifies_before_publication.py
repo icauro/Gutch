@@ -20,7 +20,7 @@ def run(case):
         case.command(
             "repo", "index", "rebuild", "--repo", repo, "--json", "--output", report
         )
-        assert json.loads(report.read_text())["complete"]
+        assert json.loads(report.read_text(encoding="utf-8"))["complete"]
         assert not index.exists()
         for damaged in (None, b"malformed index"):
             if damaged is not None:
@@ -36,7 +36,7 @@ def run(case):
                 "--output",
                 report,
             )
-            assert json.loads(report.read_text())["published"]
+            assert json.loads(report.read_text(encoding="utf-8"))["published"]
             destination = case.payload / (
                 storage + ("-missing" if damaged is None else "-corrupt")
             )
@@ -59,7 +59,7 @@ def run(case):
             report,
             success=False,
         )
-        assert json.loads(report.read_text())["corruptArtifacts"]
+        assert json.loads(report.read_text(encoding="utf-8"))["corruptArtifacts"]
         assert index.read_bytes() == good
         artifact.write_bytes(intact)
         artifact.unlink()
@@ -75,7 +75,7 @@ def run(case):
             report,
             success=False,
         )
-        result = json.loads(report.read_text())
+        result = json.loads(report.read_text(encoding="utf-8"))
         assert not result["complete"] and not result["published"]
         assert result["missingChunks"] and result["affectedSnapshots"]
         assert index.read_bytes() == good

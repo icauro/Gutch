@@ -63,7 +63,7 @@ def test_replay_validates_case_and_reports_source_changes(
     assert runner.replay(tmp_path) == 0
     assert "Source changed" in capsys.readouterr().out
     assert calls == [("tests.run", ["--case", case, "--keep-artifacts"])]
-    assert json.loads(path.read_text()) == record
+    assert json.loads(path.read_text(encoding="utf-8")) == record
     record["case"] = "../../arbitrary_module"
     path.write_text(json.dumps(record))
     with pytest.raises(ValueError, match="Unsupported replay"):

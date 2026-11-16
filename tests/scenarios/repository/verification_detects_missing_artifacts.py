@@ -14,7 +14,7 @@ def run(case):
     case.command(
         "repo", "verify", "--repo", repo, "--strict", "--json", "--output", report
     )
-    assert json.loads(report.read_text())["ok"]
+    assert json.loads(report.read_text(encoding="utf-8"))["ok"]
     next(path for path in (repo / "bundles").rglob("*") if path.is_file()).unlink()
     case.command(
         "repo",
@@ -27,4 +27,4 @@ def run(case):
         report,
         success=False,
     )
-    assert not json.loads(report.read_text())["ok"]
+    assert not json.loads(report.read_text(encoding="utf-8"))["ok"]

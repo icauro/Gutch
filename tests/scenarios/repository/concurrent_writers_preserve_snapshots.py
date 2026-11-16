@@ -39,7 +39,7 @@ def run(case):
             processes.append((process, stats, data))
         for i, (process, stats, data) in enumerate(processes):
             assert process.wait(timeout=5) == 0
-            snapshot = json.loads(stats.read_text())["snapshot_id"]
+            snapshot = json.loads(stats.read_text(encoding="utf-8"))["snapshot_id"]
             destination = case.payload / f"installed-{i}"
             case.reconstruct(repo, snapshot, destination)
             case.compare(data, destination, f"writer-{i}")

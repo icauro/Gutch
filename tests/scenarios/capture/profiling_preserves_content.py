@@ -31,7 +31,7 @@ def run(case):
         if mode != "detailed":
             assert stats["verify_timings"]["total_seconds"] is None
         if mode != "off":
-            report = json.loads((directory / "summary.json").read_text())
+            report = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
             assert report["operation_succeeded"]
             assert report["profile"]["mode"] == mode
         assert (directory / "trace.json").exists() == (mode == "detailed")

@@ -18,7 +18,7 @@ def run(case):
     artifact = next(path for path in (repo / "bundles").rglob("*") if path.is_file())
     original = artifact.read_bytes()
     client = s3_client()
-    bucket = json.loads((case.root / "s3.json").read_text())["bucket"]
+    bucket = json.loads((case.root / "s3.json").read_text(encoding="utf-8"))["bucket"]
     key = artifact.relative_to(repo).as_posix()
     client.put_object(
         Bucket=bucket, Key=key, Body=bytes(byte ^ 0xFF for byte in original)

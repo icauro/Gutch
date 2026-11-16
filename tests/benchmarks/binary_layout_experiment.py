@@ -31,7 +31,7 @@ def main():
         ],
         cwd=ROOT,
         env=environment,
-        text=True,
+        text=True, encoding="utf-8",
         stdout=subprocess.PIPE,
         check=True,
     )

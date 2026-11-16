@@ -95,14 +95,14 @@ def main():
     args = parser.parse_args()
     metadata = json.loads(subprocess.check_output(
         ["cargo", f"+{args.toolchain}", "metadata", "--locked", "--format-version", "1",
-         "--filter-platform", args.target], cwd=ROOT, text=True,
+         "--filter-platform", args.target], cwd=ROOT, text=True, encoding="utf-8",
     ))
     provenance = {
-        "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "compiler": subprocess.check_output(["rustc", f"+{args.toolchain}", "--version"], text=True).strip(),
+        "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, encoding="utf-8").strip(),
+        "compiler": subprocess.check_output(["rustc", f"+{args.toolchain}", "--version"], text=True, encoding="utf-8").strip(),
     }
     sysroot = Path(subprocess.check_output(
-        ["rustc", f"+{args.toolchain}", "--print", "sysroot"], text=True,
+        ["rustc", f"+{args.toolchain}", "--print", "sysroot"], text=True, encoding="utf-8",
     ).strip())
     print(stage_package(ROOT, args.target, metadata, provenance, sysroot / "share/doc/rust"))
 

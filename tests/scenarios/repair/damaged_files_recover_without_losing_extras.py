@@ -39,7 +39,7 @@ def run(case):
     preview = case.root / "commands" / f"{case.sequence:03d}-installation.log"
     events = [
         json.loads(line)
-        for line in preview.read_text().splitlines()
+        for line in preview.read_text(encoding="utf-8").splitlines()
         if line.startswith("{")
     ]
     actions = {

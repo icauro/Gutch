@@ -116,7 +116,7 @@ def test_benchmark_compaction_removes_lane_payloads(tmp_path):
     layout.finish()
     assert not lane.root.exists()
     assert (tmp_path / "results.json").exists()
-    assert json.loads((tmp_path / "run.json").read_text())["cleanup_complete"]
+    assert json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))["cleanup_complete"]
 
 
 def test_clean_migrates_old_success_without_dangling_evidence_links(
@@ -142,8 +142,8 @@ def test_clean_migrates_old_success_without_dangling_evidence_links(
     (run / "summary.md").write_text("[evidence](cases/example/results.json)")
     assert runner.clean() == 0
     assert not evidence.exists()
-    assert "cases/example" not in (run / "summary.md").read_text()
-    assert json.loads((run / "run.json").read_text())["cleanup_complete"]
+    assert "cases/example" not in (run / "summary.md").read_text(encoding="utf-8")
+    assert json.loads((run / "run.json").read_text(encoding="utf-8"))["cleanup_complete"]
 
 
 @pytest.mark.parametrize(
@@ -182,7 +182,7 @@ def test_benchmark_deadline_terminates_hung_command_and_records_failure(tmp_path
             [sys.executable, "-c", "import time; time.sleep(60)"],
             description="hung command",
         )
-    record = json.loads((tmp_path / "command-failure.json").read_text())
+    record = json.loads((tmp_path / "command-failure.json").read_text(encoding="utf-8"))
     assert record["timeout_seconds"] == 0.2
 
 

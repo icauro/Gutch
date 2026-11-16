@@ -163,7 +163,7 @@ def cleanup_s3_publication(evidence):
         return
     import json
 
-    bucket = json.loads(evidence.read_text())["bucket"]
+    bucket = json.loads(evidence.read_text(encoding="utf-8"))["bucket"]
     client = s3_client()
     for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
         objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]

@@ -85,7 +85,7 @@ def run(case):
     capture = case.capture(repo, source, "--chunk-preset", "512B")
     assert (
         capture["repo_name"]
-        == json.loads((repo / "repo_metadata.json").read_text())["repository_name"]
+        == json.loads((repo / "repo_metadata.json").read_text(encoding="utf-8"))["repository_name"]
     )
     assert "product_id" not in capture and "remote_repo_id" not in capture
     snapshot = capture["snapshot_id"]

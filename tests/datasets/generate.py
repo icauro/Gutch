@@ -739,7 +739,7 @@ def _install_launch_test_executable(base_dir: Path, *, modified_at_ns: int) -> N
         )
         destination = base_dir / "LaunchTest.exe"
     else:
-        source = Path("/bin/true")
+        source = Path(shutil.which("true") or "/bin/true")
         destination = base_dir / "LaunchTest"
     if not source.is_file():
         raise RuntimeError(f"Launch test executable is unavailable: {source}")
@@ -813,7 +813,7 @@ def _blake3_file_hex(path: Path) -> str:
         [executable, "--no-names", str(path)],
         capture_output=True,
         check=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
     return result.stdout.strip()
 

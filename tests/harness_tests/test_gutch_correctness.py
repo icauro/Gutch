@@ -83,7 +83,7 @@ class GutchCorrectnessTests(unittest.TestCase):
                 )
             import json
 
-            evidence = json.loads((root / "timeout.json").read_text())
+            evidence = json.loads((root / "timeout.json").read_text(encoding="utf-8"))
             self.assertIsNotNone(evidence["exit_code"])
 
     def test_commands_receive_eof_even_when_runner_stdin_is_open(self):
@@ -152,7 +152,7 @@ execute([sys.executable, '-c', 'import sys; assert sys.stdin.read() == ""'],
             self.assertGreaterEqual(elapsed, 10)
             self.assertLess(elapsed, 16)
             self.assertTrue(case.payload.is_dir())
-            child_pid = int((case.root / "child.pid").read_text())
+            child_pid = int((case.root / "child.pid").read_text(encoding="utf-8"))
             deadline = time.monotonic() + 2
             while psutil.pid_exists(child_pid) and time.monotonic() < deadline:
                 time.sleep(0.01)

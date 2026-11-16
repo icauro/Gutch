@@ -61,12 +61,12 @@ def test_package_contains_binary_checksums_and_native_notices_only(tmp_path, tar
     assert [package["id"] for package in cli_dependencies(metadata)] == ["ffi"]
     output = stage_package(tmp_path, target, metadata, {"commit": "abc", "compiler": "rustc test"}, tmp_path / "rust-notices")
     assert (output / binary.name).read_bytes() == b"mock CLI"
-    assert (output / "licenses/dependencies/ffi-1.0/vendor/COPYING").read_text() == "native library notice"
-    assert (output / "licenses/rust/COPYRIGHT-library.html").read_text() == "Rust library attribution"
+    assert (output / "licenses/dependencies/ffi-1.0/vendor/COPYING").read_text(encoding="utf-8") == "native library notice"
+    assert (output / "licenses/rust/COPYRIGHT-library.html").read_text(encoding="utf-8") == "Rust library attribution"
     assert not list(output.rglob("private.env"))
     assert not list(output.rglob("Cargo.toml"))
-    assert json.loads((output / "dependencies.json").read_text())[0]["name"] == "ffi"
-    assert hashlib.sha256(binary.read_bytes()).hexdigest() in (output / "SHA256SUMS").read_text()
+    assert json.loads((output / "dependencies.json").read_text(encoding="utf-8"))[0]["name"] == "ffi"
+    assert hashlib.sha256(binary.read_bytes()).hexdigest() in (output / "SHA256SUMS").read_text(encoding="utf-8")
     (output / "stale.txt").touch()
     stage_package(tmp_path, target, metadata, {"commit": "abc"}, tmp_path / "rust-notices")
     assert not (output / "stale.txt").exists()
