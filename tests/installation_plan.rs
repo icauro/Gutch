@@ -31,7 +31,7 @@ fn fixture() -> (tempfile::TempDir, InstallationRequest) {
     })
     .unwrap();
     let request = InstallationRequest {
-        repo_path: repo,
+        repo_root: repo,
         snapshot_id: capture.snapshot_id,
         destination_dir: root.path().join("installed"),
         staging_dir: None,

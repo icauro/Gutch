@@ -108,7 +108,7 @@ pub(crate) fn repair(command: RepairCommand, profile: &Profile) -> crate::Result
     }
     let started_at = ProfileInstant::start(profile.as_deref());
     let execution = repair_installation(InstallationRepairRequest {
-        repo_path: command.repo.clone(),
+        repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),
         staging_dir: command.staging_dir,
@@ -310,7 +310,7 @@ fn preview(arguments: PreviewArgs, profile: &Profile) -> crate::Result<()> {
         InstallationInspection::Content
     };
     let request = InstallationRequest {
-        repo_path: arguments.repo,
+        repo_root: arguments.repo,
         snapshot_id: arguments.snapshot_id,
         destination_dir: arguments.destination,
         staging_dir: arguments.staging_dir,
@@ -358,7 +358,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
         );
     }
     let execution = reconstruct_snapshot(InstallationRequest {
-        repo_path: command.repo.clone(),
+        repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),
         staging_dir: command.staging_dir.clone(),
@@ -379,7 +379,7 @@ pub(crate) fn reconstruct(command: ReconstructCommand, profile: &Profile) -> cra
 pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
     let progress = CliProgressSink::new();
     let execution = verify_installation(InstallationVerifyRequest {
-        repo_path: command.repo.clone(),
+        repo_root: command.repo.clone(),
         snapshot_id: command.snapshot_id.clone(),
         destination_dir: command.destination.clone(),
         verify_mode: command.verify_mode,

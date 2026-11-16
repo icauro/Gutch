@@ -7,7 +7,7 @@ use crate::Result;
 use crate::capture::scan::validate_source_inventory;
 use crate::capture::scan::verify_source_inventory_stable;
 use crate::capture::scan::{SourceInventory, scan_source_inventory};
-use crate::manifest::constraints::RepositoryConstraints;
+use crate::manifest::constraints::RepoConstraints;
 use std::path::Path;
 
 pub(crate) struct BuiltCapture {
@@ -21,7 +21,7 @@ pub(crate) fn build_with_stable_source(
     build_config: &BuildConfig<'_>,
     build_pool: &rayon::ThreadPool,
     mut source_inventory: SourceInventory,
-    constraints: &RepositoryConstraints,
+    constraints: &RepoConstraints,
     worker_count: usize,
 ) -> Result<BuiltCapture> {
     // The source may change while its bytes are read. A change seen during the

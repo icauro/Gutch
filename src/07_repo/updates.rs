@@ -5,14 +5,14 @@ use std::path::Path;
 use crate::Result;
 use crate::filesystem;
 use crate::manifest::SnapshotTagSet;
-use crate::manifest::constraints::RepositoryConstraints;
+use crate::manifest::constraints::RepoConstraints;
 use crate::repo::coordination;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::write_repo_manifest;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-pub fn read_repository_constraints(repo_root: &Path) -> Result<RepositoryConstraints> {
+pub fn read_repo_constraints(repo_root: &Path) -> Result<RepoConstraints> {
     coordination::read(repo_root, || {
         Ok(load_repo_manifest(repo_root)?
             .1
@@ -23,11 +23,11 @@ pub fn read_repository_constraints(repo_root: &Path) -> Result<RepositoryConstra
 
 pub(crate) fn validate_existing_constraints(
     repo_root: &Path,
-    constraints: &RepositoryConstraints,
+    constraints: &RepoConstraints,
     operation: &str,
 ) -> Result<()> {
     constraints.validate_definition()?;
-    validate_repository_tag_constraints(repo_root, constraints)?;
+    validate_repo_tag_constraints(repo_root, constraints)?;
     let (paths, _) = load_repo_manifest(repo_root)?;
     for id in super::inventory::list_repo_snapshot_ids(&paths)? {
         let manifest = super::snapshot_manifests::load_snapshot_manifest(&paths, &id)?;
@@ -36,10 +36,10 @@ pub(crate) fn validate_existing_constraints(
     Ok(())
 }
 
-pub fn plan_repository_constraints(
+pub fn plan_repo_constraints(
     repo_root: &Path,
-    mut constraints: RepositoryConstraints,
-) -> Result<RepositoryConstraints> {
+    mut constraints: RepoConstraints,
+) -> Result<RepoConstraints> {
     coordination::read(repo_root, || {
         constraints.targets.sort();
         constraints.targets.dedup();
@@ -68,10 +68,7 @@ fn validated_repo_name(name: &str) -> Result<String> {
     Ok(trimmed.to_owned())
 }
 
-pub fn update_repository_constraints(
-    repo_root: &Path,
-    mut constraints: RepositoryConstraints,
-) -> Result<()> {
+pub fn update_repo_constraints(repo_root: &Path, mut constraints: RepoConstraints) -> Result<()> {
     coordination::write(repo_root, || {
         constraints.targets.sort();
         constraints.targets.dedup();
@@ -97,16 +94,16 @@ pub fn rename_repo(repo_root: &Path, name: &str) -> Result<()> {
 
 /// Reads metadata only. Called before the outer transaction commits, so bulk
 /// edits are checked as one final state and readers cannot see partial parity.
-pub(crate) fn validate_repository_tag_constraints(
+pub(crate) fn validate_repo_tag_constraints(
     repo_root: &Path,
-    constraints: &RepositoryConstraints,
+    constraints: &RepoConstraints,
 ) -> Result<()> {
     validate_proposed_snapshot_tags(repo_root, constraints, &Default::default())
 }
 
 pub(crate) fn validate_proposed_snapshot_tags(
     repo_root: &Path,
-    constraints: &RepositoryConstraints,
+    constraints: &RepoConstraints,
     replacements: &BTreeMap<String, SnapshotTagSet>,
 ) -> Result<()> {
     constraints.validate_definition()?;

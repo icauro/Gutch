@@ -216,22 +216,6 @@ fn snapshot_manifest_files_live_in_per_snapshot_folder() {
             .join("snapshot_blueprint.gtcbin")
     );
 }
-#[test]
-fn repo_paths_from_store_root() {
-    let root = PathBuf::from("/test/store");
-    let paths = RepoPaths::from_store_root(&root, "my-repo").unwrap();
-
-    assert_eq!(
-        paths.repo_root,
-        root.join("v1").join("repos").join("my-repo")
-    );
-    assert_eq!(
-        paths.repo_metadata_path,
-        paths.repo_root.join("repo_metadata.json")
-    );
-    assert_eq!(paths.snapshots_root, paths.repo_root.join("snapshots"));
-    assert_eq!(paths.bundles_root, paths.repo_root.join("bundles"));
-}
 
 #[test]
 fn required_bundle_ids_uses_chunk_index_mapping() {

@@ -18,7 +18,7 @@ use crate::{Error, Result};
 pub const REPO_METADATA_FILE: &str = "repo_metadata.json";
 
 /// The newest repository format this release reads and writes.
-pub const REPOSITORY_FORMAT_VERSION: u32 = 1;
+pub const REPO_FORMAT_VERSION: u32 = 1;
 
 /// Repository features this release understands. Every name ever released
 /// stays reserved, even after support for it ends.
@@ -169,18 +169,18 @@ fixed_marker!(DocumentVersion, DOCUMENT_VERSION, "document_version");
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-pub struct RepositoryFormat {
+pub struct RepoFormat {
     pub version: u32,
     pub features_required_to_read: Vec<String>,
     pub features_required_to_write: Vec<String>,
     pub optional_features: Vec<String>,
 }
 
-impl Default for RepositoryFormat {
+impl Default for RepoFormat {
     /// The format new repositories get.
     fn default() -> Self {
         Self {
-            version: REPOSITORY_FORMAT_VERSION,
+            version: REPO_FORMAT_VERSION,
             features_required_to_read: Vec::new(),
             features_required_to_write: Vec::new(),
             optional_features: Vec::new(),
@@ -195,7 +195,7 @@ pub(crate) enum RepositoryAccess {
     Write,
 }
 
-impl RepositoryFormat {
+impl RepoFormat {
     /// Read only the repository format from `repo_metadata.json` bytes,
     /// ignoring every other field, so a newer repository is refused before
     /// the exact parse.
@@ -233,10 +233,10 @@ impl RepositoryFormat {
             supported: supported_formats(),
             needs_newer_gutch,
         };
-        if self.version != REPOSITORY_FORMAT_VERSION {
+        if self.version != REPO_FORMAT_VERSION {
             return Err(unsupported(
                 format!("format {}", self.version),
-                self.version > REPOSITORY_FORMAT_VERSION,
+                self.version > REPO_FORMAT_VERSION,
             ));
         }
         let required = match access {
@@ -291,10 +291,10 @@ impl RepositoryFormat {
 
 fn supported_formats() -> String {
     if KNOWN_REPOSITORY_FEATURES.is_empty() {
-        format!("format {REPOSITORY_FORMAT_VERSION} without features")
+        format!("format {REPO_FORMAT_VERSION} without features")
     } else {
         format!(
-            "format {REPOSITORY_FORMAT_VERSION} with features {}",
+            "format {REPO_FORMAT_VERSION} with features {}",
             KNOWN_REPOSITORY_FEATURES.join(", ")
         )
     }

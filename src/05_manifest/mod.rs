@@ -20,7 +20,7 @@ pub(crate) use content::validate_snapshot_entries;
 pub use external_dependency::ExternalProductDependencyRequirement;
 pub(crate) use external_dependency::validate_external_product_dependency_requirements;
 pub use format::{
-    DocumentType, DocumentVersion, REPO_METADATA_FILE, REPOSITORY_FORMAT_VERSION, RepositoryFormat,
+    DocumentType, DocumentVersion, REPO_FORMAT_VERSION, REPO_METADATA_FILE, RepoFormat,
     VersionedDocument,
 };
 pub(crate) use format::{RepositoryAccess, check_document_markers, parse_document};

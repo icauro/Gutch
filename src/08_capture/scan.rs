@@ -25,7 +25,7 @@ use crate::manifest::DirectoryManifest;
 use crate::manifest::FileManifest;
 use crate::manifest::SnapshotEntry;
 use crate::manifest::SymlinkManifest;
-use crate::manifest::constraints::RepositoryConstraints;
+use crate::manifest::constraints::RepoConstraints;
 use crate::profiling::file_trace_args;
 use crate::progress::OperationControl;
 use crate::progress::ProgressPhase;
@@ -479,7 +479,7 @@ fn scan_file(request: ScanFileRequest<'_>) -> Result<FileBuildEntry> {
 /// Apply repository filename constraints to the complete pre-read inventory.
 pub(crate) fn validate_source_inventory(
     inventory: &SourceInventory,
-    constraints: &RepositoryConstraints,
+    constraints: &RepoConstraints,
 ) -> Result<()> {
     validate_paths(
         &constraints.targets,

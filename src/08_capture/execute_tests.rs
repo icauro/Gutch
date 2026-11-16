@@ -140,7 +140,7 @@ fn test_repo_with_source(
 fn test_reconstruct_and_strict_verify(repo_root: &Path, snapshot_id: &str) {
     let destination = repo_root.join(format!("reconstructed-{snapshot_id}"));
     reconstruct_snapshot(InstallationRequest {
-        repo_path: repo_root.to_path_buf(),
+        repo_root: repo_root.to_path_buf(),
         snapshot_id: snapshot_id.to_string(),
         destination_dir: destination.clone(),
         staging_dir: None,
@@ -530,8 +530,9 @@ fn tampered_blueprint_returns_integrity_conflict() {
     )
     .unwrap();
 
-    let reader_error = crate::repo::read::load_snapshot_manifest(&repo_paths, &first.snapshot_id)
-        .expect_err("stored blueprint identity must be checked by repository readers");
+    let reader_error =
+        crate::repo::read::load_snapshot_manifest(&repo_paths.repo_root, &first.snapshot_id)
+            .expect_err("stored blueprint identity must be checked by repository readers");
     assert!(
         matches!(reader_error, crate::Error::SnapshotIntegrityMismatch { snapshot_id }
         if snapshot_id == first.snapshot_id)

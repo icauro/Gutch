@@ -13,13 +13,13 @@ use crate::repo::paths::RepoPaths;
 
 struct EmptyReader;
 
-impl RemoteRepositoryReader for EmptyReader {
-    fn resolve_repository(
+impl RemoteRepoReader for EmptyReader {
+    fn resolve_repo(
         &self,
         _remote_spec: Option<&str>,
         _bound_remote_repo_id: Option<&str>,
-    ) -> Result<RemoteRepository> {
-        Ok(RemoteRepository {
+    ) -> Result<RemoteRepo> {
+        Ok(RemoteRepo {
             id: "remote-1".to_string(),
             scope_id: String::new(),
             name: "fixture".to_string(),
@@ -29,24 +29,21 @@ impl RemoteRepositoryReader for EmptyReader {
         })
     }
 
-    fn list_snapshots(&self, _repository: &RemoteRepository) -> Result<Vec<RemoteSnapshot>> {
+    fn list_snapshots(&self, _repository: &RemoteRepo) -> Result<Vec<RemoteSnapshot>> {
         Ok(Vec::new())
     }
 
-    fn repository_metadata_source(
-        &self,
-        _repository: &RemoteRepository,
-    ) -> Result<RemoteArtifactSource> {
+    fn repo_metadata_source(&self, _repository: &RemoteRepo) -> Result<RemoteArtifactSource> {
         Ok(RemoteArtifactSource::Bytes(Vec::new()))
     }
 
-    fn chunk_index_source(&self, _repository: &RemoteRepository) -> Result<RemoteArtifactSource> {
+    fn chunk_index_source(&self, _repository: &RemoteRepo) -> Result<RemoteArtifactSource> {
         Ok(RemoteArtifactSource::Bytes(Vec::new()))
     }
 
     fn snapshot_sources(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         _snapshot: &RemoteSnapshot,
     ) -> Result<RemoteSnapshotSources> {
         Ok(RemoteSnapshotSources {
@@ -58,7 +55,7 @@ impl RemoteRepositoryReader for EmptyReader {
 
     fn bundle_sources(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         _snapshot: &RemoteSnapshot,
         _bundle_ids: &[String],
     ) -> Result<Vec<RemoteBundleSource>> {
@@ -128,7 +125,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
         crate::artifact::profiles::ChunkSizingPreset::Chunk1MiB,
     );
     assert_eq!(id, remote_id);
-    let remote = RemoteRepository {
+    let remote = RemoteRepo {
         id: "remote".into(),
         scope_id: "scope".into(),
         name: "remote".into(),
@@ -186,7 +183,7 @@ fn pull_plan_preserves_local_repository_metadata_and_index() {
         &crate::repo::index::load_chunk_index(&paths).unwrap(),
     )
     .unwrap();
-    let remote = RemoteRepository {
+    let remote = RemoteRepo {
         id: "remote".into(),
         scope_id: "scope".into(),
         name: "remote".into(),

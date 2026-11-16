@@ -113,7 +113,7 @@ fn assert_api_and_cli_capture_equivalent(
         control: Default::default(),
     })
     .unwrap();
-    let (_, manifest) = load_repo_manifest(&repo).unwrap();
+    let manifest = load_repo_manifest(&repo).unwrap();
     assert_eq!(
         manifest.content_packaging_profile.compression,
         CompressionKind::Lz4
@@ -145,7 +145,7 @@ fn assert_api_and_cli_capture_equivalent(
         "loose-chunks",
     ])
     .unwrap();
-    let (_, cli_manifest) = load_repo_manifest(&cli_repo).unwrap();
+    let cli_manifest = load_repo_manifest(&cli_repo).unwrap();
     assert_eq!(
         serde_json::to_value(&manifest.content_packaging_profile).unwrap(),
         serde_json::to_value(&cli_manifest.content_packaging_profile).unwrap()
@@ -171,7 +171,7 @@ fn assert_api_and_cli_capture_equivalent(
     for (repository, label) in [(repo, "api-output"), (cli_repo, "cli-output")] {
         let destination = root.path().join(label);
         reconstruct_snapshot(InstallationRequest {
-            repo_path: repository,
+            repo_root: repository,
             snapshot_id: captured.snapshot_id.clone(),
             destination_dir: destination.clone(),
             staging_dir: None,
@@ -209,7 +209,7 @@ fn cancelled_reconstruction_preserves_destination_and_does_not_create_staging() 
     std::fs::create_dir(&destination).unwrap();
     std::fs::write(destination.join("keep.txt"), b"prior installation").unwrap();
     let result = reconstruct_snapshot(InstallationRequest {
-        repo_path: temporary.path().join("unused-repository"),
+        repo_root: temporary.path().join("unused-repository"),
         snapshot_id: "a".repeat(64),
         destination_dir: destination.clone(),
         staging_dir: Some(staging.clone()),

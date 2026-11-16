@@ -263,7 +263,8 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     repo_root: &Path,
     snapshot_id: &str,
 ) -> crate::Result<(RepoPaths, RepoManifest, PathBuf, SnapshotManifest)> {
-    let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
+    let repo_manifest = load_repo_manifest(repo_root)?;
+    let repo_paths = RepoPaths::from_repo_root(repo_root);
     let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
     if !manifest_path.exists() {
         return Err(crate::Error::invalid_input(format!(
@@ -272,7 +273,7 @@ pub(crate) fn load_snapshot_manifest_from_repo(
         )));
     }
 
-    let snapshot_manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
+    let snapshot_manifest = load_snapshot_manifest(repo_root, snapshot_id)?;
     Ok((repo_paths, repo_manifest, manifest_path, snapshot_manifest))
 }
 

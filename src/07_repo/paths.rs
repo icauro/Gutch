@@ -14,7 +14,7 @@ use crate::filesystem::write_json;
 use crate::manifest::REPO_METADATA_FILE;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::{
-    DocumentType, DocumentVersion, RepositoryAccess, RepositoryFormat, VersionedDocument,
+    DocumentType, DocumentVersion, RepoFormat, RepositoryAccess, VersionedDocument,
     check_document_markers, parse_document,
 };
 use std::fs;
@@ -38,12 +38,6 @@ pub struct RepoPaths {
 }
 
 impl RepoPaths {
-    pub fn from_store_root(store_root: &Path, repo_id: &str) -> Result<Self> {
-        validate_path_component(repo_id, "Gutch repo ID")?;
-        let repo_root = store_root.join("v1").join("repos").join(repo_id);
-        Ok(Self::from_repo_root(&repo_root))
-    }
-
     /// Every top-level path the repository owns; other tools must not write inside them.
     pub(crate) fn owned_entries(&self) -> [PathBuf; 8] {
         [
@@ -138,10 +132,8 @@ pub(crate) fn ensure_repository_writable(repo_root: &Path) -> Result<()> {
         return Ok(());
     }
     let bytes = filesystem::read(&path)?;
-    let checked =
-        check_document_markers::<RepoManifest>(REPO_METADATA_FILE, &bytes).and_then(|()| {
-            RepositoryFormat::from_repo_metadata(&bytes)?.check(RepositoryAccess::Write)
-        });
+    let checked = check_document_markers::<RepoManifest>(REPO_METADATA_FILE, &bytes)
+        .and_then(|()| RepoFormat::from_repo_metadata(&bytes)?.check(RepositoryAccess::Write));
     match checked {
         Err(error @ Error::UnsupportedFormat { .. }) => Err(error),
         _ => Ok(()),
@@ -235,15 +227,13 @@ mod tests {
     #[test]
     fn rejects_path_traversal_components() {
         let store_root = Path::new("store");
-        assert!(RepoPaths::from_store_root(store_root, "../escape").is_err());
         assert!(bundle_path_in_root(store_root, "..\\escape").is_err());
         assert!(validate_path_component("C:\\escape", "component").is_err());
     }
 
     #[test]
     fn accepts_single_component_identifiers() {
-        let paths = RepoPaths::from_store_root(Path::new("store"), "repo-1").unwrap();
-        assert!(paths.repo_root().ends_with(Path::new("v1/repos/repo-1")));
+        let paths = RepoPaths::from_repo_root(Path::new("repo-1"));
         assert!(bundle_path(&paths, "bundle-1").is_ok());
     }
 

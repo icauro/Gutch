@@ -17,8 +17,8 @@ moderation, snapshot access, object-storage authorization, library membership,
 background-job persistence, or application navigation.
 
 Remote repo synchronization is provider-neutral at the engine boundary.
-Callers provide a `RemoteRepositoryReader` for repo/snapshot lookup and a
-`RemoteRepositoryWriter` for uploads and remote cleanup. Artifact sources may be
+Callers provide a `RemoteRepoReader` for repo/snapshot lookup and a
+`RemoteRepoWriter` for uploads and remote cleanup. Artifact sources may be
 bytes or direct URLs. Gutch owns comparison, pull/push ordering, bounded
 transfers, local repo mutation, progress, cancellation, and result types;
 it does not attach backend bearer sessions or call host authorization routes.

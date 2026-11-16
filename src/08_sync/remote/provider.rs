@@ -14,7 +14,7 @@ use crate::repo::tag_references::TagReferenceStatus;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
-pub struct RemoteRepository {
+pub struct RemoteRepo {
     pub id: String,
     /// Opaque provider-owned grouping value used only by the provider.
     pub scope_id: String,
@@ -67,7 +67,7 @@ pub struct RemoteBundleSource {
     pub source: RemoteArtifactSource,
 }
 
-/// A stored remote object that [`RemoteRepositoryWriter::upload_artifact`]
+/// A stored remote object that [`RemoteRepoWriter::upload_artifact`]
 /// replaces.
 #[derive(Debug, Clone, Copy)]
 pub enum RemoteArtifactTarget<'a> {
@@ -80,54 +80,47 @@ pub enum RemoteArtifactTarget<'a> {
 }
 
 /// Read-side control-plane and artifact-source operations required by Gutch.
-pub trait RemoteRepositoryReader {
-    fn resolve_repository(
+pub trait RemoteRepoReader {
+    fn resolve_repo(
         &self,
         remote_spec: Option<&str>,
         bound_remote_repo_id: Option<&str>,
-    ) -> Result<RemoteRepository>;
+    ) -> Result<RemoteRepo>;
 
-    fn list_snapshots(&self, repository: &RemoteRepository) -> Result<Vec<RemoteSnapshot>>;
+    fn list_snapshots(&self, repository: &RemoteRepo) -> Result<Vec<RemoteSnapshot>>;
 
-    fn repository_metadata_source(
-        &self,
-        repository: &RemoteRepository,
-    ) -> Result<RemoteArtifactSource>;
+    fn repo_metadata_source(&self, repository: &RemoteRepo) -> Result<RemoteArtifactSource>;
 
-    fn chunk_index_source(&self, repository: &RemoteRepository) -> Result<RemoteArtifactSource>;
+    fn chunk_index_source(&self, repository: &RemoteRepo) -> Result<RemoteArtifactSource>;
 
     fn snapshot_sources(
         &self,
-        repository: &RemoteRepository,
+        repository: &RemoteRepo,
         snapshot: &RemoteSnapshot,
     ) -> Result<RemoteSnapshotSources>;
 
     fn bundle_sources(
         &self,
-        repository: &RemoteRepository,
+        repository: &RemoteRepo,
         snapshot: &RemoteSnapshot,
         bundle_ids: &[String],
     ) -> Result<Vec<RemoteBundleSource>>;
 }
 
 /// Write-side control-plane and artifact-upload operations required by Gutch.
-pub trait RemoteRepositoryWriter {
-    fn delete_snapshot(
-        &self,
-        repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
-    ) -> Result<()>;
+pub trait RemoteRepoWriter {
+    fn delete_snapshot(&self, repository: &RemoteRepo, snapshot: &RemoteSnapshot) -> Result<()>;
 
     fn create_snapshot(
         &self,
-        repository: &RemoteRepository,
+        repository: &RemoteRepo,
         snapshot_id: &str,
         tags: &SnapshotTagSet,
     ) -> Result<RemoteSnapshot>;
 
     fn upload_artifact(
         &self,
-        repository: &RemoteRepository,
+        repository: &RemoteRepo,
         target: RemoteArtifactTarget<'_>,
         bytes: Vec<u8>,
         control: &OperationControl,
@@ -135,27 +128,27 @@ pub trait RemoteRepositoryWriter {
 
     fn delete_snapshot_product_metadata(
         &self,
-        repository: &RemoteRepository,
+        repository: &RemoteRepo,
         snapshot: &RemoteSnapshot,
     ) -> Result<()>;
 
-    fn bundle_exists(&self, repository: &RemoteRepository, bundle_id: &str) -> Result<bool>;
+    fn bundle_exists(&self, repository: &RemoteRepo, bundle_id: &str) -> Result<bool>;
 
     fn reconcile_bundles(
         &self,
-        repository: &RemoteRepository,
+        repository: &RemoteRepo,
         required_bundle_ids: &[String],
     ) -> Result<usize>;
 }
 
 /// A provider that supports both repo reads and writes.
-pub trait RemoteRepositoryProvider: RemoteRepositoryReader + RemoteRepositoryWriter {}
+pub trait RemoteRepoProvider: RemoteRepoReader + RemoteRepoWriter {}
 
-impl<T> RemoteRepositoryProvider for T where T: RemoteRepositoryReader + RemoteRepositoryWriter {}
+impl<T> RemoteRepoProvider for T where T: RemoteRepoReader + RemoteRepoWriter {}
 
 /// Provider-neutral information used when listing remote repos.
 #[derive(Debug, Clone, Serialize)]
-pub struct RemoteRepositorySummary {
+pub struct RemoteRepoSummary {
     pub scope_id: String,
     pub scope_name: String,
     pub scope_slug: String,
@@ -175,26 +168,26 @@ pub struct RemoteTagReferencesResult {
 ///
 /// The context owns backend configuration and authentication. Gutch only receives the
 /// provider-neutral operations needed to synchronize repos and evaluate tags.
-pub trait RemoteRepositoryCommandProvider {
+pub trait RemoteRepoService {
     /// Let the host enforce its publication policy before CLI synchronization.
-    fn prepare_repository_push(&self, _repo: &Path) -> Result<()> {
+    fn prepare_push(&self, _repo: &Path) -> Result<()> {
         Ok(())
     }
 
     /// Apply host requirements when a local repository is linked.
-    fn configure_repository_binding(&self, _repo: &Path, _remote_repo_id: &str) -> Result<()> {
+    fn configure_binding(&self, _repo: &Path, _remote_repo_id: &str) -> Result<()> {
         Ok(())
     }
 
-    fn repository_provider(&self) -> &dyn RemoteRepositoryProvider;
+    fn repo_provider(&self) -> &dyn RemoteRepoProvider;
 
-    fn list_remote_repositories(&self) -> Result<Vec<RemoteRepositorySummary>>;
+    fn list_repos(&self) -> Result<Vec<RemoteRepoSummary>>;
 
-    fn create_remote_repository(&self, scope_id: &str, name: &str) -> Result<String>;
+    fn create_repo(&self, scope_id: &str, name: &str) -> Result<String>;
 
-    fn delete_remote_repository(&self, repository: &RemoteRepository) -> Result<()>;
+    fn delete_repo(&self, repository: &RemoteRepo) -> Result<()>;
 
-    fn tag_references(&self, repository: &RemoteRepository) -> Result<Vec<TagReference>>;
+    fn tag_references(&self, repository: &RemoteRepo) -> Result<Vec<TagReference>>;
 }
 
 /// Which copy pull keeps when a local file differs from the remote one.

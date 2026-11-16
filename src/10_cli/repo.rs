@@ -14,7 +14,7 @@ use crate::cli::repo_remote;
 use crate::cli::repo_remote::tag_references;
 use crate::filesystem;
 use crate::manifest::constraints::FilesystemTarget;
-use crate::manifest::constraints::RepositoryConstraints;
+use crate::manifest::constraints::RepoConstraints;
 use crate::progress::OperationControl;
 use crate::repo::init_policy::RepoInitAssessment;
 use crate::repo::init_policy::RepoInitOptions;
@@ -23,10 +23,10 @@ use crate::repo::init_policy::assess_repo_init_path;
 use crate::repo::init_policy::initialize_repo;
 use crate::repo::recovery::rebuild_index;
 use crate::repo::status::read_repo_status;
+use crate::repo::updates::plan_repo_constraints;
 use crate::repo::updates::plan_repo_rename;
-use crate::repo::updates::plan_repository_constraints;
-use crate::repo::updates::read_repository_constraints;
-use crate::repo::updates::update_repository_constraints;
+use crate::repo::updates::read_repo_constraints;
+use crate::repo::updates::update_repo_constraints;
 use crate::repo::verify::RepoArtifactVerification;
 use crate::repo::verify::verify_repo;
 use std::path::Path;
@@ -118,17 +118,17 @@ fn constraints(command: ConstraintCommands) -> crate::Result<()> {
         ConstraintCommands::Clear {
             repo,
             dry_run: DryRunArgs { dry_run },
-        } => (repo, Some(RepositoryConstraints::default()), dry_run),
+        } => (repo, Some(RepoConstraints::default()), dry_run),
     };
     let constraints = match replacement {
         Some(replacement) => {
-            let constraints = plan_repository_constraints(&repo, replacement)?;
+            let constraints = plan_repo_constraints(&repo, replacement)?;
             if !dry_run {
-                update_repository_constraints(&repo, constraints.clone())?;
+                update_repo_constraints(&repo, constraints.clone())?;
             }
             constraints
         }
-        None => read_repository_constraints(&repo)?,
+        None => read_repo_constraints(&repo)?,
     };
     output::record(&constraints)?;
     output::line(format_args!(
@@ -160,7 +160,7 @@ fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
             Some(error) => output::line(format_args!("status: {error}")),
             None => output::line(format_args!(
                 "status: no gutch repo found at {}",
-                status.repo_path
+                status.repo_root
             )),
         }
         return Ok(());
@@ -183,7 +183,7 @@ fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
     output::line(format_args!("Total"));
     output::line(format_args!("name: {}", status.name));
     output::line(format_args!("remote_repo_id: {remote_repo_id}"));
-    output::line(format_args!("repo_path: {}", status.repo_path));
+    output::line(format_args!("repo_root: {}", status.repo_root));
     output::line(format_args!("snapshots: {}", status.snapshots.len()));
     output::line(format_args!("bundles: {}", status.bundle_count));
     output::line(format_args!("bundle_bytes: {}", status.bundle_bytes));
@@ -232,7 +232,7 @@ fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result
 pub(crate) fn init_repo(
     path: &Path,
     force: bool,
-    constraints: RepositoryConstraints,
+    constraints: RepoConstraints,
     dry_run: bool,
 ) -> crate::Result<()> {
     let assessment = assess_repo_init_path(path)?;
@@ -309,11 +309,11 @@ fn confirm_repo_init_stdio(assessment: &RepoInitAssessment) -> crate::Result<boo
 fn read_constraint_input(
     path: Option<&Path>,
     targets: Vec<FilesystemTarget>,
-) -> crate::Result<RepositoryConstraints> {
+) -> crate::Result<RepoConstraints> {
     let constraints = if let Some(path) = path {
         filesystem::read_json(path)?
     } else {
-        RepositoryConstraints {
+        RepoConstraints {
             targets,
             ..Default::default()
         }

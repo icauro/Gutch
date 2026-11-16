@@ -21,7 +21,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SnapshotFetchAndReconstructRequest {
     pub fetch_request: SnapshotFetchRequest,
     pub destination_dir: PathBuf,
@@ -41,9 +41,9 @@ pub fn fetch_and_reconstruct_snapshot(
     request: SnapshotFetchAndReconstructRequest,
 ) -> Result<SnapshotFetchAndReconstructResult> {
     request.fetch_request.control.checkpoint()?;
-    fs::create_dir_all(&request.fetch_request.repo_path)?;
+    fs::create_dir_all(&request.fetch_request.repo_root)?;
     write_with_control(
-        &request.fetch_request.repo_path,
+        &request.fetch_request.repo_root,
         &request.fetch_request.control.clone(),
         || {
             request.fetch_request.control.checkpoint()?;
@@ -64,7 +64,7 @@ pub fn fetch_and_reconstruct_snapshot(
                 &prepared.snapshot_manifest,
                 &request.destination_dir,
                 request.staging_dir.as_deref(),
-                &request.fetch_request.repo_path,
+                &request.fetch_request.repo_root,
                 &request.fetch_request.control,
             )?;
             let source = LoadedSnapshotSource::load(

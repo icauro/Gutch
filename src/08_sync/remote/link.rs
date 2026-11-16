@@ -1,6 +1,6 @@
 //! Binding a local repository to a remote one and listing or creating remotes.
 
-use super::provider::RemoteRepositoryCommandProvider;
+use super::provider::RemoteRepoService;
 use super::provider::RemoteTagReferencesResult;
 use crate::Error;
 use crate::Result;
@@ -38,7 +38,7 @@ pub fn bind_remote_repo(repo_root: &Path, remote_repo_id: &str) -> Result<()> {
 pub fn create_remote_repo(
     repo_root: &Path,
     scope_id: &str,
-    provider: &dyn RemoteRepositoryCommandProvider,
+    provider: &dyn RemoteRepoService,
 ) -> Result<()> {
     coordination::write(repo_root, || {
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
@@ -53,8 +53,7 @@ pub fn create_remote_repo(
         if scope_id.is_empty() {
             return Err(Error::repository("remote repo scope is required"));
         }
-        let remote_repo_id =
-            provider.create_remote_repository(scope_id, &manifest.repository_name)?;
+        let remote_repo_id = provider.create_repo(scope_id, &manifest.repository_name)?;
         if remote_repo_id.trim().is_empty() {
             return Err(Error::repository(
                 "remote provider returned an empty repo ID",
@@ -69,7 +68,7 @@ pub fn create_remote_repo(
 pub fn unbind_remote_repo(
     repo_root: &Path,
     delete_remote: bool,
-    provider: Option<&dyn RemoteRepositoryCommandProvider>,
+    provider: Option<&dyn RemoteRepoService>,
 ) -> Result<()> {
     coordination::write(repo_root, || {
         let (paths, mut manifest) = load_repo_manifest(repo_root)?;
@@ -84,9 +83,9 @@ pub fn unbind_remote_repo(
                 )
             })?;
             let repository = provider
-                .repository_provider()
-                .resolve_repository(None, Some(&remote_repo_id))?;
-            provider.delete_remote_repository(&repository)?;
+                .repo_provider()
+                .resolve_repo(None, Some(&remote_repo_id))?;
+            provider.delete_repo(&repository)?;
         }
 
         write_repo_manifest(&paths, &manifest)?;
@@ -96,15 +95,15 @@ pub fn unbind_remote_repo(
 
 pub fn inspect_repo_tag_references(
     repo_root: &Path,
-    provider: &dyn RemoteRepositoryCommandProvider,
+    provider: &dyn RemoteRepoService,
 ) -> Result<RemoteTagReferencesResult> {
     let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
     let remote_repo_id = repo_manifest
         .remote_repo_id
         .ok_or_else(|| not_linked(repo_paths.repo_root()))?;
     let repository = provider
-        .repository_provider()
-        .resolve_repository(None, Some(&remote_repo_id))?;
+        .repo_provider()
+        .resolve_repo(None, Some(&remote_repo_id))?;
     let references = provider.tag_references(&repository)?;
     let referenced_tags = advisory_tag_references(&references);
 

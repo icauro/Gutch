@@ -12,7 +12,7 @@ use crate::cli::progress::CliProgressSink;
 use crate::cli::prompt_yes_no;
 use crate::repo::read::load_repo_manifest;
 use crate::sync::remote::PullConflictPolicy;
-use crate::sync::remote::RemoteRepositorySummary;
+use crate::sync::remote::RemoteRepoSummary;
 use crate::sync::remote::RemoteTagReferencesResult;
 use crate::sync::remote::RepoPullPlan;
 use crate::sync::remote::RepoPushPlan;
@@ -33,8 +33,8 @@ pub(crate) fn push(
 ) -> crate::Result<()> {
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
-    let repository_provider = provider.repository_provider();
-    let plan = plan_repo_push(&repo, repository_provider)?;
+    let repo_provider = provider.repo_provider();
+    let plan = plan_repo_push(&repo, repo_provider)?;
     print_push_plan(&plan);
     output::record(&plan)?;
     if confirm.dry_run {
@@ -44,12 +44,12 @@ pub(crate) fn push(
         return Err(crate::Error::Cancelled);
     }
 
-    provider.prepare_repository_push(&repo)?;
+    provider.prepare_push(&repo)?;
     let progress = CliProgressSink::new();
     let stats = push_repo(
-        repo,
-        repository_provider,
-        control_with_profile(profile).with_progress(progress),
+        &repo,
+        repo_provider,
+        &control_with_profile(profile).with_progress(progress),
     )?;
     output::record(&stats)?;
     output::line(format_args!(
@@ -87,8 +87,8 @@ pub(crate) fn pull(
 ) -> crate::Result<()> {
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
-    let repository_provider = provider.repository_provider();
-    let plan = plan_repo_pull(&repo, repository_provider, remote.as_deref(), policy)?;
+    let repo_provider = provider.repo_provider();
+    let plan = plan_repo_pull(&repo, repo_provider, remote.as_deref(), policy)?;
     print_pull_plan(&plan);
     output::record(&plan)?;
     if confirm.dry_run {
@@ -100,12 +100,12 @@ pub(crate) fn pull(
 
     let progress = CliProgressSink::new();
     let stats = pull_repo(
-        repo,
-        repository_provider,
-        remote,
+        &repo,
+        repo_provider,
+        remote.as_deref(),
         policy,
         prune,
-        control_with_profile(profile).with_progress(progress),
+        &control_with_profile(profile).with_progress(progress),
     )?;
     output::record(&stats)?;
     output::line(format_args!(
@@ -127,7 +127,7 @@ pub(crate) fn pull(
 pub(crate) fn list(host: &CommandLineHost<'_>) -> crate::Result<()> {
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
-    let entries = provider.list_remote_repositories()?;
+    let entries = provider.list_repos()?;
     output::record(&entries)?;
     for entry in &entries {
         output::line(format_args!(
@@ -150,11 +150,11 @@ pub(crate) fn create(
     let provider = host.require_remote_provider()?;
     let provider = provider.as_ref();
     create_remote_repo(&repo, &scope_id, provider)?;
-    let (_, manifest) = load_repo_manifest(&repo)?;
+    let manifest = load_repo_manifest(&repo)?;
     let remote_repo_id = manifest
         .remote_repo_id
         .ok_or_else(|| Error::repository("created remote repo was not linked"))?;
-    provider.configure_repository_binding(&repo, &remote_repo_id)?;
+    provider.configure_binding(&repo, &remote_repo_id)?;
     output::line(format_args!(
         "bound repo '{}' to remote repo {remote_repo_id} (scope {scope_id})",
         repo.display(),
@@ -168,7 +168,7 @@ pub(crate) fn bind(
     host: &CommandLineHost<'_>,
 ) -> crate::Result<()> {
     if let Some(provider) = host.optional_remote_provider()?.as_deref() {
-        provider.configure_repository_binding(&repo, &remote_repo_id)?;
+        provider.configure_binding(&repo, &remote_repo_id)?;
     }
     bind_remote_repo(&repo, &remote_repo_id)?;
     output::line(format_args!(
@@ -184,11 +184,11 @@ pub(crate) fn unbind(
     delete_remote: bool,
     host: &CommandLineHost<'_>,
 ) -> crate::Result<()> {
-    let (paths, manifest) = load_repo_manifest(&repo)?;
+    let manifest = load_repo_manifest(&repo)?;
     let Some(remote_repo_id) = manifest.remote_repo_id else {
         output::line(format_args!(
             "repo '{}' is not bound, nothing to do.",
-            paths.repo_root().display()
+            repo.display()
         ));
         return Ok(());
     };
@@ -202,10 +202,7 @@ pub(crate) fn unbind(
     if delete_remote {
         output::line(format_args!("deleted remote repo {remote_repo_id}"));
     }
-    output::line(format_args!(
-        "unbound repo '{}'",
-        paths.repo_root().display()
-    ));
+    output::line(format_args!("unbound repo '{}'", repo.display()));
     Ok(())
 }
 
@@ -232,7 +229,7 @@ pub(crate) fn tag_references(repo: PathBuf, host: &CommandLineHost<'_>) -> crate
     Ok(())
 }
 
-fn scope_label(entry: &RemoteRepositorySummary) -> &str {
+fn scope_label(entry: &RemoteRepoSummary) -> &str {
     if !entry.scope_name.trim().is_empty() {
         &entry.scope_name
     } else if !entry.scope_slug.trim().is_empty() {

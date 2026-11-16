@@ -6,14 +6,14 @@ use super::{dispatch, output, reporting};
 use crate::filesystem::write_json;
 use crate::profiling::ProfileMode;
 use crate::profiling::Profiler;
-use crate::sync::remote::RemoteRepositoryCommandProvider;
+use crate::sync::remote::RemoteRepoService;
 use std::ffi::OsString;
 use std::sync::Arc;
 
 /// Creates the remote provider when a command first needs one, so hosts
 /// authenticate only for remote commands.
 pub type RemoteProviderFactory<'a> =
-    dyn Fn() -> crate::Result<Box<dyn RemoteRepositoryCommandProvider + 'a>> + 'a;
+    dyn Fn() -> crate::Result<Box<dyn RemoteRepoService + 'a>> + 'a;
 
 /// How an embedding host presents and backs the Gutch command line.
 ///
@@ -36,9 +36,7 @@ impl Default for CommandLineHost<'_> {
 
 impl<'a> CommandLineHost<'a> {
     /// Creates the provider for a command that cannot run without one.
-    pub(crate) fn require_remote_provider(
-        &self,
-    ) -> crate::Result<Box<dyn RemoteRepositoryCommandProvider + 'a>> {
+    pub(crate) fn require_remote_provider(&self) -> crate::Result<Box<dyn RemoteRepoService + 'a>> {
         self.optional_remote_provider()?.ok_or_else(|| {
             crate::Error::invalid_input(
                 "remote provider context is required; configure a backend endpoint and session",
@@ -49,7 +47,7 @@ impl<'a> CommandLineHost<'a> {
     /// Creates the provider when the host supplies one.
     pub(crate) fn optional_remote_provider(
         &self,
-    ) -> crate::Result<Option<Box<dyn RemoteRepositoryCommandProvider + 'a>>> {
+    ) -> crate::Result<Option<Box<dyn RemoteRepoService + 'a>>> {
         self.remote_provider.map(|create| create()).transpose()
     }
 }

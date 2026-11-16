@@ -213,8 +213,8 @@ replaces the original operation failure. No retries are added by diagnostics.
 
 Filename failures return a nonzero exit status and write `code: filename_constraints`,
 a concise message and structured `details` with the full violation list.
-The public API exposes `RepositoryConstraints`, `FilesystemTarget`,
-`read_repository_constraints`, `update_repository_constraints` and
+The public API exposes `RepoConstraints`, `FilesystemTarget`,
+`read_repo_constraints`, `update_repo_constraints` and
 `Error::PathValidation`. Consumers translate these types at their own boundary.
 
 Other `Error` kinds name the failing domain: `InvalidInput` for caller

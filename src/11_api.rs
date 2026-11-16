@@ -45,7 +45,7 @@ pub use crate::manifest::SnapshotProductMetadata;
 pub use crate::manifest::SnapshotRuntimeMetadata;
 pub use crate::manifest::SnapshotTagSet;
 pub use crate::manifest::SymlinkManifest;
-pub use crate::manifest::constraints::{FilesystemTarget, RepositoryConstraints};
+pub use crate::manifest::constraints::{FilesystemTarget, RepoConstraints};
 pub use crate::manifest::constraints::{
     SnapshotTagConstraints, SnapshotTagRule, SnapshotTagValueFormat,
 };
@@ -54,7 +54,7 @@ pub use crate::manifest::launch::ResolvedLaunchConfiguration;
 pub use crate::manifest::repo_manifest::ArtifactProfile;
 pub use crate::manifest::repo_manifest::RepoManifest;
 pub use crate::manifest::{
-    DocumentType, DocumentVersion, REPOSITORY_FORMAT_VERSION, RepositoryFormat, VersionedDocument,
+    DocumentType, DocumentVersion, REPO_FORMAT_VERSION, RepoFormat, VersionedDocument,
 };
 pub use crate::path_compare::PathComparisonResult;
 pub use crate::path_compare::compare_paths;
@@ -121,7 +121,6 @@ pub use crate::repo::init_policy::RepoInitPathKind;
 pub use crate::repo::init_policy::RepoInitRisk;
 pub use crate::repo::init_policy::assess_repo_init_path;
 pub use crate::repo::init_policy::initialize_repo;
-pub use crate::repo::paths::RepoPaths;
 pub use crate::repo::read::{load_repo_manifest, load_snapshot_manifest};
 pub use crate::repo::recovery::IndexRebuildResult;
 pub use crate::repo::recovery::rebuild_index;
@@ -139,8 +138,7 @@ pub use crate::repo::tag_references::TagReference;
 pub use crate::repo::tag_references::TagReferenceStatus;
 pub use crate::repo::updates::rename_repo;
 pub use crate::repo::updates::{
-    plan_repo_rename, plan_repository_constraints, read_repository_constraints,
-    update_repository_constraints,
+    plan_repo_constraints, plan_repo_rename, read_repo_constraints, update_repo_constraints,
 };
 pub use crate::repo::verify::SnapshotArtifactVerifyResult;
 pub use crate::repo::verify::verify_repo;
@@ -152,12 +150,12 @@ pub use crate::sync::remote::PullConflictPolicy;
 pub use crate::sync::remote::RemoteArtifactSource;
 pub use crate::sync::remote::RemoteArtifactTarget;
 pub use crate::sync::remote::RemoteBundleSource;
-pub use crate::sync::remote::RemoteRepository;
-pub use crate::sync::remote::RemoteRepositoryCommandProvider;
-pub use crate::sync::remote::RemoteRepositoryProvider;
-pub use crate::sync::remote::RemoteRepositoryReader;
-pub use crate::sync::remote::RemoteRepositorySummary;
-pub use crate::sync::remote::RemoteRepositoryWriter;
+pub use crate::sync::remote::RemoteRepo;
+pub use crate::sync::remote::RemoteRepoProvider;
+pub use crate::sync::remote::RemoteRepoReader;
+pub use crate::sync::remote::RemoteRepoService;
+pub use crate::sync::remote::RemoteRepoSummary;
+pub use crate::sync::remote::RemoteRepoWriter;
 pub use crate::sync::remote::RemoteSnapshot;
 pub use crate::sync::remote::RemoteSnapshotSources;
 pub use crate::sync::remote::RemoteTagReferencesResult;

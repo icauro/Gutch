@@ -138,6 +138,12 @@ handle-release ordering intact across these boundaries.
 Local-to-remote synchronization uses `push_repo`, `plan_repo_push`,
 `RepoPushPlan`, `RepoPushSnapshotChange`, and `RepoPushStats`, matching `repo push`.
 The corresponding download direction remains `pull_repo` and `RepoPullPlan`.
+Public identifiers spell the repository `repo` (`RepoConstraints`,
+`RemoteRepoProvider`, `RemoteRepoService`), and requests and results name its
+directory `repo_root`. Operations borrow their paths, strings and
+`OperationControl`. The public metadata readers take the repo root and return
+plain manifests; `RepoPaths` stays internal. `RepoStatus` reports the
+directory as `repoRoot`; stored documents keep their field names.
 
 Artifact fetch inputs use `ArtifactDownload { artifact_id, url }`,
 `ArtifactUrlProvider::resolve_artifact_urls`, and `SnapshotFetchRequest.artifacts`

@@ -38,7 +38,7 @@ fn formats_check_numeric_bounds_and_real_calendar_dates() {
 
 #[test]
 fn optional_rules_validate_only_present_values_and_reject_unknown_formats() {
-    let constraints: RepositoryConstraints = serde_json::from_str(
+    let constraints: RepoConstraints = serde_json::from_str(
         r#"{"snapshot_tags":{"key_value":{"build":{"format":"u32.u32.u32.u32"}}}}"#,
     )
     .unwrap();
@@ -48,31 +48,30 @@ fn optional_rules_validate_only_present_values_and_reject_unknown_formats() {
             .is_ok()
     );
     assert!(
-        serde_json::from_str::<RepositoryConstraints>(
+        serde_json::from_str::<RepoConstraints>(
             r#"{"snapshot_tags":{"key_value":{"build":{"format":"regex"}}}}"#
         )
         .is_err()
     );
     assert!(
-        serde_json::from_str::<RepositoryConstraints>(
+        serde_json::from_str::<RepoConstraints>(
             r#"{"snapshot_tags":{"key_value":{"build":{"enabled":true}}}}"#
         )
         .is_err()
     );
-    let error = serde_json::from_str::<RepositoryConstraints>(
-        r#"{"snapshot_tags":{"key_value":{"Build":{}}}}"#,
-    )
-    .unwrap_err();
+    let error =
+        serde_json::from_str::<RepoConstraints>(r#"{"snapshot_tags":{"key_value":{"Build":{}}}}"#)
+            .unwrap_err();
     assert!(error.to_string().contains("lower snake case"), "{error}");
 }
 
 #[test]
 fn targets_compare_as_sets_and_unknown_targets_fail_closed() {
-    let a = RepositoryConstraints {
+    let a = RepoConstraints {
         targets: vec![FilesystemTarget::LinuxExt4, FilesystemTarget::WindowsNtfs],
         ..Default::default()
     };
-    let b = RepositoryConstraints {
+    let b = RepoConstraints {
         targets: vec![
             FilesystemTarget::WindowsNtfs,
             FilesystemTarget::LinuxExt4,
@@ -81,5 +80,5 @@ fn targets_compare_as_sets_and_unknown_targets_fail_closed() {
         ..Default::default()
     };
     assert_eq!(a, b);
-    assert!(serde_json::from_str::<RepositoryConstraints>(r#"{"targets":["windwos"]}"#).is_err());
+    assert!(serde_json::from_str::<RepoConstraints>(r#"{"targets":["windwos"]}"#).is_err());
 }

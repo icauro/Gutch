@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-pub struct RepositoryConstraints {
+pub struct RepoConstraints {
     #[serde(default)]
     pub targets: Vec<FilesystemTarget>,
     #[serde(default)]
@@ -19,7 +19,7 @@ pub struct RepositoryConstraints {
     pub require_matching_tag_keys_across_snapshots: bool,
 }
 
-impl PartialEq for RepositoryConstraints {
+impl PartialEq for RepoConstraints {
     fn eq(&self, other: &Self) -> bool {
         self.snapshot_tags == other.snapshot_tags
             && self.require_matching_tag_keys_across_snapshots
@@ -134,7 +134,7 @@ fn validate_tag_rule_keys(rules: &BTreeMap<String, SnapshotTagRule>) -> crate::R
     Ok(())
 }
 
-impl RepositoryConstraints {
+impl RepoConstraints {
     pub fn is_empty(&self) -> bool {
         self.targets.is_empty()
             && self.snapshot_tags.key_value.is_empty()

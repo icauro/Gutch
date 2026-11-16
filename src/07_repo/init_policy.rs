@@ -9,7 +9,7 @@ use super::read_repo_status;
 use crate::Error;
 use crate::Result;
 use crate::filesystem;
-use crate::manifest::constraints::RepositoryConstraints;
+use crate::manifest::constraints::RepoConstraints;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_repo_layout;
@@ -57,7 +57,7 @@ pub struct RepoInitAssessment {
 #[derive(Debug, Clone, Default)]
 pub struct RepoInitOptions {
     pub force: bool,
-    pub constraints: RepositoryConstraints,
+    pub constraints: RepoConstraints,
 }
 
 pub fn assess_repo_init_path(repo_root: &Path) -> Result<RepoInitAssessment> {

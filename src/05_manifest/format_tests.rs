@@ -76,10 +76,10 @@ fn repository_format_and_features_gate_reading_and_writing() {
         "features later for reading"
     );
 
-    let format = |required_to_write: &[&str], optional: &[&str]| RepositoryFormat {
+    let format = |required_to_write: &[&str], optional: &[&str]| RepoFormat {
         features_required_to_write: required_to_write.iter().map(|f| f.to_string()).collect(),
         optional_features: optional.iter().map(|f| f.to_string()).collect(),
-        ..RepositoryFormat::default()
+        ..RepoFormat::default()
     };
     let write_only = format(&["later"], &[]);
     write_only.check(RepositoryAccess::Read).unwrap();
@@ -92,25 +92,24 @@ fn repository_format_and_features_gate_reading_and_writing() {
 fn repository_format_probe_ignores_unrelated_fields() {
     let mut value = repo_metadata();
     value["field_added_later"] = true.into();
-    let format =
-        RepositoryFormat::from_repo_metadata(&serde_json::to_vec(&value).unwrap()).unwrap();
-    assert_eq!(format, RepositoryFormat::default());
+    let format = RepoFormat::from_repo_metadata(&serde_json::to_vec(&value).unwrap()).unwrap();
+    assert_eq!(format, RepoFormat::default());
     value.as_object_mut().unwrap().remove("repository_format");
-    assert!(RepositoryFormat::from_repo_metadata(&serde_json::to_vec(&value).unwrap()).is_err());
+    assert!(RepoFormat::from_repo_metadata(&serde_json::to_vec(&value).unwrap()).is_err());
 }
 
 #[test]
 fn feature_names_must_be_unique_lowercase_identifiers() {
     for features in [vec!["Upper"], vec![""], vec!["a-b"], vec!["same", "same"]] {
-        let format = RepositoryFormat {
+        let format = RepoFormat {
             optional_features: features.iter().map(|f| f.to_string()).collect(),
-            ..RepositoryFormat::default()
+            ..RepoFormat::default()
         };
         assert!(format.validate().is_err(), "{features:?}");
     }
-    let format = RepositoryFormat {
+    let format = RepoFormat {
         optional_features: vec!["sparse_index_v2".into()],
-        ..RepositoryFormat::default()
+        ..RepoFormat::default()
     };
     format.validate().unwrap();
 }

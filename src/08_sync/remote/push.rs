@@ -9,10 +9,10 @@ use super::local_hashes::local_snapshot_metadata_hash_b3;
 use super::local_hashes::local_snapshot_product_metadata_hash_b3;
 use super::progress::RemoteProgress;
 use super::provider::RemoteArtifactTarget;
-use super::provider::RemoteRepository;
-use super::provider::RemoteRepositoryProvider;
-use super::provider::RemoteRepositoryReader;
-use super::provider::RemoteRepositoryWriter;
+use super::provider::RemoteRepo;
+use super::provider::RemoteRepoProvider;
+use super::provider::RemoteRepoReader;
+use super::provider::RemoteRepoWriter;
 use super::provider::RemoteSnapshot;
 use super::provider::RepoPushPlan;
 use super::provider::RepoPushSnapshotChange;
@@ -42,7 +42,6 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
-use std::path::PathBuf;
 
 #[derive(Debug)]
 struct LocalSyncSnapshot {
@@ -56,12 +55,12 @@ struct LocalSyncSnapshot {
     snapshot_blueprint_hash_b3: String,
 }
 
-pub fn plan_repo_push<P: RemoteRepositoryReader + ?Sized>(
+pub fn plan_repo_push<P: RemoteRepoReader + ?Sized>(
     repo_root: &Path,
     provider: &P,
 ) -> Result<RepoPushPlan> {
     let bound_remote_repo_id = linked_remote_repo_id(repo_root)?;
-    let repository = provider.resolve_repository(None, Some(&bound_remote_repo_id))?;
+    let repository = provider.resolve_repo(None, Some(&bound_remote_repo_id))?;
     let snapshots = provider.list_snapshots(&repository)?;
     plan_push(repo_root, &repository, &snapshots)
 }
@@ -145,7 +144,7 @@ pub(super) fn summarize_snapshot_tags_from_values(tags: &[String]) -> (String, S
 
 pub(crate) fn plan_push(
     repo_root: &Path,
-    repository: &RemoteRepository,
+    repository: &RemoteRepo,
     remote_snapshots: &[RemoteSnapshot],
 ) -> Result<RepoPushPlan> {
     let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo_root)?;
@@ -162,7 +161,7 @@ fn plan_push_from_local(
     status: &RepoStatus,
     repo_paths: &RepoPaths,
     local_snapshots: &[LocalSyncSnapshot],
-    repository: &RemoteRepository,
+    repository: &RemoteRepo,
     remote_snapshots: &[RemoteSnapshot],
 ) -> Result<RepoPushPlan> {
     let repo_manifest_changed = hashes_differ(
@@ -274,14 +273,14 @@ fn plan_push_from_local(
 }
 
 /// The inputs shared by every phase of one push.
-struct PushContext<'a, P: RemoteRepositoryWriter + ?Sized> {
+struct PushContext<'a, P: RemoteRepoWriter + ?Sized> {
     provider: &'a P,
-    repository: &'a RemoteRepository,
+    repository: &'a RemoteRepo,
     repo_paths: &'a RepoPaths,
     control: &'a OperationControl,
 }
 
-impl<P: RemoteRepositoryWriter + ?Sized> PushContext<'_, P> {
+impl<P: RemoteRepoWriter + ?Sized> PushContext<'_, P> {
     /// Uploads a snapshot's metadata, blueprint and product metadata as three
     /// progress steps.
     fn upload_snapshot(
@@ -397,19 +396,19 @@ fn required_local_bundle_ids(repo_paths: &RepoPaths, status: &RepoStatus) -> Res
     Ok(ids.into_iter().collect())
 }
 
-pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
-    repo: PathBuf,
+pub fn push_repo<P: RemoteRepoProvider + ?Sized>(
+    repo: &Path,
     provider: &P,
-    control: OperationControl,
+    control: &OperationControl,
 ) -> Result<RepoPushStats> {
-    coordination::write_with_control(&repo, &control.clone(), || {
+    coordination::write_with_control(repo, control, || {
         control.checkpoint()?;
-        let mut progress = RemoteProgress::new(&control, OperationKind::Push);
-        let bound_remote_repo_id = linked_remote_repo_id(&repo)?;
-        let repository = provider.resolve_repository(None, Some(&bound_remote_repo_id))?;
+        let mut progress = RemoteProgress::new(control, OperationKind::Push);
+        let bound_remote_repo_id = linked_remote_repo_id(repo)?;
+        let repository = provider.resolve_repo(None, Some(&bound_remote_repo_id))?;
         progress.report(ProgressPhase::Planning, "Planning sync changes", None);
         let remote_snapshots = provider.list_snapshots(&repository)?;
-        let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(&repo)?;
+        let (status, repo_paths, local_snapshots) = collect_local_sync_snapshots(repo)?;
         let plan = plan_push_from_local(
             &status,
             &repo_paths,
@@ -460,7 +459,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
             provider,
             repository: &repository,
             repo_paths: &repo_paths,
-            control: &control,
+            control,
         };
 
         let mut remote_by_snapshot_id: HashMap<String, RemoteSnapshot> = remote_snapshots
@@ -490,7 +489,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
                 &repository,
                 RemoteArtifactTarget::RepositoryMetadata,
                 filesystem::read(&repo_paths.repo_metadata_path)?,
-                &control,
+                control,
             )?;
             stats.repo_manifest_uploaded = true;
         }
@@ -506,7 +505,7 @@ pub fn push_repo<P: RemoteRepositoryProvider + ?Sized>(
                     &repository,
                     RemoteArtifactTarget::ChunkIndex,
                     filesystem::read(&repo_paths.chunk_map_path)?,
-                    &control,
+                    control,
                 )?;
                 stats.chunk_index_uploaded = true;
             }

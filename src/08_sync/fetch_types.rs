@@ -3,12 +3,13 @@ use crate::progress::OperationControl;
 use crate::transfer::types::{
     ArtifactDownload, ArtifactUrlProvider, TransferConcurrencyPolicy, TransferStats,
 };
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SnapshotFetchRequest {
-    pub repo_path: PathBuf,
+    pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub repo_metadata_url: Option<String>,
     pub metadata_url: String,
@@ -21,9 +22,26 @@ pub struct SnapshotFetchRequest {
     pub control: OperationControl,
 }
 
+/// Omits URLs, which may carry presigned credentials.
+impl fmt::Debug for SnapshotFetchRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SnapshotFetchRequest")
+            .field("repo_root", &self.repo_root)
+            .field("snapshot_id", &self.snapshot_id)
+            .field("artifact_count", &self.artifacts.len())
+            .field(
+                "has_artifact_url_provider",
+                &self.artifact_url_provider.is_some(),
+            )
+            .field("transfer_policy", &self.transfer_policy)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SnapshotFetchResult {
-    pub repo_path: PathBuf,
+    pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub required_bundle_count: usize,
     pub downloaded_bundle_count: usize,

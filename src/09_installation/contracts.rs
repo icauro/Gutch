@@ -67,7 +67,7 @@ pub struct SnapshotReconstructResult {
 
 #[derive(Debug, Clone)]
 pub struct InstallationRequest {
-    pub repo_path: PathBuf,
+    pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
@@ -89,7 +89,7 @@ pub struct InstallationReconstructResult {
 
 #[derive(Debug, Clone)]
 pub struct InstallationVerifyRequest {
-    pub repo_path: PathBuf,
+    pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub verify_mode: VerifyMode,
@@ -167,7 +167,7 @@ pub struct SnapshotRepairResult {
 
 #[derive(Debug, Clone)]
 pub struct InstallationRepairRequest {
-    pub repo_path: PathBuf,
+    pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub staging_dir: Option<PathBuf>,
@@ -178,7 +178,7 @@ pub struct InstallationRepairRequest {
 
 #[derive(Debug, Clone)]
 pub struct InstallationRepairPlanRequest {
-    pub repo_path: PathBuf,
+    pub repo_root: PathBuf,
     pub snapshot_id: String,
     pub destination_dir: PathBuf,
     pub runtime_hints: RuntimeResourceHints,

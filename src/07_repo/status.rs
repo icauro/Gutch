@@ -30,7 +30,7 @@ use crate::repo::snapshot_manifests::snapshot_metadata_path;
 pub struct RepoStatus {
     pub exists: bool,
     pub is_repo: bool,
-    pub repo_path: String,
+    pub repo_root: String,
     pub name: String,
     pub remote_repo_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,33 +86,32 @@ pub fn read_repo_status(repo_root: &Path) -> Result<RepoStatus> {
 }
 
 fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
-    let repo_path = repo_root.to_path_buf();
-    let repo_path_display = repo_path.display().to_string();
-    if !repo_path.exists() {
+    let repo_root_display = repo_root.display().to_string();
+    if !repo_root.exists() {
         return Ok(empty_repo_check_status(
-            repo_path_display,
+            repo_root_display,
             false,
             Some("Path does not exist.".to_string()),
         ));
     }
-    if !repo_path.is_dir() {
+    if !repo_root.is_dir() {
         return Ok(empty_repo_check_status(
-            repo_path_display,
+            repo_root_display,
             true,
             Some("Path is not a directory.".to_string()),
         ));
     }
 
-    let repo_metadata_path = repo_path.join(REPO_METADATA_FILE);
+    let repo_metadata_path = repo_root.join(REPO_METADATA_FILE);
     if !repo_metadata_path.exists() {
         return Ok(empty_repo_check_status(
-            repo_path_display,
+            repo_root_display,
             true,
             Some("repo_metadata.json was not found.".to_string()),
         ));
     }
 
-    let (repo_paths, repo_manifest) = load_repo_manifest(&repo_path)?;
+    let (repo_paths, repo_manifest) = load_repo_manifest(repo_root)?;
 
     let inventory = scan_artifact_inventory(&repo_paths)?;
 
@@ -125,7 +124,7 @@ fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     Ok(RepoStatus {
         exists: true,
         is_repo: true,
-        repo_path: repo_path_display,
+        repo_root: repo_root_display,
         name: repo_manifest.repository_name.clone(),
         remote_repo_id: repo_manifest.remote_repo_id.clone(),
         repo_manifest: Some(serde_json::to_value(&repo_manifest)?),
@@ -138,11 +137,11 @@ fn check_repo_unlocked(repo_root: &Path) -> Result<RepoStatus> {
     })
 }
 
-fn empty_repo_check_status(repo_path: String, exists: bool, error: Option<String>) -> RepoStatus {
+fn empty_repo_check_status(repo_root: String, exists: bool, error: Option<String>) -> RepoStatus {
     RepoStatus {
         exists,
         is_repo: false,
-        repo_path,
+        repo_root,
         name: String::new(),
         remote_repo_id: None,
         repo_manifest: None,

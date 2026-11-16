@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn repo_manifest_new() {
     let repo = RepoManifest::new("base".into());
-    assert_eq!(repo.repository_format, RepositoryFormat::default());
+    assert_eq!(repo.repository_format, RepoFormat::default());
     assert_eq!(repo.repository_name, "base");
     assert_eq!(
         repo.content_packaging_profile.chunk,

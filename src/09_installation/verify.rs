@@ -8,13 +8,13 @@ use crate::repo::coordination::read_with_control;
 
 pub fn verify_installation(request: InstallationVerifyRequest) -> Result<InstallationVerifyResult> {
     request.control.checkpoint()?;
-    let root = request.repo_path.clone();
+    let root = request.repo_root.clone();
     read_with_control(&root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest,
-        } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        } = load_repo_snapshot_manifest(&request.repo_root, &request.snapshot_id)?;
         let (classification, verify_timings) = classify_directory(VerifyRequest {
             snapshot_manifest: &snapshot_manifest,
             dir: &request.destination_dir,

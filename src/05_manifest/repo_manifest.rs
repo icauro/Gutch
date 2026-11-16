@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::format::{
-    DocumentType, DocumentVersion, RepositoryAccess, RepositoryFormat, VersionedDocument,
+    DocumentType, DocumentVersion, RepoFormat, RepositoryAccess, VersionedDocument,
     check_document_markers,
 };
 use crate::Result;
@@ -87,11 +87,11 @@ fn deserialize_content_packaging_profile<'de, D: serde::Deserializer<'de>>(
 pub struct RepoManifest {
     pub document_type: DocumentType<RepoManifest>,
     pub document_version: DocumentVersion<RepoManifest>,
-    pub repository_format: RepositoryFormat,
+    pub repository_format: RepoFormat,
     pub repository_name: String,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub constraints: Option<super::constraints::RepositoryConstraints>,
+    pub constraints: Option<super::constraints::RepoConstraints>,
     #[serde(deserialize_with = "deserialize_content_packaging_profile")]
     pub content_packaging_profile: ArtifactProfile,
     /// Local link to a remote repository; stored outside the shared metadata.
@@ -109,7 +109,7 @@ impl RepoManifest {
         Self {
             document_type: DocumentType::default(),
             document_version: DocumentVersion::default(),
-            repository_format: RepositoryFormat::default(),
+            repository_format: RepoFormat::default(),
             repository_name,
             constraints: None,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
@@ -123,7 +123,7 @@ impl RepoManifest {
     /// document in errors.
     pub(crate) fn from_json_bytes(source: &str, bytes: &[u8]) -> Result<Self> {
         check_document_markers::<Self>(source, bytes)?;
-        RepositoryFormat::from_repo_metadata(bytes)?.check(RepositoryAccess::Read)?;
+        RepoFormat::from_repo_metadata(bytes)?.check(RepositoryAccess::Read)?;
         let manifest: Self = serde_json::from_slice(bytes)?;
         manifest.repository_format.validate()?;
         if let Some(constraints) = &manifest.constraints {

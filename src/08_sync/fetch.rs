@@ -68,8 +68,8 @@ pub(crate) struct PreparedSnapshotFetch {
 
 pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchResult> {
     request.control.checkpoint()?;
-    fs::create_dir_all(&request.repo_path)?;
-    write_with_control(&request.repo_path, &request.control.clone(), || {
+    fs::create_dir_all(&request.repo_root)?;
+    write_with_control(&request.repo_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span("transfer.fetch");
         let progress = request.control.progress().clone();
@@ -156,7 +156,7 @@ pub(crate) fn prepare_snapshot_fetch(
         "Preparing local repo layout",
         Some(snapshot_id),
     );
-    let repo_paths = RepoPaths::from_repo_root(&request.repo_path);
+    let repo_paths = RepoPaths::from_repo_root(&request.repo_root);
     let repository_existed = repo_paths.repo_metadata_path.exists();
     ensure_repo_layout(&repo_paths, "download")?;
 
@@ -458,7 +458,7 @@ pub(crate) fn build_fetch_result(
     transfer_stats: TransferStats,
 ) -> SnapshotFetchResult {
     SnapshotFetchResult {
-        repo_path: request.repo_path.clone(),
+        repo_root: request.repo_root.clone(),
         snapshot_id: request.snapshot_id.clone(),
         required_bundle_count,
         downloaded_bundle_count,

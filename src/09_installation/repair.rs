@@ -20,7 +20,7 @@ use crate::repo::index::load_chunk_index;
 pub fn repair_installation(request: InstallationRepairRequest) -> Result<InstallationRepairResult> {
     let result = install_snapshot_from_repo(
         InstallationRequest {
-            repo_path: request.repo_path,
+            repo_root: request.repo_root,
             snapshot_id: request.snapshot_id,
             destination_dir: request.destination_dir,
             staging_dir: request.staging_dir,
@@ -51,12 +51,12 @@ pub fn plan_installation_repair(
     request: InstallationRepairPlanRequest,
 ) -> Result<InstallationRepairPlanResult> {
     request.control.checkpoint()?;
-    read_with_control(&request.repo_path, &request.control.clone(), || {
+    read_with_control(&request.repo_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest,
-        } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        } = load_repo_snapshot_manifest(&request.repo_root, &request.snapshot_id)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let repair_plan = inspect_installation_changes(
             &snapshot_manifest,

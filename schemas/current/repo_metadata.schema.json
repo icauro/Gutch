@@ -7,7 +7,7 @@
     "constraints": {
       "anyOf": [
         {
-          "$ref": "#/$defs/RepositoryConstraints"
+          "$ref": "#/$defs/RepoConstraints"
         },
         {
           "type": "null"
@@ -29,7 +29,7 @@
       "const": "1.0.0"
     },
     "repository_format": {
-      "$ref": "#/$defs/RepositoryFormat"
+      "$ref": "#/$defs/RepoFormat"
     },
     "repository_name": {
       "type": "string"
@@ -150,7 +150,7 @@
         "android-f2fs"
       ]
     },
-    "RepositoryConstraints": {
+    "RepoConstraints": {
       "description": "Optional repository invariants; an empty value imposes no constraints.",
       "type": "object",
       "properties": {
@@ -174,7 +174,7 @@
       },
       "additionalProperties": false
     },
-    "RepositoryFormat": {
+    "RepoFormat": {
       "description": "What a repository needs from the Gutch release that opens it.\n\nA reader must understand every feature in `features_required_to_read`. A\nwriter must also understand `features_required_to_write`. Any release may\nignore `optional_features`. Features describe repository capabilities, such\nas new files or binary groups; a changed document field changes that\ndocument's version instead.",
       "type": "object",
       "properties": {

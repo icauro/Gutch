@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use super::artifact_decision::repo_file_hash;
@@ -74,14 +73,14 @@ impl MemoryProvider {
     }
 }
 
-impl RemoteRepositoryReader for MemoryProvider {
-    fn resolve_repository(
+impl RemoteRepoReader for MemoryProvider {
+    fn resolve_repo(
         &self,
         _remote_spec: Option<&str>,
         _bound_remote_repo_id: Option<&str>,
-    ) -> Result<RemoteRepository> {
+    ) -> Result<RemoteRepo> {
         let state = self.0.lock().unwrap();
-        Ok(RemoteRepository {
+        Ok(RemoteRepo {
             id: "memory".into(),
             scope_id: "scope".into(),
             name: "memory".into(),
@@ -91,7 +90,7 @@ impl RemoteRepositoryReader for MemoryProvider {
         })
     }
 
-    fn list_snapshots(&self, _repository: &RemoteRepository) -> Result<Vec<RemoteSnapshot>> {
+    fn list_snapshots(&self, _repository: &RemoteRepo) -> Result<Vec<RemoteSnapshot>> {
         let state = self.0.lock().unwrap();
         Ok(state
             .snapshots
@@ -100,16 +99,13 @@ impl RemoteRepositoryReader for MemoryProvider {
             .collect())
     }
 
-    fn repository_metadata_source(
-        &self,
-        _repository: &RemoteRepository,
-    ) -> Result<RemoteArtifactSource> {
+    fn repo_metadata_source(&self, _repository: &RemoteRepo) -> Result<RemoteArtifactSource> {
         Ok(RemoteArtifactSource::Bytes(
             self.0.lock().unwrap().metadata.clone(),
         ))
     }
 
-    fn chunk_index_source(&self, _repository: &RemoteRepository) -> Result<RemoteArtifactSource> {
+    fn chunk_index_source(&self, _repository: &RemoteRepo) -> Result<RemoteArtifactSource> {
         Ok(RemoteArtifactSource::Bytes(
             self.0.lock().unwrap().chunk_index.clone(),
         ))
@@ -117,7 +113,7 @@ impl RemoteRepositoryReader for MemoryProvider {
 
     fn snapshot_sources(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         snapshot: &RemoteSnapshot,
     ) -> Result<RemoteSnapshotSources> {
         let state = self.0.lock().unwrap();
@@ -134,7 +130,7 @@ impl RemoteRepositoryReader for MemoryProvider {
 
     fn bundle_sources(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         _snapshot: &RemoteSnapshot,
         bundle_ids: &[String],
     ) -> Result<Vec<RemoteBundleSource>> {
@@ -150,12 +146,8 @@ impl RemoteRepositoryReader for MemoryProvider {
     }
 }
 
-impl RemoteRepositoryWriter for MemoryProvider {
-    fn delete_snapshot(
-        &self,
-        _repository: &RemoteRepository,
-        snapshot: &RemoteSnapshot,
-    ) -> Result<()> {
+impl RemoteRepoWriter for MemoryProvider {
+    fn delete_snapshot(&self, _repository: &RemoteRepo, snapshot: &RemoteSnapshot) -> Result<()> {
         self.0
             .lock()
             .unwrap()
@@ -166,7 +158,7 @@ impl RemoteRepositoryWriter for MemoryProvider {
 
     fn create_snapshot(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         snapshot_id: &str,
         _tags: &SnapshotTagSet,
     ) -> Result<RemoteSnapshot> {
@@ -185,7 +177,7 @@ impl RemoteRepositoryWriter for MemoryProvider {
 
     fn upload_artifact(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         target: RemoteArtifactTarget<'_>,
         bytes: Vec<u8>,
         _control: &OperationControl,
@@ -215,20 +207,20 @@ impl RemoteRepositoryWriter for MemoryProvider {
 
     fn delete_snapshot_product_metadata(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         snapshot: &RemoteSnapshot,
     ) -> Result<()> {
         self.update(snapshot, |stored| stored.product_metadata = None);
         Ok(())
     }
 
-    fn bundle_exists(&self, _repository: &RemoteRepository, bundle_id: &str) -> Result<bool> {
+    fn bundle_exists(&self, _repository: &RemoteRepo, bundle_id: &str) -> Result<bool> {
         Ok(self.0.lock().unwrap().bundles.contains_key(bundle_id))
     }
 
     fn reconcile_bundles(
         &self,
-        _repository: &RemoteRepository,
+        _repository: &RemoteRepo,
         required_bundle_ids: &[String],
     ) -> Result<usize> {
         let mut state = self.0.lock().unwrap();
@@ -280,17 +272,17 @@ fn bundle_ids(repo: &Path) -> Vec<String> {
 }
 
 fn push(repo: &Path, provider: &MemoryProvider) -> Result<RepoPushStats> {
-    push_repo(repo.to_path_buf(), provider, OperationControl::default())
+    push_repo(repo, provider, &OperationControl::default())
 }
 
 fn pull(repo: &Path, provider: &MemoryProvider, prune: bool) -> RepoPullStats {
     pull_repo(
-        PathBuf::from(repo),
+        repo,
         provider,
         None,
         PullConflictPolicy::KeepRemote,
         prune,
-        OperationControl::default(),
+        &OperationControl::default(),
     )
     .unwrap()
 }
@@ -374,12 +366,12 @@ fn pull_step_total_matches_the_steps_reported() {
     for (clone, prune) in [("plain", false), ("pruned", true)] {
         let steps = std::sync::Arc::new(crate::test_util::RecordedProgress::default());
         pull_repo(
-            root.path().join(clone),
+            &root.path().join(clone),
             &provider,
             None,
             PullConflictPolicy::KeepRemote,
             prune,
-            OperationControl::default().with_progress(steps.clone()),
+            &OperationControl::default().with_progress(steps.clone()),
         )
         .unwrap();
         let events = steps.events();

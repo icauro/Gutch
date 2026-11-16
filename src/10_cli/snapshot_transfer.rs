@@ -83,7 +83,7 @@ impl FetchArgs {
             direct_downloads.extend(parse_artifact_url_manifest(&manifest_path)?);
         }
         Ok(SnapshotFetchRequest {
-            repo_path: repo,
+            repo_root: repo,
             snapshot_id,
             repo_metadata_url,
             metadata_url,
@@ -108,7 +108,7 @@ pub(crate) fn fetch(command: FetchArgs, profile: &Profile) -> crate::Result<()> 
     write_stats_json_output(
         &serde_json::json!({
             "command": "snapshot fetch",
-            "repo_root": result.repo_path.display().to_string(),
+            "repo_root": result.repo_root.display().to_string(),
             "snapshot_id": result.snapshot_id,
             "fetch": fetch,
         }),
@@ -122,7 +122,7 @@ pub(crate) fn fetch(command: FetchArgs, profile: &Profile) -> crate::Result<()> 
         output::line(format_args!(
             "fetched snapshot data for {} into {}",
             result.snapshot_id,
-            result.repo_path.display()
+            result.repo_root.display()
         ));
         fetch.print_details();
     }

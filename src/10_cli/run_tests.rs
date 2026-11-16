@@ -73,11 +73,10 @@ fn the_remote_provider_is_created_only_for_remote_commands() {
     let repo = root.path().join("repo");
     let repo = repo.to_str().unwrap();
     let created = Cell::new(0);
-    let factory =
-        || -> crate::Result<Box<dyn crate::sync::remote::RemoteRepositoryCommandProvider>> {
-            created.set(created.get() + 1);
-            Err(crate::Error::invalid_input("no session"))
-        };
+    let factory = || -> crate::Result<Box<dyn crate::sync::remote::RemoteRepoService>> {
+        created.set(created.get() + 1);
+        Err(crate::Error::invalid_input("no session"))
+    };
     let host = CommandLineHost {
         bin_name: "host",
         remote_provider: Some(&factory),

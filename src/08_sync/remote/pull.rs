@@ -15,8 +15,8 @@ use super::progress::RemoteProgress;
 use super::provider::PullConflictPolicy;
 use super::provider::RemoteArtifactSource;
 use super::provider::RemoteBundleSource;
-use super::provider::RemoteRepository;
-use super::provider::RemoteRepositoryReader;
+use super::provider::RemoteRepo;
+use super::provider::RemoteRepoReader;
 use super::provider::RemoteSnapshot;
 use super::provider::RepoPullPlan;
 use super::provider::RepoPullStats;
@@ -73,7 +73,7 @@ use std::path::PathBuf;
 pub(super) fn compute_pull_plan(
     repo_root: &Path,
     repo_paths: &RepoPaths,
-    repository: &RemoteRepository,
+    repository: &RemoteRepo,
     snapshots: &[RemoteSnapshot],
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
@@ -207,7 +207,7 @@ pub(super) fn compute_pull_plan(
 
 pub(crate) fn plan_pull(
     repo_root: &Path,
-    repository: &RemoteRepository,
+    repository: &RemoteRepo,
     snapshots: &[RemoteSnapshot],
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
@@ -297,14 +297,14 @@ fn write_remote_snapshot_artifacts(
     Ok(())
 }
 
-pub fn plan_repo_pull<P: RemoteRepositoryReader + ?Sized>(
+pub fn plan_repo_pull<P: RemoteRepoReader + ?Sized>(
     repo_root: &Path,
     provider: &P,
     remote_spec: Option<&str>,
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
     let bound_remote_repo_id = bound_remote_repo_id(repo_root)?;
-    let repository = provider.resolve_repository(remote_spec, bound_remote_repo_id.as_deref())?;
+    let repository = provider.resolve_repo(remote_spec, bound_remote_repo_id.as_deref())?;
     let snapshots = provider.list_snapshots(&repository)?;
     plan_pull(repo_root, &repository, &snapshots, policy)
 }
@@ -410,16 +410,16 @@ pub(super) fn bundle_source_requests(
 }
 
 /// The inputs shared by every phase of one pull.
-struct PullContext<'a, P: RemoteRepositoryReader + ?Sized> {
+struct PullContext<'a, P: RemoteRepoReader + ?Sized> {
     repo: &'a Path,
     repo_paths: &'a RepoPaths,
-    repository: &'a RemoteRepository,
+    repository: &'a RemoteRepo,
     provider: &'a P,
     download_client: DownloadClient,
     control: &'a OperationControl,
 }
 
-impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
+impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
     fn download(&self, source: &RemoteArtifactSource, maximum_bytes: u64) -> Result<Vec<u8>> {
         source_bytes(source, &self.download_client, maximum_bytes, self.control)
     }
@@ -428,7 +428,7 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
     /// never change through a pull; they must already match.
     fn download_repo_manifest(&self, repository_existed: bool) -> Result<()> {
         let bytes = self.download(
-            &self.provider.repository_metadata_source(self.repository)?,
+            &self.provider.repo_metadata_source(self.repository)?,
             MAX_METADATA_BYTES,
         )?;
         verify_remote_artifact(&bytes, &self.repository.metadata_hash_b3, "repo metadata")?;
@@ -562,22 +562,21 @@ impl<P: RemoteRepositoryReader + ?Sized> PullContext<'_, P> {
     }
 }
 
-pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
-    repo: PathBuf,
+pub fn pull_repo<P: RemoteRepoReader + ?Sized>(
+    repo: &Path,
     provider: &P,
-    remote_spec: Option<String>,
+    remote_spec: Option<&str>,
     policy: PullConflictPolicy,
     prune: bool,
-    control: OperationControl,
+    control: &OperationControl,
 ) -> Result<RepoPullStats> {
-    fs::create_dir_all(&repo)?;
-    coordination::write_with_control(&repo, &control.clone(), || {
+    fs::create_dir_all(repo)?;
+    coordination::write_with_control(repo, control, || {
         control.checkpoint()?;
-        let mut progress = RemoteProgress::new(&control, OperationKind::Pull);
-        let bound_remote_repo_id = bound_remote_repo_id(&repo)?;
-        let repository =
-            provider.resolve_repository(remote_spec.as_deref(), bound_remote_repo_id.as_deref())?;
-        let repo_paths = RepoPaths::from_repo_root(&repo);
+        let mut progress = RemoteProgress::new(control, OperationKind::Pull);
+        let bound_remote_repo_id = bound_remote_repo_id(repo)?;
+        let repository = provider.resolve_repo(remote_spec, bound_remote_repo_id.as_deref())?;
+        let repo_paths = RepoPaths::from_repo_root(repo);
         let repository_existed = repo_paths.repo_metadata_path.exists();
         ensure_repo_layout(&repo_paths, &repository.name)?;
         progress.report(ProgressPhase::Planning, "Planning pull changes", None);
@@ -589,15 +588,15 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 .entry(snapshot.snapshot_id.as_str())
                 .or_insert(snapshot);
         }
-        let plan = compute_pull_plan(&repo, &repo_paths, &repository, &snapshots, policy)?;
+        let plan = compute_pull_plan(repo, &repo_paths, &repository, &snapshots, policy)?;
         control.checkpoint()?;
         let context = PullContext {
-            repo: &repo,
+            repo,
             repo_paths: &repo_paths,
             repository: &repository,
             provider,
             download_client: build_download_client()?,
-            control: &control,
+            control,
         };
 
         let mut stats = RepoPullStats {
@@ -725,7 +724,7 @@ pub fn pull_repo<P: RemoteRepositoryReader + ?Sized>(
                 &context.download_client,
                 bundle_id,
                 &bundle_path(&repo_paths, bundle_id)?,
-                &control,
+                control,
             )?;
         }
         stats.bundle_downloaded_count = missing_bundles.len();

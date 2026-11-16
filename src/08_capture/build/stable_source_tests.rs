@@ -20,7 +20,7 @@ fn a_source_change_seen_during_the_build_is_retried_from_a_fresh_scan() {
         &config,
         &pool,
         stale,
-        &RepositoryConstraints::default(),
+        &RepoConstraints::default(),
         1,
     )
     .unwrap();

@@ -48,7 +48,7 @@ pub fn install_snapshot_from_repo(
     publication: InstallationPublication,
 ) -> Result<InstallationResult> {
     request.control.checkpoint()?;
-    read_with_control(&request.repo_path, &request.control.clone(), || {
+    read_with_control(&request.repo_root, &request.control.clone(), || {
         request.control.checkpoint()?;
         let _operation_span = request.control.profile_span(match publication {
             InstallationPublication::ReplaceDirectory => "installation.reconstruct",
@@ -57,13 +57,13 @@ pub fn install_snapshot_from_repo(
         let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest,
-        } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        } = load_repo_snapshot_manifest(&request.repo_root, &request.snapshot_id)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let _promotion_lock = prepare_installation_destination(
             &snapshot_manifest,
             &request.destination_dir,
             request.staging_dir.as_deref(),
-            &request.repo_path,
+            &request.repo_root,
             &request.control,
         )?;
         let changes = if publication.is_selective() {

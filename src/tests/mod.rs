@@ -126,7 +126,7 @@ fn apply_snapshot_ops_reuses_verified_source_destination() {
     write_chunk_index(&repo_paths, &chunk_index).unwrap();
 
     let result = reconstruct_snapshot(InstallationRequest {
-        repo_path: repo_dir,
+        repo_root: repo_dir,
         snapshot_id: v2.snapshot_manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir.clone()),
@@ -361,7 +361,7 @@ fn large_game_build_200mb() {
     let out_dir_temp = tempfile::tempdir().unwrap();
     let out_dir = out_dir_temp.path().join("test_200mb_reconstructed");
     reconstruct_snapshot(InstallationRequest {
-        repo_path: repo_root.clone(),
+        repo_root: repo_root.clone(),
         snapshot_id: result.snapshot_manifest.snapshot_id.clone(),
         destination_dir: out_dir.clone(),
         staging_dir: None,

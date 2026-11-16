@@ -187,7 +187,7 @@ fn validate_committable(root: &Path) -> Result<()> {
     if root.join("repo_metadata.json").exists() {
         let (_, repository) = super::paths::load_repo_manifest(root)?;
         if let Some(constraints) = repository.constraints {
-            super::updates::validate_repository_tag_constraints(root, &constraints)?;
+            super::updates::validate_repo_tag_constraints(root, &constraints)?;
         }
     }
     Ok(())

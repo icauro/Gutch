@@ -32,6 +32,7 @@ use crate::filesystem;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::ProfileMode;
+use crate::repo::paths::RepoPaths;
 use crate::repo::read::load_repo_manifest;
 use crate::repo::snapshot_manifests::diff_repo_snapshots;
 use crate::repo::snapshots::delete_snapshot;
@@ -157,7 +158,8 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         source_dirs,
         SnapshotTagSet::from_compact_strings(&tags)?,
     )?;
-    let (repo_paths, repo_manifest) = load_repo_manifest(&repo)?;
+    let repo_manifest = load_repo_manifest(&repo)?;
+    let repo_paths = RepoPaths::from_repo_root(&repo);
     let requests = sources
         .iter()
         .map(|source| SnapshotCaptureRequest {

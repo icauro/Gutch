@@ -83,7 +83,7 @@ fn artifact_download_deserializes_artifact_response() {
 fn artifact_url_provider_rejects_unexpected_artifact_ids() {
     let required_artifact_ids = HashSet::from(["bundle-a".to_string()]);
     let request = SnapshotFetchRequest {
-        repo_path: PathBuf::from("C:\\repo"),
+        repo_root: PathBuf::from("C:\\repo"),
         snapshot_id: "snapshot".to_string(),
         repo_metadata_url: None,
         metadata_url: "https://example.com/metadata".to_string(),
@@ -112,7 +112,7 @@ fn artifact_url_provider_rejects_unexpected_artifact_ids() {
 fn direct_bundle_urls_reject_duplicate_artifact_ids() {
     let required_artifact_ids = HashSet::from(["bundle-a".to_string()]);
     let request = SnapshotFetchRequest {
-        repo_path: PathBuf::from("C:\\repo"),
+        repo_root: PathBuf::from("C:\\repo"),
         snapshot_id: "snapshot".to_string(),
         repo_metadata_url: None,
         metadata_url: "https://example.com/metadata".to_string(),
@@ -207,7 +207,7 @@ fn repair_snapshot_ops_keeps_added_files_when_requested() {
     write_repair_test_repo(&root, &manifest);
 
     let result = repair_installation(InstallationRepairRequest {
-        repo_path: root.clone(),
+        repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
@@ -236,7 +236,7 @@ fn repair_snapshot_ops_full_repair_deletes_added_files() {
     write_repair_test_repo(&root, &manifest);
 
     let result = repair_installation(InstallationRepairRequest {
-        repo_path: root.clone(),
+        repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         staging_dir: Some(staging_dir),
@@ -327,7 +327,7 @@ fn repair_plan_only_requires_bundles_for_affected_files() {
     fs::write(destination_dir.join("data.bin"), b"data").unwrap();
 
     let plan = plan_installation_repair(InstallationRepairPlanRequest {
-        repo_path: root.clone(),
+        repo_root: root.clone(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: destination_dir.clone(),
         runtime_hints: RuntimeResourceHints::default(),
@@ -354,7 +354,7 @@ fn repair_restores_manifest_file_attributes() {
     manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
     write_repair_test_repo(root.path(), &manifest);
     repair_installation(InstallationRepairRequest {
-        repo_path: root.path().to_path_buf(),
+        repo_root: root.path().to_path_buf(),
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
         staging_dir: None,
@@ -427,7 +427,7 @@ fn repair_restores_files_inside_read_only_directories() {
     write_repair_test_repo(root.path(), &manifest);
 
     repair_installation(InstallationRepairRequest {
-        repo_path: root.path().to_path_buf(),
+        repo_root: root.path().to_path_buf(),
         snapshot_id: manifest.snapshot_id,
         destination_dir: destination.clone(),
         staging_dir: None,
@@ -447,7 +447,7 @@ fn repair_restores_files_inside_read_only_directories() {
 
 fn repair(root: &Path, manifest: &SnapshotManifest, remove_extra_files: bool) -> crate::Result<()> {
     repair_installation(InstallationRepairRequest {
-        repo_path: root.to_path_buf(),
+        repo_root: root.to_path_buf(),
         snapshot_id: manifest.snapshot_id.clone(),
         destination_dir: root.join("destination"),
         staging_dir: None,

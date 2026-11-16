@@ -73,17 +73,17 @@ pub fn visit_installation_plan(
     inspection: InstallationInspection,
     visitor: &mut dyn FnMut(InstallationPlanEvent) -> Result<()>,
 ) -> Result<InstallationPlanSummary> {
-    read_with_control(&request.repo_path, &request.control, || {
+    read_with_control(&request.repo_root, &request.control, || {
         request.control.checkpoint()?;
         validate_installation_paths(
             &request.destination_dir,
             request.staging_dir.as_deref(),
-            &request.repo_path,
+            &request.repo_root,
         )?;
         let LoadedRepoSnapshot {
             repo_paths,
             snapshot_manifest: target_manifest,
-        } = load_repo_snapshot_manifest(&request.repo_path, &request.snapshot_id)?;
+        } = load_repo_snapshot_manifest(&request.repo_root, &request.snapshot_id)?;
         let chunk_index = load_chunk_index(&repo_paths)?;
         let content_inspected = inspection == InstallationInspection::Content;
         let changes = inspect_installation_changes(
