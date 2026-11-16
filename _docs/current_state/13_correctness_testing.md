@@ -85,7 +85,9 @@ bytes and frozen `repository/format-v1/` repositories with creator metadata.
 Blender archives and sources are cached only under ignored test artifacts;
 its repository is captured per run and must match the pinned snapshot IDs.
 New frozen binary format generations get new folders; existing synthetic
-repositories are never automatically rebuilt.
+repositories are never automatically rebuilt. Once a release tag exists,
+`test_release_freeze.py` fails if a folder that tag holds changes; see
+[format evolution](16_format_evolution.md).
 
 The default frozen scenario runs the shared lifecycle over all small corpus
 repositories. `--dataset blender --steps 0 --timeout 1800` selects the full real-world

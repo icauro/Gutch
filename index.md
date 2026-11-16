@@ -34,6 +34,7 @@ _docs/current_state/12_performance_and_development.md
 _docs/current_state/13_correctness_testing.md
 _docs/current_state/14_limitations.md
 _docs/current_state/15_binary_formats.md
+_docs/current_state/16_format_evolution.md
 _docs/current_state/cdc_experiment.md
 _docs/current_state/README.md
 _tools/

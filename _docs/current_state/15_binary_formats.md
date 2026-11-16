@@ -9,7 +9,8 @@ Verified: 2026-09-12
 Integers are unsigned little-endian without Rust padding. `Hash32` is a binary
 BLAKE3 digest. All binary formats use version **1**. This prerelease layout is a clean replacement;
 no compatibility reader exists for superseded layouts.
-JSON document versions remain `1.0.0`. Snapshot IDs describe installation content
+JSON document versions remain `1.0.0`; [format evolution](16_format_evolution.md)
+describes how versions change. Snapshot IDs describe installation content
 and properties; their canonical identity algorithm is independent of these bytes.
 
 ## Files and roles

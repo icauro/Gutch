@@ -109,3 +109,5 @@ A progress event describes operation phase and presentation detail. The final
   boundaries, and established reasons.
 - [Binary file layouts](15_binary_formats.md) — serialized fields, arrays,
   storage modes, and exact byte-size formulas.
+- [Format evolution](16_format_evolution.md) — repository, document, binary and
+  output versions, refusal rules and the release checklist.
