@@ -151,7 +151,10 @@ are visible to pulls only after that push completes. Pulls take no lock, so a
 pull that overlaps a push may fail and can be retried.
 
 [`examples/folder_remote.rs`](../examples/folder_remote.rs) is a complete
-store backed by a local folder.
+store backed by a local folder. [`examples/s3_app`](../examples/s3_app) is a
+desktop app with a store for S3-compatible buckets (AWS S3, MinIO, R2): it
+creates repositories in a bucket, captures and pushes folders, and installs,
+updates, verifies and repairs snapshots on the local machine.
 
 ### Servers with their own API
 
