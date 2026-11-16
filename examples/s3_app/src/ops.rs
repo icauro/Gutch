@@ -4,6 +4,9 @@
 //! The app keeps a local copy of each remote repository in the cache
 //! folder, at `CACHE/SCOPE/NAME`. Gutch captures into that copy and installs
 //! from it, and `pull_repo`/`push_repo` keep it in step with the bucket.
+//! Installing, browsing and saving a file download only the snapshot they
+//! use; a capture downloads everything first, because a push makes the
+//! bucket match the copy.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,8 +16,9 @@ use gutch::api::{
     ObjectStoreRemote, OperationControl, RemoteObjectStore, RemoteRepoBindRequest,
     RemoteRepoCreateRequest, RemoteRepoReader, RemoteRepoService, RemoteRepoSummary,
     RemoteSnapshot, Repo, RepoPullRequest, RepoPushRequest, Result, SnapshotCaptureOutcome,
-    SnapshotCaptureRequest, SnapshotTagSet, bind_remote_repo, capture_snapshot, create_remote_repo,
-    pull_repo, push_repo, reconstruct_installation, repair_installation, verify_installation,
+    SnapshotCaptureRequest, SnapshotFileReadRequest, SnapshotTagSet, bind_remote_repo,
+    capture_snapshot, create_remote_repo, load_snapshot_manifest, pull_repo, push_repo,
+    read_snapshot_file, reconstruct_installation, repair_installation, verify_installation,
 };
 
 pub struct Remote<S> {
@@ -92,8 +96,8 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
             .collect();
         let tags = SnapshotTagSet::from_compact_strings(&tags)?;
         // Push makes the remote match the local copy, so first take in
-        // what others pushed.
-        let repo_root = self.pull(repo_id, control.clone())?;
+        // everything others pushed.
+        let repo_root = self.pull(repo_id, Vec::new(), control.clone())?;
         let captured = capture_snapshot(&SnapshotCaptureRequest {
             repo_root: repo_root.clone(),
             source: source.to_path_buf(),
@@ -131,7 +135,17 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
         installed_snapshot_id: Option<&str>,
         control: OperationControl,
     ) -> Result<String> {
-        let repo_root = self.pull(repo_id, control.clone())?;
+        // The installed snapshot's manifest tells Gutch what is already there.
+        let mut snapshot_ids = vec![snapshot_id.to_owned()];
+        if let Some(installed) = installed_snapshot_id
+            && self
+                .snapshots(repo_id)?
+                .iter()
+                .any(|snapshot| snapshot.snapshot_id == installed)
+        {
+            snapshot_ids.push(installed.to_owned());
+        }
+        let repo_root = self.pull(repo_id, snapshot_ids, control.clone())?;
         let installed = reconstruct_installation(&InstallationReconstructRequest {
             repo_root,
             snapshot_id: snapshot_id.to_owned(),
@@ -155,7 +169,7 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
         destination: &Path,
         control: OperationControl,
     ) -> Result<String> {
-        let repo_root = self.pull(repo_id, control.clone())?;
+        let repo_root = self.pull(repo_id, vec![snapshot_id.to_owned()], control.clone())?;
         let issues = verify_installation(&InstallationVerifyRequest {
             repo_root,
             snapshot_id: snapshot_id.to_owned(),
@@ -175,7 +189,7 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
         destination: &Path,
         control: OperationControl,
     ) -> Result<String> {
-        let repo_root = self.pull(repo_id, control.clone())?;
+        let repo_root = self.pull(repo_id, vec![snapshot_id.to_owned()], control.clone())?;
         let repaired = repair_installation(&InstallationRepairRequest {
             repo_root,
             snapshot_id: snapshot_id.to_owned(),
@@ -190,8 +204,56 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
         ))
     }
 
-    /// Brings the local copy up to date, creating it on first use.
-    fn pull(&self, repo_id: &str, control: OperationControl) -> Result<PathBuf> {
+    /// The paths and sizes of a snapshot's files, sorted by path.
+    pub fn files(
+        &self,
+        repo_id: &str,
+        snapshot_id: &str,
+        control: OperationControl,
+    ) -> Result<Vec<(String, u64)>> {
+        let repo_root = self.pull(repo_id, vec![snapshot_id.to_owned()], control)?;
+        let manifest = load_snapshot_manifest(&repo_root, snapshot_id)?;
+        let mut files: Vec<(String, u64)> = manifest
+            .files()
+            .map(|file| (file.path.clone(), file.size))
+            .collect();
+        files.sort();
+        Ok(files)
+    }
+
+    /// Writes one file of a snapshot to `target` without installing the
+    /// snapshot.
+    pub fn save_file(
+        &self,
+        repo_id: &str,
+        snapshot_id: &str,
+        path: &str,
+        target: &Path,
+        control: OperationControl,
+    ) -> Result<String> {
+        let repo_root = self.pull(repo_id, vec![snapshot_id.to_owned()], control.clone())?;
+        let content = read_snapshot_file(&SnapshotFileReadRequest {
+            repo_root,
+            snapshot_id: snapshot_id.to_owned(),
+            path: path.to_owned(),
+            control,
+        })?;
+        fs::write(target, &content)?;
+        Ok(format!(
+            "saved {path} ({} bytes) to {}",
+            content.len(),
+            target.display()
+        ))
+    }
+
+    /// Brings the local copy up to date, creating it on first use. With
+    /// `snapshot_ids`, downloads only those snapshots; empty downloads all.
+    fn pull(
+        &self,
+        repo_id: &str,
+        snapshot_ids: Vec<String>,
+        control: OperationControl,
+    ) -> Result<PathBuf> {
         let repository = self.remote.resolve_repo(Some(repo_id), None)?;
         let repo_root = self
             .cache_dir
@@ -202,6 +264,7 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
                 repo_root: repo_root.clone(),
                 remote_repo_id: Some(repo_id.to_owned()),
                 prune: true,
+                snapshot_ids,
                 control,
                 ..Default::default()
             },

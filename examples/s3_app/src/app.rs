@@ -25,6 +25,8 @@ struct Outcome {
     snapshots: Option<Vec<RemoteSnapshot>>,
     /// The snapshot now in the destination folder.
     installed_snapshot_id: Option<String>,
+    /// A snapshot and its files' paths and sizes.
+    files: Option<(String, Vec<(String, u64)>)>,
 }
 
 enum Update {
@@ -57,6 +59,8 @@ pub struct App {
     destination: Option<PathBuf>,
     /// The snapshot already in `destination`, so an install only changes what differs.
     installed_snapshot_id: Option<String>,
+    /// The listed snapshot and its files, shown while that snapshot is selected.
+    files: Option<(String, Vec<(String, u64)>)>,
 
     job: Option<Job>,
     status: String,
@@ -134,6 +138,7 @@ impl App {
             tags: saved.tags,
             destination: saved.destination,
             installed_snapshot_id: None,
+            files: None,
             job: None,
             status: "Fill in the bucket and connect.".into(),
             status_is_error: false,
@@ -218,6 +223,9 @@ impl App {
                 }
                 if outcome.installed_snapshot_id.is_some() {
                     self.installed_snapshot_id = outcome.installed_snapshot_id;
+                }
+                if outcome.files.is_some() {
+                    self.files = outcome.files;
                 }
             }
             Err(error) => {
@@ -376,6 +384,7 @@ impl App {
         self.repo_id = Some(repo_id.clone());
         self.snapshot_id = None;
         self.installed_snapshot_id = None;
+        self.files = None;
         self.snapshots.clear();
         self.start(ctx, "Open", move |remote, _| {
             let snapshots = remote.snapshots(&repo_id)?;
@@ -566,6 +575,76 @@ impl App {
         });
     }
 
+    fn files_section(&mut self, ui: &mut egui::Ui, repo_id: &str) {
+        ui.heading("Files of the selected snapshot");
+        let Some(snapshot_id) = self.snapshot_id.clone() else {
+            ui.label("Select a snapshot.");
+            return;
+        };
+        if ui
+            .button("List files")
+            .on_hover_text(
+                "Download this snapshot, without the others, into the local cache \
+                 and list its files. Installing it afterwards downloads nothing more.",
+            )
+            .clicked()
+        {
+            let (repo_id, snapshot_id) = (repo_id.to_owned(), snapshot_id.clone());
+            self.start(ui.ctx(), "List files", move |remote, control| {
+                let files = remote.files(&repo_id, &snapshot_id, control)?;
+                Ok(Outcome {
+                    message: format!("{} has {} files", short(&snapshot_id), files.len()),
+                    files: Some((snapshot_id, files)),
+                    ..Default::default()
+                })
+            });
+        }
+        let Some((_, files)) = self.files.as_ref().filter(|(id, _)| *id == snapshot_id) else {
+            return;
+        };
+        let mut save = None;
+        egui::ScrollArea::vertical()
+            .id_salt("files")
+            .max_height(200.0)
+            .show(ui, |ui| {
+                egui::Grid::new("files")
+                    .num_columns(3)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (path, size) in files {
+                            ui.label(path);
+                            ui.label(format!("{size} bytes"));
+                            if ui
+                                .button("Save a copy…")
+                                .on_hover_text(
+                                    "Write this one file anywhere on your computer, read \
+                                     straight from the cached snapshot and checked against \
+                                     its hashes. Nothing is installed.",
+                                )
+                                .clicked()
+                            {
+                                save = Some(path.clone());
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        let Some(path) = save else {
+            return;
+        };
+        let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
+        let Some(target) = rfd::FileDialog::new().set_file_name(name).save_file() else {
+            return;
+        };
+        let repo_id = repo_id.to_owned();
+        self.start(ui.ctx(), "Save", move |remote, control| {
+            Ok(Outcome {
+                message: remote.save_file(&repo_id, &snapshot_id, &path, &target, control)?,
+                ..Default::default()
+            })
+        });
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         if let Some(job) = &self.job {
             ui.horizontal(|ui| {
@@ -618,12 +697,16 @@ impl eframe::App for App {
                 ui.label("Connect, then pick or create a repository.");
                 return;
             };
-            ui.add_enabled_ui(idle, |ui| {
-                self.snapshots_table(ui);
-                ui.separator();
-                self.capture_section(ui, &repo_id);
-                ui.separator();
-                self.install_section(ui, &repo_id);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.add_enabled_ui(idle, |ui| {
+                    self.snapshots_table(ui);
+                    ui.separator();
+                    self.capture_section(ui, &repo_id);
+                    ui.separator();
+                    self.install_section(ui, &repo_id);
+                    ui.separator();
+                    self.files_section(ui, &repo_id);
+                });
             });
         });
     }

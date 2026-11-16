@@ -200,3 +200,42 @@ fn capture_rejects_malformed_tags_before_touching_the_remote() {
         .unwrap_err();
     assert!(error.to_string().contains("use key=value"), "{error}");
 }
+
+#[test]
+fn browsing_a_snapshot_downloads_only_that_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let bucket = std::sync::Arc::new(MemoryStore::default());
+    let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
+    let second = Remote::new(SharedStore(bucket), temp.path().join("cache2"));
+    let repo_id = first
+        .create_repo("team", "game", OperationControl::default())
+        .unwrap();
+    let source = temp.path().join("source");
+    let control = OperationControl::default;
+    write(&source.join("data/a.txt"), "first\n");
+    first
+        .capture_and_push(&repo_id, &source, "version=1.0", control())
+        .unwrap();
+    write(&source.join("data/a.txt"), "second\n");
+    first
+        .capture_and_push(&repo_id, &source, "version=1.1", control())
+        .unwrap();
+    let snapshots = second.snapshots(&repo_id).unwrap();
+    let id_tagged = |tag: &str| {
+        let snapshot = snapshots.iter().find(|snapshot| snapshot.tags == [tag]);
+        snapshot.unwrap().snapshot_id.clone()
+    };
+    let (wanted, other) = (id_tagged("version=1.0"), id_tagged("version=1.1"));
+
+    let files = second.files(&repo_id, &wanted, control()).unwrap();
+    assert_eq!(files, [("data/a.txt".to_owned(), 3000)]);
+    let target = temp.path().join("a.txt");
+    second
+        .save_file(&repo_id, &wanted, "data/a.txt", &target, control())
+        .unwrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "first\n".repeat(500));
+
+    // The other snapshot was never downloaded into this machine's copy.
+    let local = Repo::open(temp.path().join("cache2/team/game")).unwrap();
+    assert!(local.read_file(&other, "data/a.txt").is_err());
+}

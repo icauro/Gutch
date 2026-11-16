@@ -7,6 +7,7 @@ MinIO, Cloudflare R2 and others). With it you can:
 - capture a local folder as a tagged snapshot and push it
 - install any snapshot to a local folder, or update an installed one in place
 - verify an installation and repair missing or changed files
+- list a snapshot's files and save a copy of one without installing anything
 
 Each operation shows its progress and can be cancelled.
 
@@ -62,9 +63,17 @@ with presigned S3 requests. `ObjectStoreRemote` turns it into a full remote, as
 described in
 [Storage remotes](../../_docs/08_embedding_gutch.md#storage-remotes).
 
-The app keeps a full copy of each repository it opens in the local cache folder
-(`CACHE/SCOPE/NAME`).
-Before each operation it pulls new snapshots from the bucket into that copy.
-A capture goes into the copy and is then pushed; installs, verifies and repairs
-read from the copy. [`src/ops.rs`](src/ops.rs) has these operations without the
-window, and its tests run them against an in-memory store.
+The app keeps a copy of each repository it opens in the local cache folder
+(`CACHE/SCOPE/NAME`). Installing, verifying, repairing, listing files and
+saving a file download only the snapshot they use, with its metadata and
+bundles; snapshots already in the copy are not downloaded again. Saving a
+file reads it straight from those bundles with `read_snapshot_file`.
+
+A capture first pulls every snapshot, goes into the copy and is then pushed.
+It needs the full copy because a push makes the bucket match the copy, and it
+would delete snapshots the copy lacks.
+
+Bundles are compressed as a whole, so listing or saving one file still
+downloads the snapshot's bundles, not only that file's bytes.
+[`src/ops.rs`](src/ops.rs) has these operations without the window, and its
+tests run them against an in-memory store.
