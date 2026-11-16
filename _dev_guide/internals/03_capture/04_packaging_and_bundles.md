@@ -8,7 +8,7 @@ Scope: Gutch component current state
 
 Gutch scans snapshot file content into reusable BLAKE3-addressed chunks and
 stores those chunks as either content-addressed bundles or loose compressed
-chunk objects. Creators operate on snapshots; artifact placement is an engine
+chunk objects. Publishers operate on snapshots; artifact placement is an engine
 concern.
 
 ## Packaging Profile
@@ -52,7 +52,7 @@ algorithm-neutral.
 `bundled` is the current production product-delivery storage mode.
 `loose_chunks` is supported by the engine's fetch, reconstruction,
 verification, cleanup, and benchmark paths; it remains a diagnostic and
-benchmark mode until the backend delivery contract publishes loose-chunk
+benchmark mode until the remote service delivery contract publishes loose-chunk
 URLs.
 
 Build callers choose the chunk, bundle, compression, and storage presets. The
@@ -86,11 +86,11 @@ identity to the selected artifact and ordinal. See the layouts above for bounds.
    each identity to its artifact kind and local path.
 5. Fetch, reconstruction, and verification plan one generic artifact set and
    select the bundled or loose reader from that map.
-6. Remote synchronization and backend storage reconciliation currently publish
+6. Remote synchronization and remote service storage reconciliation currently publish
    the bundled artifact contract; loose-object publishing is benchmark-only.
 
 For installation delivery, the authorized app or CLI adapter resolves missing
-artifact IDs to direct object URLs. Gutch consumes those URLs without backend
+artifact IDs to direct object URLs. Gutch consumes those URLs without remote service
 session headers and verifies each downloaded artifact against the repo content
 identity. The benchmark CLI accepts the same mapping through
 `--artifact-url-manifest` for presigned S3 URLs.

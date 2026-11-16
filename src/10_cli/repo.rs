@@ -178,6 +178,17 @@ fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
         }
         return Ok(());
     }
+    let remote_repo_id = status.remote_repo_id.as_deref().unwrap_or("(not linked)");
+    output::line(format_args!("{SECTION_SEPARATOR}"));
+    output::line(format_args!("Repository"));
+    output::line(format_args!("name: {}", status.name));
+    output::line(format_args!("remote_repo_id: {remote_repo_id}"));
+    output::line(format_args!("repo_root: {}", status.repo_root));
+    output::line(format_args!("snapshots: {}", status.snapshots.len()));
+    output::line(format_args!("bundles: {}", status.bundle_count));
+    output::line(format_args!("bundle_bytes: {}", status.bundle_bytes));
+    output::line(format_args!("artifacts: {}", status.artifact_count));
+    output::line(format_args!("artifact_bytes: {}", status.artifact_bytes));
     output::line(format_args!("{SECTION_SEPARATOR}"));
     output::line(format_args!("Snapshots"));
     for snapshot in &status.snapshots {
@@ -191,17 +202,6 @@ fn status(repo: &Path, profile: &Profile) -> crate::Result<()> {
             snapshot.missing_artifact_count
         ));
     }
-    let remote_repo_id = status.remote_repo_id.as_deref().unwrap_or("(not linked)");
-    output::line(format_args!("{SECTION_SEPARATOR}"));
-    output::line(format_args!("Total"));
-    output::line(format_args!("name: {}", status.name));
-    output::line(format_args!("remote_repo_id: {remote_repo_id}"));
-    output::line(format_args!("repo_root: {}", status.repo_root));
-    output::line(format_args!("snapshots: {}", status.snapshots.len()));
-    output::line(format_args!("bundles: {}", status.bundle_count));
-    output::line(format_args!("bundle_bytes: {}", status.bundle_bytes));
-    output::line(format_args!("artifacts: {}", status.artifact_count));
-    output::line(format_args!("artifact_bytes: {}", status.artifact_bytes));
     Ok(())
 }
 

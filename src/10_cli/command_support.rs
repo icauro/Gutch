@@ -89,6 +89,7 @@ pub(crate) struct InstallationVerifyStats {
     pub(crate) extra_file_count: usize,
     pub(crate) verification_passed: bool,
     pub(crate) errors: Vec<String>,
+    pub(crate) extra_files: Vec<String>,
     pub(crate) timings: VerifyTimingsSummary,
 }
 

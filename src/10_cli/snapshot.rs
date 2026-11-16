@@ -270,7 +270,7 @@ fn list(repo: &Path) -> crate::Result<()> {
         output::line(format_args!("{}", snapshot.snapshot_id));
     }
     output::line(format_args!("{SECTION_SEPARATOR}"));
-    output::line(format_args!("Total"));
+    output::line(format_args!("Repository"));
     output::line(format_args!("name: {}", status.name));
     output::line(format_args!("snapshots: {}", status.snapshots.len()));
     output::line(format_args!("bundles: {}", status.bundle_count));

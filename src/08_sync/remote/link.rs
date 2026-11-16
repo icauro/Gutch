@@ -75,9 +75,8 @@ pub fn unbind_remote_repo(
         };
 
         if delete_remote {
-            let provider = provider.ok_or_else(|| {
-                Error::repo("remote provider context is required when deleting the remote repo")
-            })?;
+            let provider = provider
+                .ok_or_else(|| Error::repo("deleting the remote repo needs a remote provider"))?;
             let repository = provider
                 .repo_provider()
                 .resolve_repo(None, Some(&remote_repo_id))?;

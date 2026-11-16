@@ -9,13 +9,13 @@ Scope: Gutch component current state
 Snapshot ingestion converts extracted source directories into Gutch snapshots.
 One source is one filesystem tree; archives must be extracted before capture.
 The source contract is shared by CLI capture, repo source synchronization,
-the app Creator workspace, fixtures, and self-publish staging.
+host editing tools, fixtures, and self-publish staging.
 
 ## Component Responsibilities
 
 | Component | Handles | Authority and handoff |
 |---|---|---|
-| Creator, fixture, or staging tool | Extracted source trees and optional source-root configuration | Supplies paths and explicit tags without writing repo artifacts directly |
+| Host, fixture, or staging tool | Extracted source trees and optional source-root configuration | Supplies paths and explicit tags without writing repo artifacts directly |
 | Gutch source discovery | Auto or explicit source selection and path normalization | Produces an ordered set of contained source directories and config tags |
 | Gutch tag resolution | CLI tags and config tags | Produces structurally validated snapshot tags; an empty set is valid locally |
 | Gutch capture pipeline | Recursive scan, capture preview, and repo artifact construction | Writes the snapshot only after source validation succeeds; capture is additive and never replaces or deletes snapshots |

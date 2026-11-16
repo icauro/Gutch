@@ -264,7 +264,7 @@ withdrawn from the transfer totals, so retries do not inflate them. When one
 worker fails, its error is reported before sibling workers are cancelled.
 
 The provider supplies artifact locations; it does not move authority into
-Gutch. Backend authorization, session context, and entitlement decisions stay
+Gutch. Remote service authorization, session context, and entitlement decisions stay
 with the caller and its provider adapter. Remote fetch also bounds metadata,
 blueprint, and chunk-index sizes before they enter the local planning path.
 

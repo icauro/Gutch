@@ -15,10 +15,10 @@ outside Gutch after the engine operation succeeds.
 
 | Component | Handles | Authority and handoff |
 |---|---|---|
-| Backend delivery | Authorized snapshot metadata and artifact URL resolution | Authorizes the resolver request and returns current signed artifact URLs; it does not write local files |
+| Remote service delivery | Authorized snapshot metadata and artifact URL resolution | Authorizes the resolver request and returns current signed artifact URLs; it does not write local files |
 | App install lifecycle | Destination selection, job identity, access revalidation, local metadata commit, and user repair choices | Supplies exact paths and artifacts to Gutch, then commits only a successful result |
 | Gutch planner | Required artifact set, reusable local sources, runtime resources, and affected repair entries | Produces one execution plan for remote, cached, offline, update, and repair paths |
-| Gutch reconstruction | Bounded direct-URL artifact download/reconstruction, decompression, hash checks, staging, and promotion | Produces a verified staged tree or leaves the prior committed install authoritative; it does not send backend session headers |
+| Gutch reconstruction | Bounded direct-URL artifact download/reconstruction, decompression, hash checks, staging, and promotion | Produces a verified staged tree or leaves the prior committed install authoritative; it does not send remote service session headers |
 | Gutch verification/repair | Missing, corrupt, and extra classification plus selective rebuild | Returns classifications and a post-repair verification result |
 
 ## Interaction Flow
@@ -100,7 +100,8 @@ Destination operations use the `gutch installation` CLI namespace:
 destructive diagnostics use `debug corrupt-installation`.
 
 An install with missing or corrupt expected content requires repair. Extra
-files are reported independently. Repair can preserve extra files or remove
+files are reported independently: the CLI lists them but they do not fail
+`installation verify`, matching repair's default of preserving them. Repair can preserve extra files or remove
 the classified extras when the caller explicitly requests full repair. Extra-entry
 counters include directories. Removal preserves directories declared by the target
 snapshot, even when deleting their last extra child. Preserved extras stay in
@@ -149,7 +150,7 @@ metadata uses that primitive too. Selective policy lives in `09_installation/exe
   not retain destination entries absent from the target blueprint.
 - Repair classification cannot introduce paths absent from the authoritative
   snapshot blueprint.
-- Local verification does not grant remote access or change backend library
+- Local verification does not grant remote access or change remote service library
   state.
 
 

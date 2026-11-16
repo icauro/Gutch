@@ -131,5 +131,5 @@ has. `--remote-repo-id` pulls from a remote other than the bound one.
 These commands need a connection to a server, which the application that
 embeds Gutch provides; its documentation says how to sign in and what
 `--scope-id` means. The standalone `gutch-cli` has no server connection of its
-own and reports `remote provider context is required` for them. See
+own and reports `remote commands are unavailable` for them. See
 [embedding Gutch](08_embedding_gutch.md#remote-providers).

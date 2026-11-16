@@ -14,7 +14,7 @@ finalization. Source selection and tag identity are defined in
 [`01_source_ingestion.md`](01_source_ingestion.md).
 
 The pipeline reads source content and writes repo artifacts. It does not decide
-creator access, authorize remote storage, or commit app install metadata.
+publisher access, authorize remote storage, or commit host install metadata.
 
 On Windows, each inventory uses the metadata already obtained by directory
 entry enumeration, avoiding a second metadata lookup per entry. The before/after

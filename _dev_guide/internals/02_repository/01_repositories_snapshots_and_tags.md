@@ -23,7 +23,7 @@ chunks/<hash-prefix>/<chunk-hash>                        loose mode only
 `repo_metadata.json` owns repo presentation and the packaging profile.
 `local_repo_config.json` is device-local and stores
 only the globally unique linked `remote_repo_id`; it is never pushed. The
-backend derives product identity from that authorized remote repo ID.
+remote service derives product identity from that authorized remote repo ID.
 The source-folder association is also device-local, but lives in the shared
 Gutch configuration rather than either repo metadata document.
 
@@ -124,15 +124,15 @@ adding or removing a key across all snapshots when parity is enabled.
 
 ## Synchronization Ownership
 
-Creator push treats repo metadata, the chunk index, every snapshot's
+Push treats repo metadata, the chunk index, every snapshot's
 metadata and blueprint, optional snapshot product metadata, and the complete
-bundle-reference set as first-class artifacts. Backend repo and snapshot
-records persist their BLAKE3 identities. The backend reconciles remote object
+bundle-reference set as first-class artifacts. The remote service
+persists repo and snapshot records with their BLAKE3 identities and reconciles remote object
 storage and removes remote bundles no longer referenced by the complete pushed
 state. Push uploads only the bundles local snapshots reference and fails before
 any upload when one of them is missing locally.
 
-Pull compares local and backend-recorded artifact hashes and applies the
+Pull compares local and remotely recorded artifact hashes and applies the
 selected conflict policy. Every downloaded artifact must match a recorded
 hash; a remote record without one is an error, not a skip. Snapshots whose
 remote artifacts are not ready yet are skipped until a later pull. Local repo linkage remains local-only and is

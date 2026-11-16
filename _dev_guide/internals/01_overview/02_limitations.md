@@ -68,7 +68,7 @@ can handle extras separately; it does not change replacement semantics.
 |---|---|
 | Scheduling, retention calendars, notifications, and capture hooks | Hosts orchestrate jobs. The engine deletes explicitly selected snapshot IDs rather than deciding business retention. |
 | Credentials, accounts, and access decisions | Callers inject remote providers or authorized sources. Gutch owns repository and transfer mechanics. |
-| Remote append-only or immutable retention | Enforcement belongs to the provider/backend/storage policy. Local hashes and confirmations cannot prevent remote deletion. |
+| Remote append-only or immutable retention | Enforcement belongs to the provider/service/storage policy. Local hashes and confirmations cannot prevent remote deletion. |
 
 These limits do not establish what locking, durability, or storage protection a
 particular host deployment provides.

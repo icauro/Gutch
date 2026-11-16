@@ -10,7 +10,7 @@ The verification pipeline classifies a destination directory against a
 snapshot blueprint. It reports missing, corrupt, and extra entries without
 repairing them. Reconstruction and repair callers use the same verifier with
 different path scopes; a verification result does not grant remote access or
-mutate backend state.
+mutate remote service state.
 
 ## Execution timeline
 
@@ -92,7 +92,7 @@ selected mapped hashing mode.
 
 Verification itself is local. It reads the destination and local blueprint;
 it does not download missing artifacts, call a bundle URL provider, or send
-backend session headers. If a snapshot came from a remote fetch, remote
+remote service session headers. If a snapshot came from a remote fetch, remote
 metadata and artifacts have already been resolved before this verifier runs.
 
 The remote target therefore changes the preceding availability phase, not the

@@ -39,7 +39,7 @@ impl<'a> CommandLineHost<'a> {
     pub(crate) fn require_remote_provider(&self) -> crate::Result<Box<dyn RemoteRepoService + 'a>> {
         self.optional_remote_provider()?.ok_or_else(|| {
             crate::Error::invalid_input(
-                "remote provider context is required; configure a backend endpoint and session",
+                "remote commands are unavailable: this program has no remote provider",
             )
         })
     }

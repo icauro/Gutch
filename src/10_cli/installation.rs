@@ -324,8 +324,14 @@ fn preview(arguments: PreviewArgs, profile: &Profile) -> crate::Result<()> {
     })?;
     output::record(&summary)?;
     output::line(format_args!(
-        "{} entries; {} artifacts; {} bytes staging",
-        summary.entry_count, summary.required_artifact_count, summary.staging_file_bytes
+        "{}; {}; {} staging",
+        count_noun(summary.entry_count as u64, "entry", "entries"),
+        count_noun(
+            summary.required_artifact_count as u64,
+            "artifact",
+            "artifacts"
+        ),
+        count_noun(summary.staging_file_bytes, "byte", "bytes")
     ));
     Ok(())
 }
@@ -393,7 +399,18 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
     let missing_file_count = classification.missing_files.len();
     let corrupt_file_count = classification.corrupt_files.len();
     let extra_file_count = classification.extra_files.len();
-    let errors = classification.into_messages();
+    // Extra entries are reported but do not fail verification: repair keeps them by default.
+    let extra_files: Vec<String> = classification
+        .extra_files
+        .into_iter()
+        .map(|issue| issue.detail)
+        .collect();
+    let errors: Vec<String> = classification
+        .missing_files
+        .into_iter()
+        .chain(classification.corrupt_files)
+        .map(|issue| issue.detail)
+        .collect();
     let stats = InstallationVerifyStats {
         command: "installation verify",
         repo_root: repo_root.display().to_string(),
@@ -406,10 +423,20 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
         extra_file_count,
         verification_passed: errors.is_empty(),
         errors: errors.clone(),
+        extra_files: extra_files.clone(),
         timings: verify_timings_summary(&timings, profile_mode(command.profile.as_deref())),
     };
     write_stats_json_output(&stats, command.profile.as_deref())?;
 
+    if !extra_files.is_empty() {
+        eprintln!(
+            "{} not in the snapshot (kept):",
+            count_noun(extra_files.len() as u64, "extra entry", "extra entries")
+        );
+        for extra in &extra_files {
+            eprintln!("  - {extra}");
+        }
+    }
     if errors.is_empty() {
         output::line(format_args!(
             "verification passed for {}",
@@ -419,14 +446,18 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
             print_profile_summary(command.profile.as_deref());
         }
     } else {
-        eprintln!("{} verification errors:", errors.len());
+        let error_count = count_noun(
+            errors.len() as u64,
+            "verification error",
+            "verification errors",
+        );
+        eprintln!("{error_count}:");
         for err in &errors {
             eprintln!("  - {}", err);
         }
         // The list is printed above and recorded in the report; keep the error short.
         return Err(crate::Error::verify(format!(
-            "{} verification errors in {}",
-            errors.len(),
+            "{error_count} in {}",
             command.destination.display()
         )));
     }
@@ -434,8 +465,19 @@ pub(crate) fn verify_snapshot(command: VerifyCommand) -> crate::Result<()> {
     Ok(())
 }
 
+fn count_noun(count: u64, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn counts_use_the_singular_only_for_one() {
+        assert_eq!(super::count_noun(1, "error", "errors"), "1 error");
+        assert_eq!(super::count_noun(0, "error", "errors"), "0 errors");
+        assert_eq!(super::count_noun(2, "error", "errors"), "2 errors");
+    }
+
     #[test]
     fn corruption_rejects_an_unreadable_plan_before_asking_for_confirmation() {
         let temp = tempfile::tempdir().unwrap();

@@ -94,13 +94,15 @@ verification passed for /home/me/installed-app
 ```
 
 Now damage it: delete `bin/app`, edit `readme.txt` and add a file
-`extra.txt`. Verification lists each problem and exits with status 1:
+`extra.txt`. Verification lists each problem and exits with status 1. It
+also lists the extra file, but files you add do not count as damage:
 
 ```text
-3 verification errors:
+1 extra entry not in the snapshot (kept):
+  - extra filesystem entry: extra.txt
+2 verification errors:
   - missing file: bin/app
   - size mismatch for readme.txt: expected 6, got 4
-  - extra filesystem entry: extra.txt
 ```
 
 Ask what a repair would do, without changing anything:
@@ -115,7 +117,7 @@ add              "bin/app"
 replace          "readme.txt"
 preserveExtra    "extra.txt"
 artifact         "da7d7602595b0718818d1227e58a6634742c405b7ac6144a9982caf9fa788b0a"
-3 entries; 1 artifacts; 300006 bytes staging
+3 entries; 1 artifact; 300006 bytes staging
 ```
 
 Then repair it:
@@ -127,7 +129,7 @@ gutch-cli installation repair --repo my-repo --snapshot 8ccb64f0...860a --destin
 Repair rewrites only the missing and damaged files and leaves healthy ones
 alone. It keeps `extra.txt` because you might need it; add
 `--remove-extra-files` to delete files that are not part of the snapshot.
-Until you do, `installation verify` keeps reporting the extra file.
+`installation verify` now passes, and still lists the extra file.
 
 ## Next steps
 

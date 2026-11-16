@@ -1,8 +1,8 @@
 """Operations: Install, corrupt content and attributes, delete a file, add a user file, then repair
 twice.
 
-Expected: Verification classifies the damage; repair restores input and removes extras only when
-requested.
+Expected: Verification classifies the damage and reports extras without failing on them; repair
+restores input and removes extras only when requested.
 """
 
 import json
@@ -25,6 +25,8 @@ def run(case):
     assert result["missing_file_count"] >= 1
     assert result["corrupt_file_count"] >= 2
     assert result["extra_file_count"] == 1
+    assert len(result["extra_files"]) == 1
+    assert not any("extra.txt" in error for error in result["errors"])
     case.command(
         "installation",
         "preview",
@@ -77,6 +79,8 @@ def run(case):
     )
     case.repair(repo, snapshot, destination)
     assert (destination / "extra.txt").read_bytes() == b"user content"
+    kept = case.verify(repo, snapshot, destination)
+    assert kept["verification_passed"] and kept["extra_file_count"] == 1
     (destination / "extra.txt").unlink()
     case.compare(data, destination, "repaired-preserving-extra")
     (destination / "extra.txt").write_bytes(b"user content")

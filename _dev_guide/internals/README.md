@@ -22,7 +22,7 @@ Callers provide a `RemoteRepoReader` for repo/snapshot lookup and a
 `RemoteRepoWriter` for uploads and remote cleanup. Artifact sources may be
 bytes or direct URLs. Gutch owns comparison, pull/push ordering, bounded
 transfers, local repo mutation, progress, cancellation, and result types;
-it does not attach backend bearer sessions or call host authorization routes.
+it does not attach remote service bearer sessions or call host authorization routes.
 
 The cross-crate Gutch surface is an operation-and-model façade. Callers use
 preset-based build configuration and high-level snapshot, repo, remote,

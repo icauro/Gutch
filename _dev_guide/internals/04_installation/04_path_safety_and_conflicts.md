@@ -112,13 +112,13 @@ and the pending-publication marker remains so the next repository change or
 
 ## Pull Conflict Policies
 
-Repo pull compares local BLAKE3 identities with backend-recorded hashes.
+Repo pull compares local BLAKE3 identities with remotely recorded hashes.
 The supported policies are:
 
 - `keep-local` — retain a differing local artifact; missing local artifacts are
   still fetched;
 - `keep-remote` — fetch a differing remote artifact;
-- `keep-newer` — compare the backend artifact timestamp with local filesystem
+- `keep-newer` — compare the remote service artifact timestamp with local filesystem
   modification time and keep the newer side.
 
 The CLI exposes these through `--on-conflict`. App native requests default to
@@ -145,7 +145,7 @@ delete it.
 
 ## Failure Boundaries
 
-- A malformed remote identifier or unauthorized backend response fails before
+- A malformed remote identifier or unauthorized remote service response fails before
   local mutation.
 - Missing or invalid remote timestamps do not authorize arbitrary deletion;
   the current newer comparison treats the remote side as current for fetch

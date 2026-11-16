@@ -36,10 +36,10 @@ same, for structured output.
 
 ## Installation
 
-**`verification errors`** — `installation verify` found missing, damaged or
-extra entries. Run `installation preview` to see the fix, then
-`installation repair`. Extra files are reported until removed with
-`installation repair --remove-extra-files`.
+**`verification errors`** — `installation verify` found missing or damaged
+entries. Run `installation preview` to see the fix, then
+`installation repair`. Extra entries are listed separately and do not fail
+verification; remove them with `installation repair --remove-extra-files`.
 
 **Reconstruction fails while swapping the folder into place** — usually
 another program holds a file in the destination open. Close programs using
@@ -60,6 +60,6 @@ from a remote copy. Snapshots that use only healthy artifacts still install.
 **`needs_newer_gutch` / `unsupported_format`** — the repository was written by
 a newer version of Gutch. Upgrade `gutch-cli`.
 
-**`remote provider context is required`** — remote commands need a server
+**`remote commands are unavailable`** — remote commands need a server
 connection that the standalone `gutch-cli` does not have; see
 [remote synchronization](05_managing_repositories.md#remote-synchronization).

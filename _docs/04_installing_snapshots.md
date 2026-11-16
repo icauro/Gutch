@@ -74,8 +74,9 @@ gutch-cli installation verify --repo REPO --snapshot ID --destination FOLDER
 ```
 
 Verify reads every file and compares its hash with the snapshot. It reports
-missing entries, damaged entries and extra entries, and exits with status 1 if
-it finds any. `--strict` also checks each chunk inside every file, which
+missing and damaged entries, and exits with status 1 if it finds any. Extra
+entries, which the snapshot does not contain, are listed too but do not fail
+verification, because repair keeps them by default. `--strict` also checks each chunk inside every file, which
 pinpoints damage further but takes longer. Verify never changes anything.
 
 ## Preview
