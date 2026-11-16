@@ -33,6 +33,7 @@ use crate::transfer::progress::FetchTransferProgress;
 use super::handles::{OutputHandleCache, SourceHandleCache};
 use super::job_io::ReconstructedFileSizeCheck;
 use super::jobs::{ReconstructJob, ReconstructPipelineFile, ReconstructPipelinePlan};
+use super::output_preparer::OutputFilePreparer;
 use crate::installation::plan::build_artifact_priorities;
 
 use super::workers::{
@@ -199,6 +200,16 @@ pub(crate) fn run_reconstruction_jobs(
         reconstruct_timings,
         verify_timings,
     };
+    let output_preparer = OutputFilePreparer::start(
+        &work_context.output_handles,
+        output_preparation_order(
+            &jobs,
+            &job_file_indices,
+            existing_artifacts,
+            &coordinator.remaining_file_jobs,
+        ),
+        control,
+    )?;
     coordinator.queue_initial_work(existing_artifacts)?;
     let result = coordinator.run(pool, &work_context, &event_tx, &event_rx);
     let shutdown = finish_pipeline_workers(
@@ -208,6 +219,7 @@ pub(crate) fn run_reconstruction_jobs(
         control,
         result.is_err(),
     );
+    drop(output_preparer);
     // The pipeline's own error explains the failure better than a shutdown one.
     result?;
     shutdown?;
@@ -663,6 +675,34 @@ fn finish_pipeline_workers(
         }
     }
     joined
+}
+
+/// Lists written files in the order workers first need them: jobs that can run
+/// at once come before jobs that wait for downloads.
+fn output_preparation_order(
+    jobs: &[ReconstructJob],
+    job_file_indices: &[Vec<usize>],
+    existing_artifacts: &HashSet<ArtifactRef>,
+    remaining_file_jobs: &[usize],
+) -> Vec<usize> {
+    let ready = |job: &ReconstructJob| match job {
+        ReconstructJob::Artifact(job) => existing_artifacts.contains(&job.artifact),
+        ReconstructJob::SourceChunk(_) | ReconstructJob::CopySourceFile { .. } => true,
+    };
+    let (ready_jobs, waiting_jobs): (Vec<_>, Vec<_>) =
+        (0..jobs.len()).partition(|&job_index| ready(&jobs[job_index]));
+    let mut listed = vec![false; remaining_file_jobs.len()];
+    let mut order = Vec::new();
+    for job_index in ready_jobs.into_iter().chain(waiting_jobs) {
+        for &file_index in &job_file_indices[job_index] {
+            if remaining_file_jobs[file_index] > 0
+                && !std::mem::replace(&mut listed[file_index], true)
+            {
+                order.push(file_index);
+            }
+        }
+    }
+    order
 }
 
 fn reconstruct_job_file_indices(job: &ReconstructJob) -> Vec<usize> {

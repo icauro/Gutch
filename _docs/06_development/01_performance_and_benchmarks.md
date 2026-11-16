@@ -27,7 +27,8 @@ than separate implementations.
 Bundled and loose-chunk install planning use the same bounded artifact
 dependency scheduler. Files become eligible when required artifacts are
 available, verified unchanged source-install data may be reused, and staged
-files are created lazily on first write. Each file is hash-verified as soon as
+files are created by dedicated threads ahead of the workers, or by the first
+worker to write them. Each file is hash-verified as soon as
 all of its producing jobs finish, before promotion. Loose chunks therefore
 exercise the same reconstruction scheduling boundary as bundles while exposing
 their per-chunk transfer overhead.

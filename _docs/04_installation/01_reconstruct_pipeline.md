@@ -196,10 +196,25 @@ arrays and refer to typed chunk hashes. Artifact jobs are deduplicated by artifa
 decoding while preserving positional writes for files whose chunks are shared.
 
 Output file handles are shared through a bounded LRU cache with a maximum of
-256 open handles. Writes use positional operations, so concurrent artifact
-jobs can fill different ranges without serializing an entire file through one
-worker. The cache stores handles, not decoded chunk bytes; a decoded chunk is
-verified and fanned out during its artifact job.
+1024 open handles on Windows and 256 elsewhere. Windows opens cost far more
+than the handles themselves, so the larger bound avoids reopening files.
+Writes use positional operations, so concurrent artifact jobs can fill
+different ranges without serializing an entire file through one worker. The
+cache stores handles, not decoded chunk bytes; a decoded chunk is verified and
+fanned out during its artifact job. A file's handle is released once every job
+writing it has finished, before the file is verified.
+
+Three dedicated threads create and size output files ahead of the workers, in
+the order the jobs will first write them: jobs that can run at once come before
+jobs that wait for downloads. File creation contends inside the filesystem; on
+Windows NTFS its throughput stopped rising at three or four threads, so the
+workers keep their time for decoding and writing. These threads stay at most
+half the handle cache ahead of the files workers have started using, so their
+handles are not evicted before use. A worker that reaches a file first creates
+it itself, and a worker waits rather than opening a file another thread is
+creating. A failed preparation leaves the file for its worker, which then
+reports the error. Profiling records each preparation as the
+`installation.reconstruct.output.create` span.
 
 On Windows, files of at least 64 MiB with multiple producing jobs use independent
 file objects in each worker task's local handle cache when multiple workers are enabled.

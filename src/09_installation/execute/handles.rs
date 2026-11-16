@@ -9,12 +9,18 @@ use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 pub(crate) const RECONSTRUCT_OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
 /// Open reused-source files kept for whole-file copies.
 const MAX_CACHED_SOURCE_HANDLES: usize = 64;
-/// Open output files shared by reconstruction workers.
+/// Open output files shared by reconstruction workers. Windows has no small
+/// per-process limit, and closing a handle early only forces a reopen, which
+/// contends with file creation; Unix soft limits can be as low as 256.
+#[cfg(windows)]
+const MAX_OPEN_OUTPUT_HANDLES: usize = 1024;
+#[cfg(not(windows))]
 const MAX_OPEN_OUTPUT_HANDLES: usize = 256;
 
 /// One reconstruction worker owns this buffer. Success requires an explicit flush;
@@ -129,6 +135,8 @@ pub(crate) struct OutputHandleCache {
     independent_handles: Vec<bool>,
     local_handle_limit: usize,
     state: Mutex<OutputHandleCacheState>,
+    /// Signals file preparation, first use of a prepared file, and stopping.
+    changed: Condvar,
 }
 
 #[derive(Default)]
@@ -185,11 +193,55 @@ impl SourceHandleCache {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OutputFileState {
+    Unprepared,
+    /// One thread is creating and sizing the file; others wait for it.
+    Preparing,
+    Prepared,
+}
+
 struct OutputHandleCacheState {
     handles: HashMap<usize, Arc<File>>,
     lru: VecDeque<usize>,
     max_open: usize,
-    initialized_files: Vec<bool>,
+    file_states: Vec<OutputFileState>,
+    /// Files prepared ahead of the workers whose handles no worker has used yet.
+    awaiting_use: Vec<bool>,
+    /// Those files plus the ones being prepared ahead right now.
+    awaiting_use_count: usize,
+    stop_preparing: bool,
+}
+
+impl OutputHandleCacheState {
+    fn touch(&mut self, file_index: usize) {
+        self.lru.retain(|index| *index != file_index);
+        self.lru.push_back(file_index);
+    }
+
+    /// Returns whether the file was still waiting for its first use.
+    fn take_awaiting_use(&mut self, file_index: usize) -> bool {
+        let awaiting = std::mem::replace(&mut self.awaiting_use[file_index], false);
+        if awaiting {
+            self.awaiting_use_count -= 1;
+        }
+        awaiting
+    }
+
+    /// Returns the evicted handles so callers close them outside the mutex.
+    fn insert(&mut self, file_index: usize, file: Arc<File>) -> Vec<Arc<File>> {
+        let mut evicted = Vec::new();
+        while self.handles.len() >= self.max_open {
+            let Some(oldest) = self.lru.pop_front() else {
+                break;
+            };
+            self.take_awaiting_use(oldest);
+            evicted.extend(self.handles.remove(&oldest));
+        }
+        self.handles.insert(file_index, file);
+        self.lru.push_back(file_index);
+        evicted
+    }
 }
 
 const LOCAL_OUTPUT_HANDLE_CACHE_LIMIT: usize = 8;
@@ -229,7 +281,7 @@ impl OutputHandleCache {
         } else {
             LOCAL_OUTPUT_HANDLE_CACHE_LIMIT
         };
-        let initialized_files = vec![false; output_paths.len()];
+        let file_count = output_paths.len();
         Self {
             output_paths,
             output_sizes,
@@ -239,9 +291,111 @@ impl OutputHandleCache {
                 handles: HashMap::new(),
                 lru: VecDeque::new(),
                 max_open: MAX_OPEN_OUTPUT_HANDLES,
-                initialized_files,
+                file_states: vec![OutputFileState::Unprepared; file_count],
+                awaiting_use: vec![false; file_count],
+                awaiting_use_count: 0,
+                stop_preparing: false,
             }),
+            changed: Condvar::new(),
         }
+    }
+
+    fn lock_state(&self) -> Result<MutexGuard<'_, OutputHandleCacheState>> {
+        self.state
+            .lock()
+            .map_err(|_| Error::reconstruct("output handle cache is poisoned"))
+    }
+
+    /// Creates and sizes files in `order` ahead of the workers, keeping at most
+    /// half the cache in prepared files no worker has used yet. It stops on
+    /// cancellation or the first failure; a worker then opens that file itself
+    /// and reports the error.
+    pub(crate) fn prepare_ahead(
+        &self,
+        order: &[usize],
+        next: &AtomicUsize,
+        control: &OperationControl,
+    ) {
+        loop {
+            let Some(&file_index) = order.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                return;
+            };
+            {
+                let Ok(mut state) = self.state.lock() else {
+                    return;
+                };
+                while !state.stop_preparing && state.awaiting_use_count >= state.max_open / 2 {
+                    let Ok(waited) = self.changed.wait(state) else {
+                        return;
+                    };
+                    state = waited;
+                }
+                if state.stop_preparing || control.checkpoint().is_err() {
+                    return;
+                }
+                if state.file_states[file_index] != OutputFileState::Unprepared {
+                    continue;
+                }
+                state.file_states[file_index] = OutputFileState::Preparing;
+                // Reserve the slot now so concurrent preparers respect the bound.
+                state.awaiting_use_count += 1;
+            }
+            let opened = {
+                let _create_span = control.profile_span("installation.reconstruct.output.create");
+                self.open_output(file_index, true)
+            };
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            let Ok(file) = opened else {
+                state.file_states[file_index] = OutputFileState::Unprepared;
+                state.awaiting_use_count -= 1;
+                self.changed.notify_all();
+                return;
+            };
+            state.file_states[file_index] = OutputFileState::Prepared;
+            let evicted = state.insert(file_index, Arc::new(file));
+            state.awaiting_use[file_index] = true;
+            self.changed.notify_all();
+            drop(state);
+            drop(evicted);
+        }
+    }
+
+    /// Wakes and ends every [`Self::prepare_ahead`] loop.
+    pub(crate) fn stop_preparing(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.stop_preparing = true;
+        }
+        self.changed.notify_all();
+    }
+
+    /// Closes a finished file's shared handle on the calling worker instead of
+    /// at the end of reconstruction.
+    pub(crate) fn release(&self, file_index: usize) -> Result<()> {
+        let released = {
+            let mut state = self.lock_state()?;
+            state.take_awaiting_use(file_index);
+            state.lru.retain(|index| *index != file_index);
+            state.handles.remove(&file_index)
+        };
+        drop(released);
+        Ok(())
+    }
+
+    fn open_output(&self, file_index: usize, create: bool) -> Result<File> {
+        let path = &self.output_paths[file_index];
+        let file = OpenOptions::new()
+            .write(true)
+            .create(create)
+            .truncate(false)
+            .open(path)
+            .map_err(|e| Error::io_context("opening reconstruction output", path, e))?;
+        if create {
+            file.set_len(self.output_sizes[file_index])
+                .map_err(|e| Error::io_context("sizing reconstruction output", path, e))?;
+        }
+        Ok(file)
     }
 
     fn get_or_open(&self, file_index: usize) -> Result<Arc<File>> {
@@ -251,63 +405,53 @@ impl OutputHandleCache {
                 file_index
             )));
         }
-        let needs_initialization = {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| Error::reconstruct("output handle cache is poisoned"))?;
-            if let Some(file) = state.handles.get(&file_index).cloned() {
-                state.lru.retain(|index| *index != file_index);
-                state.lru.push_back(file_index);
-                return Ok(file);
+        let create = {
+            let mut state = self.lock_state()?;
+            loop {
+                if let Some(file) = state.handles.get(&file_index).cloned() {
+                    state.touch(file_index);
+                    if state.take_awaiting_use(file_index) {
+                        self.changed.notify_all();
+                    }
+                    return Ok(file);
+                }
+                match state.file_states[file_index] {
+                    OutputFileState::Preparing => {
+                        state = self
+                            .changed
+                            .wait(state)
+                            .map_err(|_| Error::reconstruct("output handle cache is poisoned"))?;
+                    }
+                    OutputFileState::Unprepared => {
+                        state.file_states[file_index] = OutputFileState::Preparing;
+                        break true;
+                    }
+                    OutputFileState::Prepared => break false,
+                }
             }
-            !state.initialized_files[file_index]
         };
 
         // Do filesystem work outside the cache mutex. A reconstruction can touch thousands of
         // files, and holding the mutex across open/set_len otherwise serializes every first write.
-        let file = OpenOptions::new()
-            .write(true)
-            .create(needs_initialization)
-            .truncate(false)
-            .open(&self.output_paths[file_index])
-            .map_err(|e| {
-                Error::io_context(
-                    "opening reconstruction output",
-                    &self.output_paths[file_index],
-                    e,
-                )
-            })?;
-        if needs_initialization {
-            file.set_len(self.output_sizes[file_index]).map_err(|e| {
-                Error::io_context(
-                    "sizing reconstruction output",
-                    &self.output_paths[file_index],
-                    e,
-                )
-            })?;
+        let opened = self.open_output(file_index, create);
+        let mut state = self.lock_state()?;
+        if create {
+            // Failed sizing is not cached; the next writer creates the file again.
+            state.file_states[file_index] = if opened.is_ok() {
+                OutputFileState::Prepared
+            } else {
+                OutputFileState::Unprepared
+            };
+            self.changed.notify_all();
         }
-        let file = Arc::new(file);
-
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| Error::reconstruct("output handle cache is poisoned"))?;
-        // Preserve successful initialization across handle eviction. Concurrent
-        // first opens may both size the file, as before; failed sizing is not cached.
-        state.initialized_files[file_index] = true;
+        let file = Arc::new(opened?);
         if let Some(existing) = state.handles.get(&file_index).cloned() {
-            state.lru.retain(|index| *index != file_index);
-            state.lru.push_back(file_index);
+            state.touch(file_index);
             return Ok(existing);
         }
-        while state.handles.len() >= state.max_open {
-            if let Some(oldest) = state.lru.pop_front() {
-                state.handles.remove(&oldest);
-            }
-        }
-        state.handles.insert(file_index, Arc::clone(&file));
-        state.lru.push_back(file_index);
+        let evicted = state.insert(file_index, Arc::clone(&file));
+        drop(state);
+        drop(evicted);
         Ok(file)
     }
 }

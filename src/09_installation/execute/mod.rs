@@ -6,6 +6,7 @@ pub(crate) mod entries;
 mod handles;
 pub(crate) mod job_io;
 pub(crate) mod jobs;
+mod output_preparer;
 mod pipeline;
 pub(crate) mod publish;
 mod workers;

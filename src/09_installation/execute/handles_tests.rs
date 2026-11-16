@@ -1,4 +1,5 @@
 use super::*;
+use crate::installation::execute::output_preparer::OutputFilePreparer;
 use std::io::Write;
 
 #[test]
@@ -241,4 +242,92 @@ fn output_handle_selection_preserves_ranges_and_job_local_reuse() {
         file.read_exact(&mut bytes[..4]).unwrap();
         assert_eq!(&bytes[..4], b"tail");
     }
+}
+
+fn wait_until(mut condition: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !condition() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "condition not reached"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+fn output_cache(count: usize) -> (tempfile::TempDir, Arc<OutputHandleCache>) {
+    let root = tempfile::tempdir().unwrap();
+    let paths = (0..count)
+        .map(|index| root.path().join(format!("output-{index}")))
+        .collect::<Vec<_>>();
+    let sizes = (0..count as u64).map(|index| index + 1).collect::<Vec<_>>();
+    let cache = OutputHandleCache::new(Arc::new(paths), Arc::new(sizes), &vec![1; count], 2);
+    (root, Arc::new(cache))
+}
+
+#[test]
+fn preparer_creates_and_sizes_files_that_workers_then_reuse() {
+    let (_root, cache) = output_cache(6);
+    let control = OperationControl::default();
+    let preparer = OutputFilePreparer::start(&cache, (0..6).collect(), &control).unwrap();
+    wait_until(|| cache.state.lock().unwrap().handles.len() == 6);
+    for index in 0..6 {
+        let prepared = Arc::clone(&cache.state.lock().unwrap().handles[&index]);
+        assert!(Arc::ptr_eq(&cache.get_or_open(index).unwrap(), &prepared));
+        assert_eq!(
+            std::fs::metadata(cache.output_path(index)).unwrap().len(),
+            index as u64 + 1
+        );
+    }
+    assert_eq!(cache.state.lock().unwrap().awaiting_use_count, 0);
+    drop(preparer);
+}
+
+#[test]
+fn preparer_stays_at_most_half_the_cache_ahead_of_the_workers() {
+    let (_root, cache) = output_cache(8);
+    cache.state.lock().unwrap().max_open = 4;
+    let control = OperationControl::default();
+    let preparer = OutputFilePreparer::start(&cache, (0..8).collect(), &control).unwrap();
+    wait_until(|| cache.state.lock().unwrap().handles.len() == 2);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let created = (0..8)
+        .filter(|&index| cache.output_path(index).exists())
+        .count();
+    assert_eq!(created, 2);
+
+    for index in 0..8 {
+        drop(cache.get_or_open(index).unwrap());
+    }
+    // Dropping the preparer while it waits for workers still joins its threads.
+    drop(preparer);
+    assert!((0..8).all(|index| cache.output_path(index).exists()));
+}
+
+#[test]
+fn a_failed_preparation_leaves_the_error_to_the_worker() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("missing-parent/output");
+    let cache = Arc::new(OutputHandleCache::new(
+        Arc::new(vec![path.clone()]),
+        Arc::new(vec![8]),
+        &[1],
+        1,
+    ));
+    let control = OperationControl::default();
+    let preparer = OutputFilePreparer::start(&cache, vec![0], &control).unwrap();
+    drop(preparer);
+
+    let error = cache.get_or_open(0).unwrap_err();
+    assert!(error.to_string().contains("opening reconstruction output"));
+}
+
+#[test]
+fn releasing_a_finished_file_closes_its_shared_handle() {
+    let (_root, cache) = output_cache(2);
+    drop(cache.get_or_open(0).unwrap());
+    cache.release(0).unwrap();
+    let state = cache.state.lock().unwrap();
+    assert!(!state.handles.contains_key(&0));
+    assert!(!state.lru.contains(&0));
 }

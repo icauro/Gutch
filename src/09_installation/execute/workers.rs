@@ -260,6 +260,8 @@ pub(crate) fn spawn_reconstruct_work(
                     bytes: 0,
                 };
                 for &file_index in &file_indices {
+                    // Every job writing this file has finished.
+                    context.output_handles.release(file_index)?;
                     let file = check_reconstructed_output_size(
                         &context.file_plans[file_index],
                         &context.output_paths[file_index],
