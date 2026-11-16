@@ -65,7 +65,7 @@ Existing complete blueprints remain reusable when chunk sizing changes.
 
 ## Bundle Contract
 
-See [binary file layouts](15_binary_formats.md) for byte-level bundle, loose
+See [binary file layouts](../repository/binary_formats.md) for byte-level bundle, loose
 chunk, chunk-map, and snapshot-blueprint definitions and size formulas.
 
 Bundle objects have extensionless content-addressed names under
@@ -104,6 +104,6 @@ identity. The benchmark CLI accepts the same mapping through
 - Metadata cannot redirect a chunk outside the fixed repo layout.
 
 The capture-side ordering and artifact-grouping timeline is documented in
-[`04_scan_pipeline.md`](04_scan_pipeline.md). The artifact-side execution,
+[`scan_pipeline.md`](scan_pipeline.md). The artifact-side execution,
 cache, and remote-fetch behavior is documented in
-[`06_reconstruct_pipeline.md`](06_reconstruct_pipeline.md).
+[`reconstruct_pipeline.md`](../installation/reconstruct_pipeline.md).

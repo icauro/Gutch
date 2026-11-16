@@ -34,9 +34,9 @@ summaries are assembled inside Gutch.
 
 Host adapters own remote routes, authentication, response decoding and translation
 into provider contracts. Gutch owns generic remote command syntax and local
-repository operations. See the [provider integration contract](10_cli_and_app_integration.md).
+repository operations. See the [provider integration contract](integration/cli_and_app_integration.md).
 Tracked-repo config persistence receives an explicit path from the caller.
-The [operation and module map](01_operation_ownership.md) records integration
+The [operation and module map](overview/operation_ownership.md) records integration
 boundaries and implementation ownership.
 
 ## Component Responsibilities
@@ -90,24 +90,48 @@ A progress event describes operation phase and presentation detail. The final
 - **Repair** — reconstruction of missing or corrupt expected content, with
   explicit handling of extra files.
 
-## Current-State Pages
+## Pages
 
-- `01_operation_ownership.md`
-- `02_repository_snapshots_and_tags.md`
-- `03_snapshot_source_ingestion.md`
-- `04_scan_pipeline.md`
-- `05_packaging_and_bundles.md`
-- `06_reconstruct_pipeline.md`
-- `07_verify_pipeline.md`
-- `08_installation_verification_and_repair.md`
-- `09_snapshot_runtime_metadata.md`
-- `10_cli_and_app_integration.md`
-- `11_path_safety_and_conflicts.md`
-- `12_performance_and_development.md`
-- `13_correctness_testing.md`
-- [Current limitations](14_limitations.md) — unsupported capabilities, current
-  boundaries, and established reasons.
-- [Binary file layouts](15_binary_formats.md) — serialized fields, arrays,
-  storage modes, and exact byte-size formulas.
-- [Format evolution](16_format_evolution.md) — repository, document, binary and
-  output versions, refusal rules and the release checklist.
+Read the overview first; the topic folders follow the order of an operation.
+
+- **Overview**
+  - [Operation ownership](overview/operation_ownership.md) — operations,
+    integration boundaries and the module map.
+  - [Limitations](overview/limitations.md) — unsupported capabilities, current
+    boundaries and established reasons.
+- **Repository**
+  - [Repositories, snapshots and tags](repository/repositories_snapshots_and_tags.md)
+    — repository metadata, tags and snapshot identity.
+  - [Snapshot runtime metadata](repository/snapshot_runtime_metadata.md) —
+    runtime and launch behavior stored with a snapshot.
+  - [Binary file layouts](repository/binary_formats.md) — serialized fields,
+    arrays, storage modes and exact byte-size formulas.
+  - [Format evolution](repository/format_evolution.md) — repository, document,
+    binary and output versions, refusal rules and the release checklist.
+- **Capture**
+  - [Source ingestion](capture/source_ingestion.md) — source selection and
+    snapshot identity.
+  - [Scan pipeline](capture/scan_pipeline.md) — source inventory, chunking,
+    reuse and capture parallelism.
+  - [Chunkers](capture/chunkers.md) — selectable chunking algorithms and their
+    comparison tools.
+  - [Packaging and bundles](capture/packaging_and_bundles.md) — bundle and
+    loose-chunk artifact contracts.
+- **Installation**
+  - [Reconstruct pipeline](installation/reconstruct_pipeline.md) —
+    reconstruction jobs, staging, cache and remote fetch overlap.
+  - [Verify pipeline](installation/verify_pipeline.md) — verification modes,
+    hashing and worker scheduling.
+  - [Verification and repair](installation/verification_and_repair.md) —
+    installation policies, change previews and repair.
+  - [Path safety and conflicts](installation/path_safety_and_conflicts.md) —
+    path ownership, filename limits and conflict policies.
+- **Integration**
+  - [CLI and application integration](integration/cli_and_app_integration.md) —
+    the CLI, the public API, providers and structured output.
+- **Development**
+  - [Performance and benchmarks](development/performance_and_benchmarks.md) —
+    runtime planning, profiling and benchmark execution.
+  - [Correctness testing](development/correctness_testing.md) — the test
+    runner, scenarios and the frozen corpus.
+  - [CLI builds](development/cli_builds.md) — release builds in GitHub Actions.

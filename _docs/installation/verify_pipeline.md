@@ -142,11 +142,11 @@ and `src/04_artifact/integrity.rs` for full-file hash-mode selection.
 
 ## Related pages
 
-- [`06_reconstruct_pipeline.md`](06_reconstruct_pipeline.md) — when file
+- [`reconstruct_pipeline.md`](reconstruct_pipeline.md) — when file
   verification is released by reconstruction dependencies.
-- [`08_installation_verification_and_repair.md`](08_installation_verification_and_repair.md)
+- [`verification_and_repair.md`](verification_and_repair.md)
   — install and repair lifecycle around classification.
-- [`11_path_safety_and_conflicts.md`](11_path_safety_and_conflicts.md) — safe
+- [`path_safety_and_conflicts.md`](path_safety_and_conflicts.md) — safe
   path resolution and destructive-action boundaries.
-- [`12_performance_and_development.md`](12_performance_and_development.md) —
+- [`performance_and_benchmarks.md`](../development/performance_and_benchmarks.md) —
   profiling and interpretation of wall versus worker time.

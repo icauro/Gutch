@@ -16,12 +16,12 @@ again.
 Gutch owns capture, repository synchronization, artifact transfer, reconstruction,
 verification, and repair. Hosts provide remote connections and authorized artifact
 sources, and manage application workflows. See the
-[provider integration contract](_docs/current_state/10_cli_and_app_integration.md)
+[provider integration contract](_docs/integration/cli_and_app_integration.md)
 for the supported host interfaces.
 
 Its current purpose is software delivery. Although it shares techniques with
 backup tools, it does not preserve all filesystem metadata or provide a complete
-backup service. See [current limitations](_docs/current_state/14_limitations.md)
+backup service. See [current limitations](_docs/overview/limitations.md)
 for supported boundaries and their reasons.
 
 ## First successful run
@@ -29,7 +29,7 @@ for supported boundaries and their reasons.
 To download the CLI, open **Actions > Build Gutch CLI** and select a successful
 run. Artifacts cover Linux and Windows on x86-64 and ARM64, with checksums and
 notices. Builds run on code pushes to `main` or manually. See
-[CLI builds](_docs/current_state/12_performance_and_development.md#cli-builds-in-github-actions).
+[CLI builds](_docs/development/cli_builds.md).
 
 Install Python 3.12 or newer, uv, and Rust 1.100 or newer, the minimum the
 crates declare; the standalone CI uses Rust 1.100.0. Cargo rejects unused
@@ -77,19 +77,19 @@ All commands work when this directory is exported as a standalone project.
 Profiling defaults to `off`. Use `--profile summary` for coarse timings, or
 `--profile detailed --profile-dir /absolute/report/directory` for a sampled
 Perfetto timeline and summary. Live download and installation-write speeds work
-with profiling off. See the [profiling contract](_docs/current_state/12_performance_and_development.md)
+with profiling off. See the [profiling contract](_docs/development/performance_and_benchmarks.md)
 for measurement meanings and recording limits.
 
 ## Source navigation
 
-Start with [the public API](src/11_api.rs). [Capture](src/08_capture/) owns source
-selection through packing; [installation](src/09_installation/) owns inspection,
-change planning, execution and publication. [Transfer](src/05_transfer/) supplies
+Start with [the public API](src/11_api.rs). [Capture](src/08_capture) owns source
+selection through packing; [installation](src/09_installation) owns inspection,
+change planning, execution and publication. [Transfer](src/05_transfer) supplies
 artifact readiness, with separate scheduling, adaptive-policy and feedback owners.
-[Repository](src/07_repo/) owns acquisition, guarded readers, persistence, index
+[Repository](src/07_repo) owns acquisition, guarded readers, persistence, index
 recovery and synchronization. Installation coordinates combined fetch and
-reconstruction; [artifact](src/04_artifact/) owns the binary codecs. The
-[module map](_docs/current_state/01_operation_ownership.md#crate-and-module-map) records dependency boundaries.
+reconstruction; [artifact](src/04_artifact) owns the binary codecs. The
+[module map](_docs/overview/operation_ownership.md#crate-and-module-map) records dependency boundaries.
 
 Reconstruction and repair use the same executor. Reconstruction replaces a
 verified staged tree; repair leaves healthy entries in place and publishes
@@ -99,7 +99,7 @@ changed entries individually. Preview changes without writing the destination:
 gutch-cli installation preview --repo /path/to/repo --snapshot SNAPSHOT_ID --destination /path/to/install
 ```
 
-Output is readable by default; use `--json-lines` to stream structured events. See [installation policies and preview](_docs/current_state/08_installation_verification_and_repair.md)
+Output is readable by default; use `--json-lines` to stream structured events. See [installation policies and preview](_docs/installation/verification_and_repair.md)
 for verification levels, extra files, estimates, and failure behavior.
 
-See [CLI usage](usage.md) and [engine contracts](_docs/current_state/README.md).
+See [CLI usage](usage.md) and [engine contracts](_docs/README.md).

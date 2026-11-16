@@ -17,7 +17,7 @@ Verified: 2026-11-16
 
 A repository format names exactly one version of every document and binary file
 it contains. Snapshot IDs use their own identity encoding
-(`gutch-installation-id-v2`, see [repositories](02_repository_snapshots_and_tags.md));
+(`gutch-installation-id-v2`, see [repositories](repositories_snapshots_and_tags.md));
 they never depend on how metadata or artifacts are stored, so a format change
 never changes a snapshot ID.
 
@@ -57,7 +57,7 @@ are inputs, not stored documents, and carry no markers.
 Opening a repository reads only this object first. A format other than `1`, or
 a required feature this release does not know, fails with
 `Error::UnsupportedFormat` (CLI `code: unsupported_format`, see
-[CLI integration](10_cli_and_app_integration.md)). Read operations check the
+[CLI integration](../integration/cli_and_app_integration.md)). Read operations check the
 read features; operations that change the repository also check the write
 features before any change. Optional features may be ignored.
 
@@ -98,7 +98,7 @@ the document types; a unit test fails when they drift. The parsers stay
 authoritative for rules a schema cannot express. Each frozen corpus repository
 under `tests/datasets/corpus/*/repository/format-v<N>/` is parsed by the current
 readers in unit tests and exercised end to end by the frozen scenario
-([correctness testing](13_correctness_testing.md)).
+([correctness testing](../development/correctness_testing.md)).
 
 `tests/harness_tests/test_release_freeze.py` compares the working tree with the
 latest `v<major>.<minor>.<patch>` tag. A file changed, added or removed inside a

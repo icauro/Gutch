@@ -5,7 +5,7 @@ All commands below run from this directory; no containing project is required.
 
 1. Run `python gutch.py test` to establish a baseline. It runs Python tooling,
    Rust tests and local CLI scenarios. S3 is an explicit additional suite.
-2. Find the owner in the [module map](_docs/current_state/01_operation_ownership.md#crate-and-module-map). Public contracts live in
+2. Find the owner in the [module map](_docs/overview/operation_ownership.md#crate-and-module-map). Public contracts live in
    `src/11_api.rs`; algorithm tests stay beside the Rust implementation.
 3. Find a relevant scenario with `python gutch.py test --list`. A case such as
    `repository/deletion_preserves_shared_artifacts` maps directly to
@@ -16,7 +16,7 @@ All commands below run from this directory; no containing project is required.
    `tests/run.py`. Use independent source inventories for content assertions.
 5. Run the default suite again. Run `python gutch.py test --suite s3` when
    changing remote delivery or service setup. Docker must be running.
-6. Update the owning page under `_docs/current_state/`. Include validation and
+6. Update the owning page listed in [`_docs/README.md`](_docs/README.md). Include validation and
    any skipped or unavailable checks in the change description.
 
 ## Investigate a failure

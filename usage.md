@@ -1,22 +1,7 @@
 # Gutch CLI Usage
 
-Canonical current-state documentation lives in [`_docs/current_state/`](_docs/current_state/README.md):
-
-| Doc | Topic |
-|---|---|
-| [`README.md`](_docs/current_state/README.md) | Index, terminology, and component boundaries |
-| [`01_operation_ownership.md`](_docs/current_state/01_operation_ownership.md) | Operation ownership and component boundaries |
-| [`02_repository_snapshots_and_tags.md`](_docs/current_state/02_repository_snapshots_and_tags.md) | Repo metadata, free-form tags, and snapshot identity |
-| [`03_snapshot_source_ingestion.md`](_docs/current_state/03_snapshot_source_ingestion.md) | Source selection and snapshot identity |
-| [`04_scan_pipeline.md`](_docs/current_state/04_scan_pipeline.md) | Source inventory, chunking, reuse, and capture parallelism |
-| [`05_packaging_and_bundles.md`](_docs/current_state/05_packaging_and_bundles.md) | Bundle and loose-chunk artifact contracts |
-| [`06_reconstruct_pipeline.md`](_docs/current_state/06_reconstruct_pipeline.md) | Reconstruction jobs, staging, cache, and remote fetch overlap |
-| [`07_verify_pipeline.md`](_docs/current_state/07_verify_pipeline.md) | Verification modes, hashing, and worker scheduling |
-| [`08_installation_verification_and_repair.md`](_docs/current_state/08_installation_verification_and_repair.md) | Installation, verification, and repair |
-| [`09_snapshot_runtime_metadata.md`](_docs/current_state/09_snapshot_runtime_metadata.md) | Snapshot runtime metadata |
-| [`10_cli_and_app_integration.md`](_docs/current_state/10_cli_and_app_integration.md) | CLI and desktop app integration |
-| [`11_path_safety_and_conflicts.md`](_docs/current_state/11_path_safety_and_conflicts.md) | Path safety and conflict resolution |
-| [`12_performance_and_development.md`](_docs/current_state/12_performance_and_development.md) | Runtime planning, profiling, and benchmark interpretation |
+The [documentation index](_docs/README.md) lists the pages that describe how
+Gutch works, grouped by topic.
 
 ## Quick start
 
@@ -33,7 +18,7 @@ The standalone executable runs local artifact commands directly. Embedded hosts
 can supply a remote command provider for `repo remote bind`, `repo remote create`, `repo push`,
 `repo pull`, `repo remote list`, `repo remote unbind`, and `repo tags references`.
 The generic `--scope-id` is opaque to Gutch; the provider defines its meaning.
-See the [provider integration contract](_docs/current_state/10_cli_and_app_integration.md).
+See the [provider integration contract](_docs/integration/cli_and_app_integration.md).
 
 `repo rename` changes the local `repository_name` in `repo_metadata.json`; it
 does not rename the filesystem directory or a linked remote repo.
@@ -63,7 +48,7 @@ FastCDC at 128 KiB and JC at 256 KiB, including reconstruction and corruption re
 ## Launch options
 
 The JSON formats and inheritance behavior are defined in
-[`09_snapshot_runtime_metadata.md`](_docs/current_state/09_snapshot_runtime_metadata.md).
+[`snapshot_runtime_metadata.md`](_docs/repository/snapshot_runtime_metadata.md).
 
 ## Preview installation changes
 

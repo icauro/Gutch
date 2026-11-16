@@ -98,4 +98,4 @@ implicit name-based ignores inside a selected snapshot source.
 - Frontends do not reimplement tag parsing or containment checks.
 
 The detailed scan, chunking, reuse, and capture parallelization stages are
-documented in [`04_scan_pipeline.md`](04_scan_pipeline.md).
+documented in [`scan_pipeline.md`](scan_pipeline.md).
