@@ -7,9 +7,23 @@ its own server.
 
 ## A first program
 
-[`examples/capture_and_install.rs`](../examples/capture_and_install.rs)
-creates a repository, captures a folder, installs it elsewhere and verifies
-the result:
+A `Repo` handle covers the common operations in one line each:
+
+```rust
+use gutch::api::Repo;
+
+let repo = Repo::init("work/repo")?;              // or Repo::open(path)?
+let snapshot_id = repo.capture("build", &[("version", "1.0")])?.snapshot_id;
+repo.reconstruct(&snapshot_id, "work/app")?;
+let issues = repo.verify(&snapshot_id, "work/app")?.issues;
+println!("{issues}");                              // 0 missing, 0 corrupt, 0 extra
+```
+
+The handle also has `repair`, `diff`, `push` and `pull`. Each method fills in
+the operation's request with its defaults; for any other option, build the
+request yourself, as described below.
+[`examples/capture_and_install.rs`](../examples/capture_and_install.rs) is
+this program with argument handling:
 
 ```sh
 cargo run --example capture_and_install -- SOURCE_DIR WORK_DIR
@@ -45,9 +59,11 @@ let result = capture_snapshot(&request)?;      // SnapshotCaptureResult
 ```
 
 Requests own their inputs and include a `control` field for progress and
-cancellation, so most can be written with `..Default::default()`. Snapshot
-tags are written as `SnapshotTagSet::from_pairs([("version", "1.2.0")])?`,
-which checks each tag as the CLI's `--tag` does. Anything the
+cancellation, so most can be written with `..Default::default()`; with a
+handle, `repo_root: repo.root().to_path_buf()` names the repository. Snapshot
+tags in a request are written as
+`SnapshotTagSet::from_pairs([("version", "1.2.0")])?`, which checks each tag
+as the CLI's `--tag` does. Anything the
 host supplies at run time, such as a remote provider or a callback that
 receives preview events, is passed beside the request. Simple lookups, such as
 `repo_status` or `repo_constraints`, take only the repository path.
@@ -63,7 +79,7 @@ See the crate documentation (`cargo doc -p gutch --open`) for the rest. Results
 are plain structs, the same data the CLI prints with `--json`: for example
 `reconstruct_installation` returns `reused_chunk_count` directly, and
 `verify_installation` returns `issues`, whose `matches_snapshot()` is true when
-nothing is missing or corrupt. A preview defaults to what a repair would do;
+nothing is missing or corrupt and which prints as its counts. A preview defaults to what a repair would do;
 set `publication: InstallationPublication::ReplaceDirectory` to preview a
 reconstruction. Errors are
 `gutch::api::Error`; `error.exit_code()` gives the status the CLI would exit
@@ -74,19 +90,21 @@ with.
 The `control` field of a request is an `OperationControl`. Attach what you need:
 
 ```rust
-use std::sync::Arc;
-use gutch::api::OperationControl;
+use gutch::api::{CancelFlag, OperationControl};
 
+let cancel = CancelFlag::default();               // keep a clone; call cancel.cancel()
 let control = OperationControl::default()
-    .with_progress(Arc::new(MyProgress))       // impl ProgressSink
-    .with_cancellation(Arc::new(MyCancelFlag)); // impl CancellationHook
+    .on_progress(|event| println!("{}", event.message))
+    .with_cancel_flag(&cancel);
 ```
 
-- `ProgressSink::emit` receives each progress event; it is called from worker
-  threads, so keep it quick.
-- `CancellationHook::is_cancelled` is polled during the work. Once it returns
-  `true`, the operation stops at the next safe point and returns an error.
-  A cancelled reconstruction leaves the destination as it was.
+- The progress closure receives each progress event; it is called from worker
+  threads, so keep it quick. To keep state between events, implement
+  `ProgressSink` and pass it to `.with_progress(...)`.
+- Once the flag is cancelled, from any thread, the operation stops at the next
+  safe point and returns an error whose `is_cancelled()` is true. A cancelled
+  reconstruction leaves the destination as it was. An application with its own
+  signal can implement `CancellationHook` and use `.with_cancellation(...)`.
 - When updating an installation, `reuse_snapshot_id` names the snapshot that
   is already installed, and `reuse_from` points to another folder holding it
   if that is not the destination. Content already there is reused instead of

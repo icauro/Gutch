@@ -32,6 +32,8 @@ mod profiling;
 mod progress;
 #[path = "07_repo/mod.rs"]
 mod repo;
+#[path = "10_repo_handle.rs"]
+mod repo_handle;
 #[path = "03_runtime/mod.rs"]
 mod runtime;
 #[path = "06_snapshot/mod.rs"]

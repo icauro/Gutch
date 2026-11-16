@@ -14,6 +14,7 @@ pub use crate::error::promotion_diagnostics::{
     PromotionPhase, PromotionRecoveryAttempt, PromotionRecoveryOperation,
 };
 pub use crate::profiling::{ProfileMode, ProfileSpanSummary, ProfileSummary, Profiler};
+pub use crate::progress::CancelFlag;
 pub use crate::progress::CancellationHook;
 pub use crate::progress::OperationControl;
 pub use crate::progress::OperationKind;
@@ -147,6 +148,7 @@ pub use crate::repo::updates::{
 pub use crate::repo::verify::SnapshotVerifyOutcome;
 pub use crate::repo::verify::verify_repo;
 pub use crate::repo::verify::{RepoVerifyMode, RepoVerifyRequest, RepoVerifyResult};
+pub use crate::repo_handle::Repo;
 pub use crate::sync::fetch::fetch_snapshot;
 pub use crate::sync::fetch_types::SnapshotFetchRequest;
 pub use crate::sync::fetch_types::SnapshotFetchResult;

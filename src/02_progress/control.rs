@@ -10,6 +10,7 @@ use crate::profiling::ProfileSpan;
 use crate::profiling::Profiler;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Read-only cancellation boundary implemented by the calling application.
 ///
@@ -17,6 +18,43 @@ use std::sync::Arc;
 /// engine code observes this hook only at consistency-safe checkpoints.
 pub trait CancellationHook: Send + Sync + Debug {
     fn is_cancelled(&self) -> bool;
+}
+
+/// A ready-made cancellation signal. Clones share one flag, so keep a clone
+/// and call [`CancelFlag::cancel`] from any thread, such as a Cancel button
+/// or a Ctrl-C handler.
+#[derive(Debug, Default, Clone)]
+pub struct CancelFlag(Arc<AtomicBool>);
+
+impl CancelFlag {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+impl CancellationHook for CancelFlag {
+    fn is_cancelled(&self) -> bool {
+        CancelFlag::is_cancelled(self)
+    }
+}
+
+/// Adapts a closure to [`ProgressSink`].
+struct ProgressFn<F>(F);
+
+impl<F> Debug for ProgressFn<F> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ProgressFn")
+    }
+}
+
+impl<F: Fn(super::ProgressEvent) + Send + Sync> ProgressSink for ProgressFn<F> {
+    fn emit(&self, event: super::ProgressEvent) {
+        (self.0)(event)
+    }
 }
 
 /// Cross-cutting controls propagated through one complete Gutch operation, including nested work.
@@ -68,9 +106,20 @@ impl OperationControl {
             f.record(Stream::OutputWrite, bytes);
         }
     }
+    /// Calls `emit` with each progress event. It runs on worker threads, so
+    /// keep it quick.
+    pub fn on_progress(self, emit: impl Fn(super::ProgressEvent) + Send + Sync + 'static) -> Self {
+        self.with_progress(Arc::new(ProgressFn(emit)))
+    }
+
     pub fn with_cancellation(mut self, cancellation: Arc<dyn CancellationHook>) -> Self {
         self.cancellation = Some(cancellation);
         self
+    }
+
+    /// Stops the operation at the next safe point once `flag` is cancelled.
+    pub fn with_cancel_flag(self, flag: &CancelFlag) -> Self {
+        self.with_cancellation(Arc::new(flag.clone()))
     }
 
     pub fn with_warnings(mut self, warnings: Arc<dyn WarningSink>) -> Self {

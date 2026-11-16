@@ -89,6 +89,19 @@ pub struct InstallationIssues {
     pub extra_files: Vec<InstallationIssue>,
 }
 
+/// Prints the counts, such as `0 missing, 1 corrupt, 0 extra`.
+impl std::fmt::Display for InstallationIssues {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} missing, {} corrupt, {} extra",
+            self.missing_file_count(),
+            self.corrupt_file_count(),
+            self.extra_file_count()
+        )
+    }
+}
+
 impl InstallationIssues {
     /// True when no snapshot file is missing or corrupt; extra files are allowed.
     pub fn matches_snapshot(&self) -> bool {

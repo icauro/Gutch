@@ -11,24 +11,11 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use gutch::api::{
-    InstallationReconstructRequest, InstallationRepairRequest, InstallationVerifyRequest,
-    OperationControl, ProgressEvent, ProgressSink, RepoInitRequest, Result, SnapshotCaptureRequest,
-    capture_snapshot, init_repo, plan_repair_installation, reconstruct_installation,
-    repair_installation, verify_installation,
+    InstallationRepairRequest, OperationControl, Repo, Result, plan_repair_installation,
+    repair_installation,
 };
-
-/// Prints each progress event. Gutch calls `emit` from worker threads, so it must be quick.
-#[derive(Debug)]
-struct PrintProgress;
-
-impl ProgressSink for PrintProgress {
-    fn emit(&self, event: ProgressEvent) {
-        println!("  [{:?}] {}", event.phase, event.message);
-    }
-}
 
 fn main() -> ExitCode {
     let arguments: Vec<PathBuf> = env::args_os().skip(1).map(PathBuf::from).collect();
@@ -53,7 +40,6 @@ fn main() -> ExitCode {
 }
 
 fn run(work_dir: &Path) -> Result<()> {
-    let repo_root = work_dir.join("repo");
     let source_dir = work_dir.join("source");
     let app_dir = work_dir.join("app");
     for index in 0..8 {
@@ -61,46 +47,29 @@ fn run(work_dir: &Path) -> Result<()> {
         fs::create_dir_all(path.parent().unwrap())?;
         fs::write(path, format!("part {index}\n").repeat(1000))?;
     }
-
-    init_repo(&RepoInitRequest {
-        repo_root: repo_root.clone(),
-        ..Default::default()
-    })?;
-    let snapshot_id = capture_snapshot(&SnapshotCaptureRequest {
-        repo_root: repo_root.clone(),
-        source_dir,
-        ..Default::default()
-    })?
-    .snapshot_id;
-    reconstruct_installation(&InstallationReconstructRequest {
-        repo_root: repo_root.clone(),
-        snapshot_id: snapshot_id.clone(),
-        destination_dir: app_dir.clone(),
-        ..Default::default()
-    })?;
+    let repo = Repo::init(work_dir.join("repo"))?;
+    let snapshot_id = repo.capture(&source_dir, &[])?.snapshot_id;
+    repo.reconstruct(&snapshot_id, &app_dir)?;
 
     fs::remove_file(app_dir.join("data/part1.txt"))?;
     fs::write(app_dir.join("data/part2.txt"), "damaged\n")?;
     fs::write(app_dir.join("stray.log"), "not part of the snapshot\n")?;
 
-    let verify = InstallationVerifyRequest {
-        repo_root: repo_root.clone(),
-        snapshot_id: snapshot_id.clone(),
-        destination_dir: app_dir.clone(),
-        ..Default::default()
-    };
-    let issues = verify_installation(&verify)?.issues;
+    let issues = repo.verify(&snapshot_id, &app_dir)?.issues;
     for issue in issues.missing_files.iter().chain(&issues.corrupt_files) {
         println!("found {:?}: {}", issue.kind, issue.path);
     }
 
-    // The plan and the repair take the same request.
+    // `repo.repair` keeps extra files; the full request can remove them and
+    // report progress. The plan and the repair take the same request.
+    // Gutch calls the progress closure from worker threads, so keep it quick.
     let request = InstallationRepairRequest {
-        repo_root,
-        snapshot_id,
-        destination_dir: app_dir,
+        repo_root: repo.root().to_path_buf(),
+        snapshot_id: snapshot_id.clone(),
+        destination_dir: app_dir.clone(),
         remove_extra_files: true,
-        control: OperationControl::default().with_progress(Arc::new(PrintProgress)),
+        control: OperationControl::default()
+            .on_progress(|event| println!("  [{:?}] {}", event.phase, event.message)),
         ..Default::default()
     };
     let plan = plan_repair_installation(&request)?;
@@ -116,12 +85,9 @@ fn run(work_dir: &Path) -> Result<()> {
         repaired.removed_extra_file_count
     );
 
-    let issues = verify_installation(&verify)?.issues;
+    let issues = repo.verify(&snapshot_id, &app_dir)?.issues;
     println!(
-        "after repair: {} missing, {} corrupt, {} extra; matches snapshot: {}",
-        issues.missing_file_count(),
-        issues.corrupt_file_count(),
-        issues.extra_file_count(),
+        "after repair: {issues}; matches snapshot: {}",
         issues.matches_snapshot()
     );
     Ok(())

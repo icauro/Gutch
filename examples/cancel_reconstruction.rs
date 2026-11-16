@@ -14,37 +14,11 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use gutch::api::{
-    CancellationHook, InstallationReconstructRequest, InstallationVerifyRequest, OperationControl,
-    ProgressEvent, ProgressPhase, ProgressSink, RepoInitRequest, Result, SnapshotCaptureRequest,
-    capture_snapshot, init_repo, reconstruct_installation, verify_installation,
+    CancelFlag, InstallationReconstructRequest, OperationControl, ProgressPhase, Repo, Result,
+    reconstruct_installation,
 };
-
-/// Gutch polls `is_cancelled` at safe points and then stops with `Error::Cancelled`.
-#[derive(Debug, Default)]
-struct CancelFlag(AtomicBool);
-
-impl CancellationHook for CancelFlag {
-    fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
-    }
-}
-
-/// Stands in for the user: requests cancellation once writing has started.
-#[derive(Debug)]
-struct CancelWhenWriting(Arc<CancelFlag>);
-
-impl ProgressSink for CancelWhenWriting {
-    fn emit(&self, event: ProgressEvent) {
-        if event.phase == ProgressPhase::Reconstruct && !self.0.is_cancelled() {
-            println!("cancelling at: {}", event.message);
-            self.0.0.store(true, Ordering::Relaxed);
-        }
-    }
-}
 
 fn main() -> ExitCode {
     let arguments: Vec<PathBuf> = env::args_os().skip(1).map(PathBuf::from).collect();
@@ -69,30 +43,28 @@ fn main() -> ExitCode {
 }
 
 fn run(work_dir: &Path) -> Result<()> {
-    let repo_root = work_dir.join("repo");
+    let repo = Repo::init(work_dir.join("repo"))?;
     let source_dir = work_dir.join("source");
     let app_dir = work_dir.join("app");
-    init_repo(&RepoInitRequest {
-        repo_root: repo_root.clone(),
-        ..Default::default()
-    })?;
-
-    let old_id = capture_version(&repo_root, &source_dir, "1.0")?;
-    let new_id = capture_version(&repo_root, &source_dir, "1.1")?;
-    reconstruct_installation(&InstallationReconstructRequest {
-        repo_root: repo_root.clone(),
-        snapshot_id: old_id.clone(),
-        destination_dir: app_dir.clone(),
-        ..Default::default()
-    })?;
+    let old_id = capture_version(&repo, &source_dir, "1.0")?;
+    let new_id = capture_version(&repo, &source_dir, "1.1")?;
+    repo.reconstruct(&old_id, &app_dir)?;
     println!("installed 1.0");
 
-    let flag = Arc::new(CancelFlag::default());
+    // Stands in for the user: cancel once writing has started. Gutch checks
+    // the flag at safe points and then stops with an error.
+    let flag = CancelFlag::default();
+    let cancel = flag.clone();
     let control = OperationControl::default()
-        .with_cancellation(flag.clone())
-        .with_progress(Arc::new(CancelWhenWriting(flag)));
+        .with_cancel_flag(&flag)
+        .on_progress(move |event| {
+            if event.phase == ProgressPhase::Reconstruct && !cancel.is_cancelled() {
+                println!("cancelling at: {}", event.message);
+                cancel.cancel();
+            }
+        });
     let attempt = reconstruct_installation(&InstallationReconstructRequest {
-        repo_root: repo_root.clone(),
+        repo_root: repo.root().to_path_buf(),
         snapshot_id: new_id,
         destination_dir: app_dir.clone(),
         control,
@@ -104,38 +76,25 @@ fn run(work_dir: &Path) -> Result<()> {
         Ok(_) => println!("update to 1.1 finished before the cancellation was seen"),
     }
 
-    let issues = verify_installation(&InstallationVerifyRequest {
-        repo_root,
-        snapshot_id: old_id,
-        destination_dir: app_dir,
-        ..Default::default()
-    })?
-    .issues;
-    println!(
-        "1.0 after the cancelled update: {} missing, {} corrupt, {} extra",
-        issues.missing_file_count(),
-        issues.corrupt_file_count(),
-        issues.extra_file_count()
-    );
+    let issues = repo.verify(&old_id, &app_dir)?.issues;
+    println!("1.0 after the cancelled update: {issues}");
     Ok(())
 }
 
 /// Rewrites the source folder with 64 files for `version` and captures it.
-fn capture_version(repo_root: &Path, source_dir: &Path, version: &str) -> Result<String> {
+fn capture_version(repo: &Repo, source_dir: &Path, version: &str) -> Result<String> {
     fs::create_dir_all(source_dir)?;
     for index in 0..64 {
-        let line = format!("version {version}, file {index}\n");
+        let line = format!(
+            "version {version}, file {index}
+"
+        );
         fs::write(
             source_dir.join(format!("file{index:02}.txt")),
             line.repeat(4000),
         )?;
     }
-    let snapshot_id = capture_snapshot(&SnapshotCaptureRequest {
-        repo_root: repo_root.to_path_buf(),
-        source_dir: source_dir.to_path_buf(),
-        ..Default::default()
-    })?
-    .snapshot_id;
+    let snapshot_id = repo.capture(source_dir, &[])?.snapshot_id;
     println!("captured {version} as {snapshot_id}");
     Ok(snapshot_id)
 }

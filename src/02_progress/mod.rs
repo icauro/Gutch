@@ -4,7 +4,7 @@ mod control;
 mod events;
 mod feedback;
 
-pub use control::{CancellationHook, OperationControl};
+pub use control::{CancelFlag, CancellationHook, OperationControl};
 pub(crate) use events::emit_progress;
 pub use events::{
     OperationKind, OperationWarning, ProgressEvent, ProgressPhase, ProgressSink, WarningSink,

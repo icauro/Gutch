@@ -19,10 +19,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use gutch::api::{
-    InstallationReconstructRequest, InstallationVerifyRequest, ObjectStoreRemote,
-    RemoteObjectStore, RemoteRepoCreateRequest, RepoInitRequest, RepoPullRequest, RepoPushRequest,
-    Result, SnapshotCaptureRequest, capture_snapshot, create_remote_repo, init_repo,
-    plan_push_repo, pull_repo, push_repo, reconstruct_installation, verify_installation,
+    ObjectStoreRemote, RemoteObjectStore, RemoteRepoCreateRequest, Repo, RepoPullRequest, Result,
+    create_remote_repo, pull_repo,
 };
 
 /// Each key is a file path below the root folder.
@@ -114,30 +112,21 @@ fn run(work_dir: &Path) -> Result<()> {
     let remote = ObjectStoreRemote::new(FolderStore {
         root: work_dir.join("remote"),
     });
-    let origin = work_dir.join("origin");
-    let copy = work_dir.join("copy");
     let source_dir = work_dir.join("source");
     fs::create_dir_all(&source_dir)?;
     fs::write(
         source_dir.join("readme.txt"),
-        "hello from the remote\n".repeat(100),
+        "hello from the remote
+"
+        .repeat(100),
     )?;
-
-    init_repo(&RepoInitRequest {
-        repo_root: origin.clone(),
-        ..Default::default()
-    })?;
-    let snapshot_id = capture_snapshot(&SnapshotCaptureRequest {
-        repo_root: origin.clone(),
-        source_dir,
-        ..Default::default()
-    })?
-    .snapshot_id;
+    let origin = Repo::init(work_dir.join("origin"))?;
+    let snapshot_id = origin.capture(&source_dir, &[])?.snapshot_id;
 
     // Create a remote repo in scope "team" and bind `origin` to it.
     let remote_repo_id = create_remote_repo(
         &RemoteRepoCreateRequest {
-            repo_root: origin.clone(),
+            repo_root: origin.root().to_path_buf(),
             scope_id: "team".into(),
             ..Default::default()
         },
@@ -145,17 +134,11 @@ fn run(work_dir: &Path) -> Result<()> {
     )?
     .remote_repo_id;
     println!("created remote repo {remote_repo_id}");
-
-    let push = RepoPushRequest {
-        repo_root: origin,
-        ..Default::default()
-    };
-    let plan = plan_push_repo(&push, &remote)?;
-    println!("push plan: {} snapshots to add", plan.to_add.len());
-    let pushed = push_repo(&push, &remote)?;
+    let pushed = origin.push(&remote)?;
     println!("pushed: {} bundles uploaded", pushed.bundle_uploaded_count);
 
     // Pulling into a new folder creates the repository there.
+    let copy = work_dir.join("copy");
     let pulled = pull_repo(
         &RepoPullRequest {
             repo_root: copy.clone(),
@@ -171,24 +154,10 @@ fn run(work_dir: &Path) -> Result<()> {
         pulled.bundle_downloaded_count
     );
 
+    let copy = Repo::open(copy)?;
     let app_dir = work_dir.join("app");
-    reconstruct_installation(&InstallationReconstructRequest {
-        repo_root: copy.clone(),
-        snapshot_id: snapshot_id.clone(),
-        destination_dir: app_dir.clone(),
-        ..Default::default()
-    })?;
-    let issues = verify_installation(&InstallationVerifyRequest {
-        repo_root: copy,
-        snapshot_id,
-        destination_dir: app_dir,
-        ..Default::default()
-    })?
-    .issues;
-    println!(
-        "installed from the pulled copy: {} missing, {} corrupt",
-        issues.missing_file_count(),
-        issues.corrupt_file_count()
-    );
+    copy.reconstruct(&snapshot_id, &app_dir)?;
+    let issues = copy.verify(&snapshot_id, &app_dir)?.issues;
+    println!("installed from the pulled copy: {issues}");
     Ok(())
 }

@@ -7,11 +7,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use gutch::api::{
-    InstallationReconstructRequest, InstallationVerifyRequest, RepoInitRequest, Result,
-    SnapshotCaptureRequest, SnapshotTagSet, capture_snapshot, init_repo, reconstruct_installation,
-    verify_installation,
-};
+use gutch::api::{Repo, Result};
 
 fn main() -> ExitCode {
     let arguments: Vec<PathBuf> = env::args_os().skip(1).map(PathBuf::from).collect();
@@ -36,41 +32,15 @@ fn main() -> ExitCode {
 }
 
 fn run(source_dir: &Path, work_dir: &Path) -> Result<()> {
-    let repo_root = work_dir.join("repo");
+    let repo = Repo::init(work_dir.join("repo"))?;
+    let snapshot_id = repo
+        .capture(source_dir, &[("version", "1.0.0")])?
+        .snapshot_id;
+    println!("captured snapshot {snapshot_id}");
+
     let destination_dir = work_dir.join("install");
-    init_repo(&RepoInitRequest {
-        repo_root: repo_root.clone(),
-        ..Default::default()
-    })?;
-
-    let captured = capture_snapshot(&SnapshotCaptureRequest {
-        repo_root: repo_root.clone(),
-        source_dir: source_dir.to_path_buf(),
-        tags: SnapshotTagSet::from_pairs([("version", "1.0.0")])?,
-        ..Default::default()
-    })?;
-    println!("captured snapshot {}", captured.snapshot_id);
-
-    reconstruct_installation(&InstallationReconstructRequest {
-        repo_root: repo_root.clone(),
-        snapshot_id: captured.snapshot_id.clone(),
-        destination_dir: destination_dir.clone(),
-        ..Default::default()
-    })?;
-
-    let verified = verify_installation(&InstallationVerifyRequest {
-        repo_root,
-        snapshot_id: captured.snapshot_id,
-        destination_dir: destination_dir.clone(),
-        ..Default::default()
-    })?;
-    let issues = &verified.issues;
-    println!(
-        "installed to {}: {} missing, {} corrupt, {} extra",
-        destination_dir.display(),
-        issues.missing_file_count(),
-        issues.corrupt_file_count(),
-        issues.extra_file_count()
-    );
+    repo.reconstruct(&snapshot_id, &destination_dir)?;
+    let issues = repo.verify(&snapshot_id, &destination_dir)?.issues;
+    println!("installed to {}: {issues}", destination_dir.display());
     Ok(())
 }

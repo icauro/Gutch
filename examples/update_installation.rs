@@ -15,9 +15,7 @@ use std::process::ExitCode;
 
 use gutch::api::{
     InstallationPreviewEvent, InstallationPreviewRequest, InstallationPublication,
-    InstallationReconstructRequest, RepoInitRequest, Result, SnapshotCaptureRequest,
-    SnapshotDiffRequest, SnapshotTagSet, capture_snapshot, diff_snapshots, init_repo,
-    preview_installation, reconstruct_installation,
+    InstallationReconstructRequest, Repo, Result, preview_installation, reconstruct_installation,
 };
 
 fn main() -> ExitCode {
@@ -43,12 +41,8 @@ fn main() -> ExitCode {
 }
 
 fn run(work_dir: &Path) -> Result<()> {
-    let repo_root = work_dir.join("repo");
+    let repo = Repo::init(work_dir.join("repo"))?;
     let app_dir = work_dir.join("app");
-    init_repo(&RepoInitRequest {
-        repo_root: repo_root.clone(),
-        ..Default::default()
-    })?;
 
     // Version 1.0, then 1.1: one file changes, one is removed and one is added.
     let source_dir = work_dir.join("source");
@@ -58,7 +52,7 @@ fn run(work_dir: &Path) -> Result<()> {
     )?;
     write_file(&source_dir.join("config.toml"), b"level = 1\n")?;
     write_file(&source_dir.join("notes.txt"), b"first release\n")?;
-    let old_id = capture(&repo_root, &source_dir, "1.0")?;
+    let old_id = capture(&repo, &source_dir, "1.0")?;
 
     write_file(&source_dir.join("config.toml"), b"level = 2\n")?;
     fs::remove_file(source_dir.join("notes.txt"))?;
@@ -66,14 +60,9 @@ fn run(work_dir: &Path) -> Result<()> {
         &source_dir.join("assets/sounds.bin"),
         &sample_bytes(2, 512 << 10),
     )?;
-    let new_id = capture(&repo_root, &source_dir, "1.1")?;
+    let new_id = capture(&repo, &source_dir, "1.1")?;
 
-    let diff = diff_snapshots(&SnapshotDiffRequest {
-        repo_root: repo_root.clone(),
-        from_snapshot_id: old_id.clone(),
-        to_snapshot_id: new_id.clone(),
-        ..Default::default()
-    })?;
+    let diff = repo.diff(&old_id, &new_id)?;
     println!("changes from 1.0 to 1.1:");
     for change in &diff.changes {
         println!(
@@ -82,12 +71,7 @@ fn run(work_dir: &Path) -> Result<()> {
         );
     }
 
-    reconstruct_installation(&InstallationReconstructRequest {
-        repo_root: repo_root.clone(),
-        snapshot_id: old_id.clone(),
-        destination_dir: app_dir.clone(),
-        ..Default::default()
-    })?;
+    repo.reconstruct(&old_id, &app_dir)?;
     println!("installed 1.0 to {}", app_dir.display());
 
     // The preview streams one event per entry; nothing on disk changes.
@@ -95,7 +79,7 @@ fn run(work_dir: &Path) -> Result<()> {
     let mut actions = BTreeMap::new();
     let summary = preview_installation(
         &InstallationPreviewRequest {
-            repo_root: repo_root.clone(),
+            repo_root: repo.root().to_path_buf(),
             snapshot_id: new_id.clone(),
             destination_dir: app_dir.clone(),
             reuse_snapshot_id: Some(old_id.clone()),
@@ -116,7 +100,7 @@ fn run(work_dir: &Path) -> Result<()> {
 
     // Without `reuse_from`, content is reused from the destination itself.
     let updated = reconstruct_installation(&InstallationReconstructRequest {
-        repo_root,
+        repo_root: repo.root().to_path_buf(),
         snapshot_id: new_id,
         destination_dir: app_dir.clone(),
         reuse_snapshot_id: Some(old_id),
@@ -131,15 +115,12 @@ fn run(work_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn capture(repo_root: &Path, source_dir: &Path, version: &str) -> Result<String> {
-    let captured = capture_snapshot(&SnapshotCaptureRequest {
-        repo_root: repo_root.to_path_buf(),
-        source_dir: source_dir.to_path_buf(),
-        tags: SnapshotTagSet::from_pairs([("version", version)])?,
-        ..Default::default()
-    })?;
-    println!("captured {version} as {}", captured.snapshot_id);
-    Ok(captured.snapshot_id)
+fn capture(repo: &Repo, source_dir: &Path, version: &str) -> Result<String> {
+    let snapshot_id = repo
+        .capture(source_dir, &[("version", version)])?
+        .snapshot_id;
+    println!("captured {version} as {snapshot_id}");
+    Ok(snapshot_id)
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
