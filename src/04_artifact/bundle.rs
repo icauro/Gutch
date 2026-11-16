@@ -173,14 +173,7 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
         });
         file.flush()?;
         drop(_flush_span);
-        let _sync_span = profiler.map(|profiler| {
-            profiler.span_with_args(
-                "capture.bundle.sync",
-                || trace_args!("bundle_size_bytes" => capture.size),
-            )
-        });
-        file.sync_all()?;
-        drop(_sync_span);
+        // Durability is deferred to publication so encoder threads never wait on the disk.
         capture
     };
 

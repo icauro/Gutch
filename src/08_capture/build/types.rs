@@ -123,7 +123,13 @@ impl StagedArtifactFile {
         &self.path
     }
 
+    /// Staging leaves bytes unsynced; flush them here so no artifact becomes visible before it is durable.
     pub(crate) fn promote_to(&self, destination: &Path) -> crate::Result<()> {
+        // Windows flushes file buffers only through a handle opened for writing.
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&self.path)?
+            .sync_all()?;
         fs::rename(&self.path, destination)?;
         Ok(())
     }

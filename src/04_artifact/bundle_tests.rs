@@ -148,16 +148,14 @@ fn build_and_read_bundle_compressed_payload() {
             .all(|event| event["ph"] == "X" || event["ph"] == "M")
     );
     let spans = capture_profiler.summary().spans;
-    for name in ["capture.bundle.flush", "capture.bundle.sync"] {
-        assert_eq!(
-            spans
-                .iter()
-                .find(|span| span.name == name)
-                .map(|span| span.count),
-            Some(1),
-            "missing post-finalization marker {name}"
-        );
-    }
+    assert_eq!(
+        spans
+            .iter()
+            .find(|span| span.name == "capture.bundle.flush")
+            .map(|span| span.count),
+        Some(1),
+        "missing post-finalization flush marker"
+    );
 }
 
 #[test]

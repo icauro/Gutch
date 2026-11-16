@@ -164,7 +164,9 @@ validation. Encoded bundle bytes stream directly to staged files.
 Actual encoded size is checked against the preset maximum; oversized groups
 are split at chunk boundaries. Raw groups are capped at 256 MiB without retaining that whole raw group.
 Both bundles and loose chunks are staged on disk and
-released through the same operation-owned artifact lifecycle.
+released through the same operation-owned artifact lifecycle. Encoding workers
+do not flush staged files; publication flushes each one to disk immediately
+before renaming it into place, so no artifact becomes visible before it is durable.
 
 ## Failure boundaries
 

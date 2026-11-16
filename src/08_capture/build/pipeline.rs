@@ -534,7 +534,6 @@ fn build_loose_chunk(
 
     let mut staged = tempfile::NamedTempFile::new_in(artifact_staging_root)?;
     write_loose_chunk(&mut staged, chunk_hash, &bytes, compression_profile)?;
-    staged.as_file().sync_all()?;
     let compressed_size = staged.as_file().metadata()?.len();
     size_u32(compressed_size)?;
     let staged_file = StagedArtifactFile::new(
