@@ -1,13 +1,14 @@
 # Gutch
 
-Gutch is a Rust library and command-line tool that stores folder trees and
-installs them again as exact copies. When you capture a folder, Gutch cuts
-each file into chunks at points chosen by the content itself, names every
-chunk by its BLAKE3 hash, compresses it and packs it into larger bundle
-files. A chunk that is already in the store is not stored again, so a new
-version of a program costs only the bytes that actually changed. When you
-install, Gutch rebuilds the tree from those chunks in a staging folder,
-checks every file against its hash, and only then moves it into place.
+Gutch is a deduplicating content store and installer for folder trees,
+written in Rust as a library and a command-line tool. When you capture a
+folder, Gutch cuts each file into chunks at points chosen by the content
+itself, names every chunk by its BLAKE3 hash, compresses it and packs it
+into larger bundle files. A chunk that is already in the store is not stored
+again, so a new version of a program costs only the bytes that actually
+changed. When you install, Gutch rebuilds the tree from those chunks in a
+staging folder, checks every file against its hash, and only then moves it
+into place.
 
 In everyday terms, it keeps every version of a program, game or other set of
 files in one place, and can put any of them on a disk quickly and correctly.
