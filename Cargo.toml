@@ -1,10 +1,13 @@
 [package]
 name = "gutch"
-version = "1.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
 description = "Provider-independent snapshot, artifact delivery, reconstruction, and verification engine"
 license = "MIT AND Apache-2.0 AND ISC"
+repository = "https://github.com/icauro/Gutch"
+readme = "README.md"
+include = ["/src/**", "/README.md", "/LICENSE", "/THIRD_PARTY_NOTICES.md"]
 
 [workspace]
 members = ["gutch-cli"]

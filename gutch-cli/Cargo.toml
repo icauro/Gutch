@@ -1,12 +1,14 @@
 [package]
 name = "gutch-cli"
-version = "1.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
 license = "MIT"
+description = "Command-line tool for Gutch, a deduplicating content store and installer for folder trees"
+repository = "https://github.com/icauro/Gutch"
 
 [dependencies]
-gutch = { path = "..", features = ["cli"] }
+gutch = { version = "0.1.0", path = "..", features = ["cli"] }
 
 [lints]
 workspace = true
