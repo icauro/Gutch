@@ -9,6 +9,7 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::bundle;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::{SealKeys, SealPurpose, StoredReader};
 use crate::manifest::SnapshotManifest;
 use crate::progress::OperationControl;
 
@@ -171,7 +172,9 @@ pub(crate) fn verify_snapshot_artifacts(
             result.clone()
         } else {
             let result = match artifact {
-                ArtifactRef::Bundle { id } => verify_bundle_file(&path, id, mode),
+                ArtifactRef::Bundle { id } => {
+                    verify_bundle_file(&path, id, mode, repo_paths.keys())
+                }
                 ArtifactRef::LooseChunk { hash } => {
                     let entry = chunk_index.entries.get(hash).ok_or_else(|| {
                         Error::repo(format!(
@@ -179,7 +182,14 @@ pub(crate) fn verify_snapshot_artifacts(
                         ))
                     });
                     entry.and_then(|entry| {
-                        read_loose_chunk(&path, *hash, u64::from(entry.raw_size), None).map(|_| ())
+                        read_loose_chunk(
+                            &path,
+                            *hash,
+                            u64::from(entry.raw_size),
+                            repo_paths.keys(),
+                            None,
+                        )
+                        .map(|_| ())
                     })
                 }
             };
@@ -215,10 +225,16 @@ pub(crate) fn verify_snapshot_artifacts(
     })
 }
 
-fn verify_bundle_file(path: &Path, bundle_id: &str, mode: RepoVerifyMode) -> Result<()> {
-    let mut reader = bundle::BundleReader::open(File::open(path)?)?;
+fn verify_bundle_file(
+    path: &Path,
+    bundle_id: &str,
+    mode: RepoVerifyMode,
+    keys: Option<&SealKeys>,
+) -> Result<()> {
+    let file = StoredReader::new(File::open(path)?, keys, SealPurpose::Bundle)?;
+    let mut reader = bundle::BundleReader::open(file)?;
     if mode == RepoVerifyMode::Strict {
-        reader.verify_identity(bundle_id)?;
+        reader.verify_identity(bundle_id, keys)?;
     }
     Ok(())
 }

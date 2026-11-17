@@ -94,6 +94,9 @@ pub struct RepoManifest {
     pub constraints: Option<super::constraints::RepoConstraints>,
     #[serde(deserialize_with = "deserialize_content_packaging_profile")]
     pub content_packaging_profile: ArtifactProfile,
+    /// Key slots of an encrypted repository; absent in plain repositories.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encryption: Option<super::encryption::RepoEncryption>,
     /// Local link to a remote repository; stored outside the shared metadata.
     #[serde(skip)]
     pub remote_repo_id: Option<String>,
@@ -114,6 +117,7 @@ impl RepoManifest {
             constraints: None,
             created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             content_packaging_profile: ArtifactProfile::default(),
+            encryption: None,
             remote_repo_id: None,
         }
     }

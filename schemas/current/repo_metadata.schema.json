@@ -28,6 +28,17 @@
       "type": "string",
       "const": "1.0.0"
     },
+    "encryption": {
+      "description": "Key slots of an encrypted repository; absent in plain repositories.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RepoEncryption"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "repository_format": {
       "$ref": "#/$defs/RepoFormat"
     },
@@ -150,6 +161,12 @@
         "android-f2fs"
       ]
     },
+    "RepoCipher": {
+      "type": "string",
+      "enum": [
+        "aes-256-gcm"
+      ]
+    },
     "RepoConstraints": {
       "description": "Optional repository invariants; an empty value imposes no constraints.",
       "type": "object",
@@ -173,6 +190,31 @@
         }
       },
       "additionalProperties": false
+    },
+    "RepoEncryption": {
+      "description": "Present only in encrypted repositories. The master key itself is never\nstored; each slot holds it wrapped by a key derived from one credential.",
+      "type": "object",
+      "properties": {
+        "cipher": {
+          "$ref": "#/$defs/RepoCipher"
+        },
+        "key_id": {
+          "description": "Random identifier of the master key, bound into every wrapped key.",
+          "type": "string"
+        },
+        "key_slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RepoKeySlot"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "cipher",
+        "key_id",
+        "key_slots"
+      ]
     },
     "RepoFormat": {
       "description": "What a repository needs from the Gutch release that opens it.\n\nA reader must understand every feature in `features_required_to_read`. A\nwriter must also understand `features_required_to_write`. Any release may\nignore `optional_features`. Features describe repository capabilities, such\nas new files or binary groups; a changed document field changes that\ndocument's version instead.",
@@ -208,6 +250,75 @@
         "features_required_to_read",
         "features_required_to_write",
         "optional_features"
+      ]
+    },
+    "RepoKeySlot": {
+      "description": "The master key wrapped with AES-256-GCM by a key derived from a password\n(Argon2id) or from a 32-byte key file. Byte fields are lowercase hex.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "iterations": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "password"
+            },
+            "memory_kib": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "nonce": {
+              "type": "string"
+            },
+            "parallelism": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "salt": {
+              "type": "string"
+            },
+            "wrapped_key": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "memory_kib",
+            "iterations",
+            "parallelism",
+            "salt",
+            "nonce",
+            "wrapped_key"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "key_file"
+            },
+            "nonce": {
+              "type": "string"
+            },
+            "wrapped_key": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "nonce",
+            "wrapped_key"
+          ]
+        }
       ]
     },
     "SnapshotTagConstraints": {

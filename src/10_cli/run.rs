@@ -90,6 +90,7 @@ where
     let profiler = (mode != ProfileMode::Off).then(|| Arc::new(Profiler::new(mode)));
     // Begin inside the exported result so its failure still reaches --error-output.
     let command_result = output::begin(&cli).and_then(|()| {
+        super::credentials::use_environment_credential()?;
         let _command_span = profiler
             .as_ref()
             .map(|profiler| profiler.span("cli.command"));

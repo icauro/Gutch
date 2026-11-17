@@ -26,7 +26,7 @@ fn inventory_selected_scan_matches_chunk_boundaries_for_every_preset() {
             let profile = ChunkSizingProfile::for_preset(*preset);
             let expected = chunk_bytes(&data, &profile);
             let (actual, _) =
-                scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
+                scan_file_chunks(&path, size as u64, &profile, None, &Default::default()).unwrap();
             assert_eq!(actual.full_file_hash, ChunkHash::of(&data));
             assert_eq!(expected.len(), actual.chunks.len());
             for (left, right) in expected.iter().zip(&actual.chunks) {
@@ -50,6 +50,7 @@ fn small_file_scan_rejects_growth_and_truncation_since_inventory() {
                 &path,
                 inventory_size,
                 &Default::default(),
+                None,
                 &Default::default()
             )
             .is_err()
@@ -112,6 +113,7 @@ fn chunk_file_streaming_matches_in_memory_chunking() {
         &path,
         data.len() as u64,
         &profile,
+        None,
         &OperationControl::default(),
     )
     .unwrap();
@@ -141,6 +143,7 @@ fn chunk_file_streaming_with_file_hash_matches_raw_file_hash() {
         &path,
         data.len() as u64,
         &profile,
+        None,
         &OperationControl::default(),
     )
     .unwrap();
@@ -165,6 +168,7 @@ fn repeated_chunk_scans_have_identical_boundaries() {
         &path,
         data.len() as u64,
         &profile,
+        None,
         &OperationControl::default(),
     )
     .unwrap();
@@ -172,6 +176,7 @@ fn repeated_chunk_scans_have_identical_boundaries() {
         &path,
         data.len() as u64,
         &profile,
+        None,
         &OperationControl::default(),
     )
     .unwrap();
@@ -214,7 +219,7 @@ fn jc_capture_scan_matches_kernel_across_small_and_streaming_paths() {
                 Parameters::Plakar,
             );
             let (scan, _) =
-                scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
+                scan_file_chunks(&path, size as u64, &profile, None, &Default::default()).unwrap();
             assert_eq!(scan.full_file_hash, ChunkHash::of(bytes));
             let mut offset = 0;
             for chunk in scan.chunks {
@@ -235,5 +240,14 @@ fn streaming_scan_rejects_source_that_differs_from_inventory_size() {
     fs::write(&path, vec![7u8; 3 * 1024 * 1024]).unwrap();
     let profile = ChunkSizingProfile::default();
     let stale_inventory_size = 2 * 1024 * 1024;
-    assert!(scan_file_chunks(&path, stale_inventory_size, &profile, &Default::default()).is_err());
+    assert!(
+        scan_file_chunks(
+            &path,
+            stale_inventory_size,
+            &profile,
+            None,
+            &Default::default()
+        )
+        .is_err()
+    );
 }

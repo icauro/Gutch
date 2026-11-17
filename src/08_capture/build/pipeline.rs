@@ -1,5 +1,6 @@
 //! Chunks, deduplicates and packs scanned files into staged bundles and loose chunks.
 
+use crate::artifact::gear::GearTables;
 use crate::profiling::Arguments;
 use crate::profiling::ProfileInstant;
 use crate::profiling::trace_args;
@@ -40,6 +41,7 @@ use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
 use crate::artifact::profiles::CompressionUnit;
 use crate::artifact::profiles::validate_packaging_sizes;
+use crate::artifact::seal::SealKeys;
 use crate::capture::scan::ChunkPlacementKey;
 use crate::capture::scan::ScanDirectoryOptions;
 use crate::capture::scan::ScannedChunks;
@@ -53,7 +55,7 @@ use crate::progress::ProgressPhase;
 use crate::runtime::MemoryBudget;
 use crate::runtime::build_thread_pool;
 use crate::runtime::plan_runtime;
-use crate::snapshot::identity::snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id;
 use std::env::temp_dir;
 use std::time::Duration;
 
@@ -427,10 +429,17 @@ where
     }
 }
 
+/// How built artifacts are encoded and where they are staged.
+#[derive(Clone, Copy)]
+struct ArtifactOutput<'a> {
+    compression_profile: &'a CompressionProfile,
+    staging_root: &'a Path,
+    sealing: Option<&'a Arc<SealKeys>>,
+}
+
 fn build_bundled_chunks(
     planned_bundle_groups: PlannedBundleGroups,
-    compression_profile: &CompressionProfile,
-    artifact_staging_root: &Path,
+    output: ArtifactOutput<'_>,
     pool: &ThreadPool,
     control: &OperationControl,
     memory_budget: u64,
@@ -439,10 +448,16 @@ fn build_bundled_chunks(
     control.checkpoint()?;
     let progress = BuildProgressTracker::new(control, ProgressPhase::Capture, "Building bundles");
     progress.start(planned_bundle_groups.groups.len());
+    let ArtifactOutput {
+        compression_profile,
+        staging_root,
+        sealing,
+    } = output;
     let compression_profile_for_work = compression_profile.clone();
-    let artifact_staging_root = artifact_staging_root.to_path_buf();
+    let artifact_staging_root = staging_root.to_path_buf();
     let progress_for_work = progress.clone();
     let encoded_limit = planned_bundle_groups.encoded_limit;
+    let sealing = sealing.cloned();
     run_parallel_chunk_work(
         planned_bundle_groups.groups,
         pool,
@@ -462,6 +477,7 @@ fn build_bundled_chunks(
                 encoded_limit,
                 &compression_profile_for_work,
                 &artifact_staging_root,
+                sealing.as_deref(),
                 control,
             )
             .map(|mut groups| {
@@ -482,19 +498,24 @@ fn build_bundled_chunks(
 
 fn build_loose_chunks(
     chunks_to_compress: Vec<ChunkPayloadEntry>,
-    artifact_staging_root: &Path,
-    compression_profile: &CompressionProfile,
+    output: ArtifactOutput<'_>,
     pool: &ThreadPool,
     control: &OperationControl,
     memory_budget: u64,
     flusher: &StagingFlusher,
 ) -> Result<Vec<BuiltLooseChunkResult>> {
+    let ArtifactOutput {
+        compression_profile,
+        staging_root: artifact_staging_root,
+        sealing,
+    } = output;
     control.checkpoint()?;
     let progress =
         BuildProgressTracker::new(control, ProgressPhase::Capture, "Building loose chunks");
     progress.start(chunks_to_compress.len());
     let compression_profile_for_work = compression_profile.clone();
     let progress_for_work = progress.clone();
+    let sealing = sealing.cloned();
 
     run_parallel_chunk_work(
         chunks_to_compress,
@@ -511,6 +532,7 @@ fn build_loose_chunks(
                 payload,
                 &compression_profile_for_work,
                 artifact_staging_root,
+                sealing.as_deref(),
                 control,
             )
             .map(|mut built| {
@@ -533,6 +555,7 @@ fn build_loose_chunk(
     payload: ChunkPayload,
     compression_profile: &CompressionProfile,
     artifact_staging_root: &Path,
+    keys: Option<&SealKeys>,
     control: &OperationControl,
 ) -> Result<BuiltLooseChunkResult> {
     control.checkpoint()?;
@@ -546,7 +569,7 @@ fn build_loose_chunk(
     let payload_load = load_start.elapsed();
 
     let mut staged = tempfile::NamedTempFile::new_in(artifact_staging_root)?;
-    write_loose_chunk(&mut staged, chunk_hash, &bytes, compression_profile)?;
+    write_loose_chunk(&mut staged, chunk_hash, &bytes, compression_profile, keys)?;
     let compressed_size = staged.as_file().metadata()?.len();
     size_u32(compressed_size)?;
     let (handle, path) = staged.keep().map_err(|error| error.error)?;
@@ -568,9 +591,10 @@ fn build_bounded_bundle_groups(
     encoded_limit: u64,
     profile: &CompressionProfile,
     staging: &Path,
+    keys: Option<&SealKeys>,
     control: &OperationControl,
 ) -> Result<Vec<BuiltBundleCompressedGroup>> {
-    let built = build_bundle_compressed_group(planned, profile, staging, control)?;
+    let built = build_bundle_compressed_group(planned, profile, staging, keys, control)?;
     if built.bundle_size <= encoded_limit {
         return Ok(vec![built]);
     }
@@ -581,12 +605,14 @@ fn build_bounded_bundle_groups(
         ));
     }
     let (left, right) = planned.split_at(planned.len() / 2);
-    let mut result = build_bounded_bundle_groups(left, encoded_limit, profile, staging, control)?;
+    let mut result =
+        build_bounded_bundle_groups(left, encoded_limit, profile, staging, keys, control)?;
     result.extend(build_bounded_bundle_groups(
         right,
         encoded_limit,
         profile,
         staging,
+        keys,
         control,
     )?);
     Ok(result)
@@ -596,6 +622,7 @@ fn build_bundle_compressed_group(
     planned_bundle: &[(ChunkHash, ChunkPayload)],
     compression_profile: &CompressionProfile,
     artifact_staging_root: &Path,
+    keys: Option<&SealKeys>,
     control: &OperationControl,
 ) -> Result<BuiltBundleCompressedGroup> {
     control.checkpoint()?;
@@ -614,6 +641,7 @@ fn build_bundle_compressed_group(
         &descriptors,
         compression_profile,
         artifact_staging_root,
+        keys,
         control.profiler(),
         |index| {
             control.checkpoint()?;
@@ -683,6 +711,10 @@ pub(crate) fn build_from_inventory(
         .available_chunk_sizes
         .unwrap_or(&empty_available_chunk_sizes);
 
+    let chunk_gear = config
+        .sealing
+        .as_ref()
+        .map(|keys| GearTables::seeded(keys.chunker_seed()));
     let scan_chunk_start = ProfileInstant::start(config.control.profiler());
     let ScannedChunks {
         entries: mut snapshot_entries,
@@ -695,6 +727,7 @@ pub(crate) fn build_from_inventory(
             inventory,
             ScanDirectoryOptions {
                 chunking_profile: &config.chunk_profile,
+                chunk_gear: chunk_gear.as_ref(),
                 available_chunk_sizes,
                 worker_count: runtime_plan.worker_count,
                 worker_pool: build_pool,
@@ -754,7 +787,7 @@ pub(crate) fn build_from_inventory(
             .control
             .profile_span("capture.build_snapshot_manifest.construct");
         let mut snapshot_manifest = SnapshotManifest::new(
-            snapshot_id_from_entries(&snapshot_entries),
+            snapshot_id(&snapshot_entries, config.sealing.as_deref()),
             config.snapshot_tags.clone(),
         );
         snapshot_manifest.chunker = config.chunk_profile.chunker;
@@ -880,6 +913,11 @@ fn build_capture_artifacts(
             config.bundle_profile.bundle_max_size_bytes(),
             config.bundle_profile.bundle_preferred_size_bytes(),
         );
+        let artifact_output = ArtifactOutput {
+            compression_profile: &compression_profile,
+            staging_root: &artifact_staging_root,
+            sealing: config.sealing.as_ref(),
+        };
 
         match config.storage_mode {
             ArtifactStorageMode::Bundled => {
@@ -910,8 +948,7 @@ fn build_capture_artifacts(
                         config.control.profile_span("capture.compress_artifacts");
                     build_bundled_chunks(
                         planned_bundle_groups,
-                        &compression_profile,
-                        &artifact_staging_root,
+                        artifact_output,
                         build_pool,
                         &config.control,
                         memory_budget_bytes,
@@ -947,8 +984,7 @@ fn build_capture_artifacts(
                         config.control.profile_span("capture.compress_artifacts");
                     build_loose_chunks(
                         chunks_to_compress,
-                        &artifact_staging_root,
-                        &compression_profile,
+                        artifact_output,
                         build_pool,
                         &config.control,
                         memory_budget_bytes,

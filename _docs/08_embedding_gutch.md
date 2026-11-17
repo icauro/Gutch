@@ -19,6 +19,13 @@ let issues = repo.verify(&snapshot_id, "work/app")?.issues;
 println!("{issues}");                              // 0 missing, 0 corrupt, 0 extra
 ```
 
+`Repo::init_encrypted(path, RepoCredential::Password(..))` creates an
+encrypted repository (see [Encryption](05_managing_repositories.md#encryption)).
+Keys stay unlocked for the rest of the process: `unlock_repo(root, credential)`
+opens one repository, `set_default_repo_credential(Some(credential))` is tried
+for any encrypted repository that is not unlocked yet, `add_repo_credential`
+adds another password or key file, and `lock_repos()` forgets every key.
+
 The handle also has `repair`, `diff`, `push` and `pull`. Each method fills in
 the operation's request with its defaults; for any other option, build the
 request yourself, as described below.

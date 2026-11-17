@@ -41,8 +41,25 @@ pub(super) fn cut(
     mask_s: u64,
     mask_l: u64,
 ) -> (u64, usize) {
-    let gear = &GEAR;
-    let gear_ls = &GEAR_LS;
+    cut_with(
+        source, min_size, avg_size, max_size, mask_s, mask_l, &GEAR, &GEAR_LS,
+    )
+}
+
+/// `cut` with given gear tables. Inlined so the default tables stay
+/// constants in `cut`.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn cut_with(
+    source: &[u8],
+    min_size: usize,
+    avg_size: usize,
+    max_size: usize,
+    mask_s: u64,
+    mask_l: u64,
+    gear: &[u64; 256],
+    gear_ls: &[u64; 256],
+) -> (u64, usize) {
     let mask_s_ls = mask_s << 1;
     let mask_l_ls = mask_l << 1;
 

@@ -184,7 +184,8 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
         .collect();
     let profile = CompressionProfile::for_algorithm(CompressionKind::None, None);
     let control = OperationControl::default();
-    let exact = build_bounded_bundle_groups(&planned, 216, &profile, &staging, &control).unwrap();
+    let exact =
+        build_bounded_bundle_groups(&planned, 216, &profile, &staging, None, &control).unwrap();
     assert_eq!(exact.len(), 1);
     assert_eq!(exact[0].bundle_size, 216);
     drop(exact);
@@ -219,8 +220,11 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
     let flusher = StagingFlusher::new(1, &control).unwrap();
     let split = build_bundled_chunks(
         plan,
-        &profile,
-        &staging,
+        ArtifactOutput {
+            compression_profile: &profile,
+            staging_root: &staging,
+            sealing: None,
+        },
         &pool,
         &control,
         512 * 1024 * 1024,
@@ -235,7 +239,10 @@ fn encoded_bundle_limit_includes_framing_and_splits_at_chunk_boundaries() {
             .all(|bundle| bundle.bundle_size == 148 && bundle.bundle_entries.len() == 1)
     );
     drop(split);
-    assert!(build_bounded_bundle_groups(&planned[..1], 147, &profile, &staging, &control).is_err());
+    assert!(
+        build_bounded_bundle_groups(&planned[..1], 147, &profile, &staging, None, &control)
+            .is_err()
+    );
     assert_eq!(fs::read_dir(staging).unwrap().count(), 0);
 }
 
@@ -348,7 +355,8 @@ fn uncompressed_probe_uses_exact_lengths_without_loading_sources() {
     );
     // Skipping an unnecessary probe must not skip loading during actual encoding.
     assert!(
-        build_bundle_compressed_group(&chunks, &profile, temp.path(), &Default::default()).is_err()
+        build_bundle_compressed_group(&chunks, &profile, temp.path(), None, &Default::default())
+            .is_err()
     );
 }
 
@@ -465,8 +473,14 @@ fn single_raw_group_skips_probe_but_keeps_placement_and_source_checks() {
                 .collect::<Vec<_>>()
         );
         assert!(
-            build_bundle_compressed_group(&plan.groups[0], &profile, directory.path(), &control)
-                .is_err()
+            build_bundle_compressed_group(
+                &plan.groups[0],
+                &profile,
+                directory.path(),
+                None,
+                &control
+            )
+            .is_err()
         );
         assert!(
             plan_bundle_compressed_groups(
@@ -541,7 +555,7 @@ fn source_change_after_single_group_planning_fails_encoding() {
     .unwrap();
     fs::write(source, b"after!").unwrap();
     assert!(
-        build_bundle_compressed_group(&plan.groups[0], &profile, directory.path(), &control)
+        build_bundle_compressed_group(&plan.groups[0], &profile, directory.path(), None, &control)
             .is_err()
     );
 }

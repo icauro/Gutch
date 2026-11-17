@@ -9,6 +9,27 @@ use crate::manifest::constraints::FilesystemTarget;
 use crate::sync::remote::PullConflictPolicy;
 
 #[derive(Subcommand)]
+pub(crate) enum RepoCredentialCommands {
+    /// Let another credential unlock the repository. The repository is
+    /// unlocked with GUTCH_REPO_PASSWORD or GUTCH_REPO_KEY_FILE.
+    Add {
+        /// Repository directory.
+        #[arg(long, value_name = "DIR", value_parser = parse_cli_path)]
+        repo: PathBuf,
+        /// Add the password in GUTCH_REPO_NEW_PASSWORD.
+        #[arg(
+            long,
+            conflicts_with = "new_key_file",
+            required_unless_present = "new_key_file"
+        )]
+        new_password: bool,
+        /// Add a new random key file written here.
+        #[arg(long, value_name = "FILE", value_parser = parse_cli_path)]
+        new_key_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 pub(crate) enum RepoCommands {
     /// Create a repository.
     Init {
@@ -29,8 +50,20 @@ pub(crate) enum RepoCommands {
         /// Initialize even if the directory is not empty.
         #[arg(long)]
         force: bool,
+        /// Encrypt the repository with the password in GUTCH_REPO_PASSWORD or
+        /// the key file named by GUTCH_REPO_KEY_FILE.
+        #[arg(long, conflicts_with = "new_key_file")]
+        encrypt: bool,
+        /// Encrypt the repository with a new random key file written here.
+        #[arg(long, value_name = "FILE", value_parser = parse_cli_path)]
+        new_key_file: Option<PathBuf>,
         #[command(flatten)]
         dry_run: DryRunArgs,
+    },
+    /// Manage the credentials that unlock an encrypted repository.
+    Credential {
+        #[command(subcommand)]
+        command: RepoCredentialCommands,
     },
     /// Show local repository state.
     Status {

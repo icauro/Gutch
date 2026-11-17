@@ -176,17 +176,22 @@ pub(crate) fn validate_proposed_snapshot_tags(
     {
         return Ok(());
     }
-    let paths = super::paths::RepoPaths::from_repo_root(repo_root);
-    if !paths.snapshots_root.exists() {
+    if !super::paths::RepoPaths::from_repo_root(repo_root)
+        .snapshots_root
+        .exists()
+    {
         return Ok(());
     }
+    let paths = super::paths::RepoPaths::open(repo_root)?;
     let mut expected_keys: Option<(String, BTreeSet<String>)> = None;
     let mut violations = Vec::new();
     for id in super::inventory::list_repo_snapshot_ids(&paths)? {
         let path = super::snapshot_manifests::snapshot_metadata_path(&paths, &id)?;
-        let json = filesystem::read_to_string(&path)?;
-        let snapshot =
-            super::snapshot_manifests::load_snapshot_metadata_from_json_text(&id, &json)?;
+        let snapshot = super::snapshot_manifests::snapshot_manifest_from_download(
+            &id,
+            filesystem::read(&path)?,
+            paths.keys(),
+        )?;
         let tags = replacements.get(&id).unwrap_or(&snapshot.snapshot_tags);
         if let Err(error) = constraints.validate_snapshot_tags(tags, &id) {
             violations.push(error.to_string());

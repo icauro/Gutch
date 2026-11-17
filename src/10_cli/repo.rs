@@ -7,8 +7,13 @@ use crate::cli::RemoteCommands;
 use crate::cli::RepoCommands;
 use crate::cli::SECTION_SEPARATOR;
 use crate::cli::arguments::DryRunArgs;
+use crate::cli::arguments::RepoCredentialCommands;
 use crate::cli::arguments::RepoIndexCommands;
 use crate::cli::command_support::prompt_yes_no;
+use crate::cli::credentials::{
+    KEY_FILE_VARIABLE, NEW_PASSWORD_VARIABLE, PASSWORD_VARIABLE, environment_credential,
+    password_variable,
+};
 use crate::cli::output;
 use crate::cli::repo_remote;
 use crate::cli::repo_remote::tag_references;
@@ -16,6 +21,7 @@ use crate::filesystem;
 use crate::manifest::constraints::FilesystemTarget;
 use crate::manifest::constraints::RepoConstraints;
 use crate::progress::OperationControl;
+use crate::repo::encryption::{RepoCredential, add_repo_credential};
 use crate::repo::init_policy::RepoInitPathKind;
 use crate::repo::init_policy::RepoInitPlan;
 use crate::repo::init_policy::RepoInitRequest;
@@ -54,13 +60,24 @@ pub(crate) fn run(
             force,
             targets,
             constraints,
+            encrypt,
+            new_key_file,
             dry_run: DryRunArgs { dry_run },
         } => init(
             &path,
             force,
             read_constraint_input(constraints.as_deref(), targets)?,
+            init_credential(encrypt, new_key_file.as_deref(), dry_run)?,
             dry_run,
         ),
+        RepoCommands::Credential {
+            command:
+                RepoCredentialCommands::Add {
+                    repo,
+                    new_password,
+                    new_key_file,
+                },
+        } => add_credential(&repo, new_password, new_key_file.as_deref()),
         RepoCommands::Push { repo, confirm } => repo_remote::push(repo, confirm, host, profile),
         RepoCommands::Pull {
             repo,
@@ -286,16 +303,58 @@ fn verify(repo: &Path, snapshot_id: Option<&str>, strict: bool) -> crate::Result
     Ok(())
 }
 
+/// The credential a new repository is encrypted with, if any. A dry run
+/// writes no key file.
+fn init_credential(
+    encrypt: bool,
+    new_key_file: Option<&Path>,
+    dry_run: bool,
+) -> crate::Result<Option<RepoCredential>> {
+    if encrypt {
+        return environment_credential()?.map(Some).ok_or_else(|| {
+            crate::Error::invalid_input(format!(
+                "--encrypt needs {PASSWORD_VARIABLE} or {KEY_FILE_VARIABLE}"
+            ))
+        });
+    }
+    match new_key_file {
+        Some(_) if dry_run => Ok(None),
+        Some(path) => RepoCredential::create_key_file(path).map(Some),
+        None => Ok(None),
+    }
+}
+
+fn add_credential(
+    repo: &Path,
+    new_password: bool,
+    new_key_file: Option<&Path>,
+) -> crate::Result<()> {
+    let credential = match new_key_file {
+        Some(path) => RepoCredential::create_key_file(path)?,
+        None => {
+            debug_assert!(new_password);
+            password_variable(NEW_PASSWORD_VARIABLE)?.ok_or_else(|| {
+                crate::Error::invalid_input(format!("--new-password needs {NEW_PASSWORD_VARIABLE}"))
+            })?
+        }
+    };
+    add_repo_credential(repo, &credential)?;
+    output::line(format_args!("added a credential to {}", repo.display()));
+    Ok(())
+}
+
 pub(crate) fn init(
     path: &Path,
     force: bool,
     constraints: RepoConstraints,
+    encryption: Option<RepoCredential>,
     dry_run: bool,
 ) -> crate::Result<()> {
     let mut request = RepoInitRequest {
         repo_root: path.to_path_buf(),
         force,
         constraints,
+        encryption,
         control: OperationControl::default(),
     };
     let assessment = plan_init_repo(&request)?;

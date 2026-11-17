@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::artifact::compression::decode_working_memory_bytes;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::SealKeys;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
@@ -29,6 +30,8 @@ pub(crate) struct ReconstructPipelinePlan {
     pub required_artifact_count: usize,
     pub(crate) required_chunk_count: usize,
     pub(crate) reused_chunk_count: usize,
+    /// The repository's keys when it is encrypted: its artifacts are sealed.
+    pub(crate) sealing: Option<Arc<SealKeys>>,
 }
 
 pub(crate) struct ReconstructPipelineApplyRequest<'a> {

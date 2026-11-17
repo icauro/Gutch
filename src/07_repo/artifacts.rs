@@ -5,6 +5,7 @@ use crate::artifact::bundle::{BundleReader, verify_bundle_identity_reader};
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::SealKeys;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
@@ -87,7 +88,13 @@ pub(crate) fn classify_required_artifacts(
     })
 }
 
-pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Result<()> {
+/// Checks a stored bundle against its ID. `keys` are the repository's when it
+/// is encrypted.
+pub(crate) fn verify_bundle_identity_file(
+    path: &Path,
+    bundle_id: &str,
+    keys: Option<&SealKeys>,
+) -> Result<()> {
     let expected_hash = ChunkHash::parse_hex(bundle_id)?;
     let path_id = bundle_id_from_bundle_path(path).ok_or_else(|| {
         crate::error::Error::Artifact(format!(
@@ -101,7 +108,7 @@ pub(crate) fn verify_bundle_identity_file(path: &Path, bundle_id: &str) -> Resul
             actual: path_id,
         });
     }
-    verify_bundle_identity_reader(&mut File::open(path)?, bundle_id)
+    verify_bundle_identity_reader(&mut File::open(path)?, bundle_id, keys)
 }
 
 /// Read a bundle's table of contents without rendering output.

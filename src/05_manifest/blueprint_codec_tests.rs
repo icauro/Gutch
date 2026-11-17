@@ -44,7 +44,7 @@ fn blueprint_preserves_file_sizes_above_u32_without_wide_chunk_sizes() {
             .into(),
         ],
     };
-    write_snapshot_blueprint_binary(&path, &blueprint).unwrap();
+    write_snapshot_blueprint_binary(&path, &blueprint, None).unwrap();
     let restored = read_snapshot_blueprint_binary(&path).unwrap();
     assert_eq!(restored[0].as_file().unwrap().size, size);
     assert!(std::fs::metadata(path).unwrap().len() < 32 + 51 + 9 + 36 * 1024);
@@ -78,7 +78,7 @@ fn version_one_blueprint_round_trips_all_entry_kinds() {
     let blueprint = SnapshotBlueprint {
         entries: all_entries(),
     };
-    write_snapshot_blueprint_binary(&path, &blueprint).unwrap();
+    write_snapshot_blueprint_binary(&path, &blueprint, None).unwrap();
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 1);
     let loaded = read_snapshot_blueprint_binary(&path).unwrap();
@@ -98,6 +98,7 @@ fn blueprint_rejects_unknown_entry_kind() {
         &SnapshotBlueprint {
             entries: all_entries(),
         },
+        None,
     )
     .unwrap();
     let mut bytes = std::fs::read(&path).unwrap();

@@ -103,6 +103,7 @@ pub(crate) fn run_reconstruction_jobs(
         let _priorities_span = control.profile_span("installation.reconstruct.prepare.priorities");
         build_artifact_priorities(&pipeline_plan, pending_artifact_downloads)
     };
+    let sealing = pipeline_plan.sealing;
     let file_plans = Arc::new(pipeline_plan.files);
     let jobs = Arc::new(pipeline_plan.jobs);
     let output_sizes = Arc::new(file_plans.iter().map(|file| file.size).collect::<Vec<_>>());
@@ -151,6 +152,7 @@ pub(crate) fn run_reconstruction_jobs(
         output_handles,
         control: control.clone(),
         reconstruct_worker_count: runtime_plan.worker_count,
+        sealing,
     });
     let reconstruct_started_at = ProfileInstant::start(control.profiler());
     if jobs.is_empty() {

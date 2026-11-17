@@ -1,5 +1,6 @@
 //! Gutch's level-1 FastCDC boundary finder and borrowed streaming adapter.
 
+use super::gear::GearTables;
 use crate::artifact::profiles::ChunkSizingProfile;
 use crate::progress::OperationControl;
 use std::io::ErrorKind;
@@ -49,6 +50,44 @@ impl ChunkBoundary for BoundaryFinder {
             self.max,
             self.strict_mask,
             self.relaxed_mask,
+        )
+        .1
+    }
+}
+
+/// `BoundaryFinder` over an encrypted repository's keyed gear tables.
+pub(crate) struct KeyedBoundaryFinder<'a> {
+    finder: BoundaryFinder,
+    tables: &'a GearTables,
+}
+
+impl<'a> KeyedBoundaryFinder<'a> {
+    pub(crate) fn new(profile: &ChunkSizingProfile, tables: &'a GearTables) -> Self {
+        Self {
+            finder: BoundaryFinder::new(profile),
+            tables,
+        }
+    }
+}
+
+impl ChunkBoundary for KeyedBoundaryFinder<'_> {
+    #[inline]
+    fn max_size(&self) -> usize {
+        self.finder.max
+    }
+
+    #[inline]
+    fn cut(&self, bytes: &[u8]) -> usize {
+        let finder = &self.finder;
+        super::fastcdc_v2020::cut_with(
+            bytes,
+            finder.min,
+            finder.average,
+            finder.max,
+            finder.strict_mask,
+            finder.relaxed_mask,
+            &self.tables.gear,
+            &self.tables.gear_ls,
         )
         .1
     }

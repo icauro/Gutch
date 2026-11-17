@@ -8,7 +8,8 @@ use std::thread;
 
 use eframe::egui;
 use gutch::api::{
-    CancelFlag, OperationControl, ProgressEvent, RemoteRepoSummary, RemoteSnapshot, Result,
+    CancelFlag, OperationControl, ProgressEvent, RemoteRepoSummary, RemoteSnapshot, RepoCredential,
+    Result, set_default_repo_credential,
 };
 
 use crate::cloudflare::{self, Account, R2SignIn};
@@ -68,6 +69,10 @@ pub struct App {
     repo_id: Option<String>,
     new_scope: String,
     new_name: String,
+    /// Opens encrypted repositories, and encrypts new ones when
+    /// `encrypt_new` is set. Kept in memory only.
+    repo_password: String,
+    encrypt_new: bool,
 
     snapshots: Vec<RemoteSnapshot>,
     snapshot_id: Option<String>,
@@ -168,6 +173,8 @@ impl App {
             repo_id: None,
             new_scope: saved.new_scope,
             new_name: String::new(),
+            repo_password: variable("GUTCH_REPO_PASSWORD").unwrap_or_default(),
+            encrypt_new: false,
             snapshots: Vec::new(),
             snapshot_id: None,
             source: saved.source,
@@ -282,6 +289,11 @@ impl App {
         let Some(remote) = self.remote.clone() else {
             return;
         };
+        // Encrypted repositories unlock with the password on first use.
+        set_default_repo_credential(
+            (!self.repo_password.is_empty())
+                .then(|| RepoCredential::Password(self.repo_password.clone())),
+        );
         self.spawn(ctx, title, move |control| work(&remote, control));
     }
 
@@ -615,6 +627,13 @@ impl App {
         if let Some(repo_id) = opened {
             self.open_repo(ui.ctx(), repo_id);
         }
+        field(
+            ui,
+            "Repository password",
+            "Opens encrypted repositories and encrypts new ones. It is kept in memory \
+             only and never saved; GUTCH_REPO_PASSWORD fills it in at start.",
+            egui::TextEdit::singleline(&mut self.repo_password).password(true),
+        );
         ui.separator();
         ui.label("New repository");
         ui.horizontal(|ui| {
@@ -634,14 +653,27 @@ impl App {
             )
             .on_hover_text("The repository's name within the scope.");
         });
+        ui.checkbox(&mut self.encrypt_new, "Encrypt with the password")
+            .on_hover_text(
+                "Encrypt the new repository's files, names and tags. Only the password \
+                 opens it; a lost password cannot be recovered.",
+            );
         if ui
             .button("Create")
             .on_hover_text("Create an empty repository in the bucket.")
             .clicked()
         {
+            if self.encrypt_new && self.repo_password.is_empty() {
+                self.status = "Type the repository password first.".into();
+                self.status_is_error = true;
+                return;
+            }
             let (scope, name) = (self.new_scope.clone(), self.new_name.clone());
+            let encryption = self
+                .encrypt_new
+                .then(|| RepoCredential::Password(self.repo_password.clone()));
             self.start(ui.ctx(), "Create", move |remote, control| {
-                let repo_id = remote.create_repo(&scope, &name, control)?;
+                let repo_id = remote.create_repo(&scope, &name, encryption, control)?;
                 Ok(Outcome {
                     message: format!("created {repo_id}"),
                     repos: Some(remote.repos()?),

@@ -20,13 +20,14 @@ fn incoming_snapshot_is_rejected_before_metadata_is_written() {
             read_only: false,
         },
     )];
-    let id = crate::snapshot::identity::snapshot_id_from_entries(&entries);
+    let id = crate::snapshot::identity::snapshot_id(&entries, None);
     let mut manifest = crate::manifest::SnapshotManifest::new(id.clone(), Default::default());
     manifest.entries = entries;
     let blueprint_path = root.path().join("incoming.gtcbin");
     crate::manifest::blueprint_codec::write_snapshot_blueprint_binary(
         &blueprint_path,
         &manifest.blueprint(),
+        None,
     )
     .unwrap();
     let bytes = std::fs::read(blueprint_path).unwrap();
@@ -35,7 +36,7 @@ fn incoming_snapshot_is_rejected_before_metadata_is_written() {
         &id,
         &manifest,
         None,
-        &bytes,
+        bytes,
         &OperationControl::default(),
     )
     .unwrap_err();
@@ -59,7 +60,7 @@ fn streamed_bundle_is_verified_before_replacing_cached_content() {
     let client = crate::transfer::http::build_download_client().unwrap();
     let control = OperationControl::default();
     let (id, source) = bundle_source();
-    download_and_publish_bundle(&source, &client, &id, &destination, &control).unwrap();
+    download_and_publish_bundle(&source, &client, &id, &destination, None, &control).unwrap();
     let healthy = std::fs::read(&destination).unwrap();
     let RemoteArtifactSource::Bytes(mut damaged) = source else {
         unreachable!()
@@ -71,6 +72,7 @@ fn streamed_bundle_is_verified_before_replacing_cached_content() {
             &client,
             &id,
             &destination,
+            None,
             &control,
         )
         .is_err()
@@ -116,7 +118,9 @@ fn cancelled_bundle_publication_keeps_the_existing_cache() {
         crate::test_util::TestCancellation::cancelled(),
     ));
     let (id, source) = bundle_source();
-    assert!(download_and_publish_bundle(&source, &client, &id, &destination, &control).is_err());
+    assert!(
+        download_and_publish_bundle(&source, &client, &id, &destination, None, &control).is_err()
+    );
     assert_eq!(std::fs::read(destination).unwrap(), b"previous");
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
 }

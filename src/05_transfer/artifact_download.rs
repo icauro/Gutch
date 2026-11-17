@@ -4,6 +4,7 @@ use super::progress::{FetchTransferProgress, TransferPhaseCounters, TransferProg
 use crate::Result;
 use crate::artifact::bundle::verify_bundle_identity_reader;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::SealKeys;
 use crate::filesystem;
 use crate::filesystem::write_atomic_with;
 use crate::progress::{OperationControl, ProgressPhase};
@@ -50,7 +51,14 @@ impl TransferDownloadRequest<'_> {
     }
 
     /// Downloads into `path` atomically, retrying transient failures.
-    pub(crate) fn download_to_path(&self, path: &Path, artifact: &ArtifactRef) -> Result<()> {
+    /// A bundle is checked against its ID; `keys` are the repository's when
+    /// it is encrypted.
+    pub(crate) fn download_to_path(
+        &self,
+        path: &Path,
+        artifact: &ArtifactRef,
+        keys: Option<&SealKeys>,
+    ) -> Result<()> {
         self.with_retries(|| {
             write_atomic_with(path, |file| {
                 let reporter = self.reporter();
@@ -59,7 +67,7 @@ impl TransferDownloadRequest<'_> {
                     Ok(())
                 })?;
                 if let ArtifactRef::Bundle { id } = artifact {
-                    verify_bundle_identity_reader(file, id)?;
+                    verify_bundle_identity_reader(file, id, keys)?;
                 }
                 reporter.finish();
                 Ok(())
@@ -152,6 +160,7 @@ pub(crate) fn download_pending_artifact(
     .download_to_path(
         &artifact_download.artifact_path,
         &artifact_download.artifact,
+        artifact_download.keys.as_deref(),
     );
     transfer_progress.download_finished();
     result?;

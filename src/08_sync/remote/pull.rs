@@ -23,6 +23,8 @@ use super::provider::RepoPullResult;
 use crate::Error;
 use crate::Result;
 use crate::artifact::bundle::BundleIdentityWriter;
+use crate::artifact::bundle::verify_bundle_identity_reader;
+use crate::artifact::seal::SealKeys;
 use crate::filesystem::write_atomic_with;
 use crate::manifest::RepositoryAccess;
 use crate::manifest::SnapshotProductMetadata;
@@ -33,8 +35,9 @@ use crate::progress::OperationKind;
 use crate::progress::ProgressPhase;
 use crate::repo::cleanup::remove_snapshot_from_repo;
 use crate::repo::coordination;
+use crate::repo::encryption::check_same_repo_key;
 use crate::repo::file_read::file_artifacts;
-use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
+use crate::repo::index::binary_codec::load_stored_chunk_index;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::preserve_local_chunk_locations;
 use crate::repo::index::required_bundle_ids;
@@ -46,8 +49,8 @@ use crate::repo::paths::bundle_path;
 use crate::repo::paths::ensure_repo_layout;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::write_repo_manifest;
-use crate::repo::snapshot_manifests::SNAPSHOT_PRODUCT_METADATA_FILE;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::load_stored_snapshot_product_metadata;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_parts;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
@@ -57,7 +60,7 @@ use crate::repo::updates::validate_existing_constraints;
 use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::VerifiedArtifacts;
 use crate::repo::verify::verify_snapshot_artifacts;
-use crate::snapshot::identity::snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id;
 use crate::sync::limits::{
     MAX_BUNDLE_BYTES, MAX_CHUNK_INDEX_BYTES, MAX_METADATA_BYTES, MAX_SNAPSHOT_BLUEPRINT_BYTES,
 };
@@ -122,7 +125,7 @@ pub(super) fn compute_pull_plan(
         );
         if blueprint_differs
             && let Ok(local) = load_snapshot_manifest(repo_paths, &snapshot.snapshot_id)
-            && snapshot_id_from_entries(&local.entries) == snapshot.snapshot_id
+            && snapshot_id(&local.entries, repo_paths.keys()) == snapshot.snapshot_id
             && let Some(index) = local_chunk_index
                 .get_or_insert_with(|| load_chunk_index(repo_paths).ok())
                 .as_ref()
@@ -220,7 +223,7 @@ pub(crate) fn plan_pull(
     selected: &[String],
     policy: PullConflictPolicy,
 ) -> Result<RepoPullPlan> {
-    let repo_paths = RepoPaths::from_repo_root(repo_root);
+    let repo_paths = local_repo_paths(repo_root)?;
     check_selected_snapshots(snapshots, selected)?;
     compute_pull_plan(
         repo_root,
@@ -230,6 +233,16 @@ pub(crate) fn plan_pull(
         selected,
         policy,
     )
+}
+
+/// The local layout, unlocked when the repository exists and is encrypted, so
+/// planning can compare its sealed files with the remote's.
+fn local_repo_paths(repo_root: &Path) -> Result<RepoPaths> {
+    let paths = RepoPaths::from_repo_root(repo_root);
+    if paths.repo_metadata_path.exists() {
+        return RepoPaths::open(repo_root);
+    }
+    Ok(paths)
 }
 
 fn check_selected_snapshots(snapshots: &[RemoteSnapshot], selected: &[String]) -> Result<()> {
@@ -298,9 +311,24 @@ fn download_and_publish_bundle(
     client: &DownloadClient,
     bundle_id: &str,
     path: &Path,
+    keys: Option<&SealKeys>,
     control: &OperationControl,
 ) -> Result<()> {
     control.checkpoint()?;
+    if keys.is_some() {
+        // A sealed bundle's identity covers its plaintext, so it is checked
+        // by reading the written file back before it is published.
+        return write_atomic_with(path, |file| {
+            write_source(
+                source,
+                client,
+                MAX_BUNDLE_BYTES,
+                control,
+                &mut BufWriter::new(&mut *file),
+            )?;
+            verify_bundle_identity_reader(file, bundle_id, keys)
+        });
+    }
     write_atomic_with(path, |file| {
         // Hash while streaming so the bundle is not read back from disk. Keep
         // verification inside the atomic writer: failure leaves the previous
@@ -320,13 +348,17 @@ fn write_remote_snapshot_artifacts(
     snapshot_id: &str,
     metadata: &SnapshotManifest,
     product_metadata: Option<&SnapshotProductMetadata>,
-    blueprint_bytes: &[u8],
+    blueprint_bytes: Vec<u8>,
     control: &OperationControl,
 ) -> Result<()> {
     let mut metadata = metadata.clone();
     metadata.snapshot_id = snapshot_id.to_string();
-    let manifest =
-        snapshot_manifest_from_parts(metadata, product_metadata.cloned(), blueprint_bytes)?;
+    let manifest = snapshot_manifest_from_parts(
+        metadata,
+        product_metadata.cloned(),
+        blueprint_bytes,
+        repo_paths.keys(),
+    )?;
     write_snapshot_manifest_artifacts(repo_paths, &manifest, control)?;
     Ok(())
 }
@@ -518,7 +550,8 @@ pub(super) fn bundle_source_requests(
 /// The inputs shared by every phase of one pull.
 struct PullContext<'a, P: RemoteRepoReader + ?Sized> {
     repo: &'a Path,
-    repo_paths: &'a RepoPaths,
+    /// Unlocked with the remote repository's keys once its metadata arrives.
+    repo_paths: RepoPaths,
     repository: &'a RemoteRepo,
     provider: &'a P,
     download_client: DownloadClient,
@@ -532,7 +565,7 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
 
     /// Replaces the local repo manifest with the remote one. Constraints
     /// never change through a pull; they must already match.
-    fn download_repo_manifest(&self, repository_existed: bool) -> Result<()> {
+    fn download_repo_manifest(&mut self, repository_existed: bool) -> Result<()> {
         let bytes = self.download(
             &self.provider.repo_metadata_source(self.repository)?,
             MAX_METADATA_BYTES,
@@ -542,10 +575,11 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
         // The remote metadata replaces the local copy, so this release must be
         // able to write what it describes.
         manifest.repository_format.check(RepositoryAccess::Write)?;
-        let local_constraints = load_repo_manifest(self.repo)?
-            .1
-            .constraints
-            .unwrap_or_default();
+        let local = load_repo_manifest(self.repo)?.1;
+        if repository_existed {
+            check_same_repo_key(local.encryption.as_ref(), manifest.encryption.as_ref())?;
+        }
+        let local_constraints = local.constraints.unwrap_or_default();
         let incoming_constraints = manifest.constraints.clone().unwrap_or_default();
         if repository_existed && local_constraints != incoming_constraints {
             return Err(Error::repo(
@@ -554,7 +588,8 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
         }
         validate_existing_constraints(self.repo, &incoming_constraints, "pull")?;
         manifest.remote_repo_id = Some(self.repository.id.clone());
-        write_repo_manifest(self.repo_paths, &manifest)
+        self.repo_paths.unlock_for(&manifest)?;
+        write_repo_manifest(&self.repo_paths, &manifest)
     }
 
     fn download_chunk_index(&self) -> Result<()> {
@@ -563,9 +598,9 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
             MAX_CHUNK_INDEX_BYTES,
         )?;
         verify_remote_artifact(&bytes, &self.repository.chunk_map_hash_b3, "chunk index")?;
-        let mut chunk_index = load_chunk_index_binary_from_bytes(&bytes)?;
-        preserve_local_chunk_locations(self.repo_paths, &mut chunk_index)?;
-        write_chunk_index(self.repo_paths, &chunk_index)
+        let mut chunk_index = load_stored_chunk_index(bytes, self.repo_paths.keys())?;
+        preserve_local_chunk_locations(&self.repo_paths, &mut chunk_index)?;
+        write_chunk_index(&self.repo_paths, &chunk_index)
     }
 
     fn download_snapshot(&self, snapshot: &RemoteSnapshot) -> Result<()> {
@@ -577,7 +612,8 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
             &snapshot.metadata_hash_b3,
             "snapshot metadata",
         )?;
-        let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
+        let keys = self.repo_paths.keys();
+        let metadata = snapshot_manifest_from_download(snapshot_id, metadata_bytes, keys)?;
         let product_metadata = match sources.product_metadata {
             Some(source) => {
                 let bytes = self.download(&source, MAX_METADATA_BYTES)?;
@@ -586,10 +622,7 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
                     &snapshot.product_metadata_hash_b3,
                     "snapshot product metadata",
                 )?;
-                Some(SnapshotProductMetadata::from_json_bytes(
-                    SNAPSHOT_PRODUCT_METADATA_FILE,
-                    &bytes,
-                )?)
+                Some(load_stored_snapshot_product_metadata(bytes, keys)?)
             }
             None => None,
         };
@@ -600,11 +633,11 @@ impl<P: RemoteRepoReader + ?Sized> PullContext<'_, P> {
             "snapshot blueprint",
         )?;
         write_remote_snapshot_artifacts(
-            self.repo_paths,
+            &self.repo_paths,
             snapshot_id,
             &metadata,
             product_metadata.as_ref(),
-            &blueprint_bytes,
+            blueprint_bytes,
             self.control,
         )
     }
@@ -685,9 +718,10 @@ pub fn pull_repo(
             request.remote_repo_id.as_deref(),
             bound_remote_repo_id.as_deref(),
         )?;
-        let repo_paths = RepoPaths::from_repo_root(repo_root);
-        let repository_existed = repo_paths.repo_metadata_path.exists();
-        ensure_repo_layout(&repo_paths, &repository.name)?;
+        let repository_existed = RepoPaths::from_repo_root(repo_root)
+            .repo_metadata_path
+            .exists();
+        let repo_paths = local_repo_paths(repo_root)?;
         progress.report(ProgressPhase::Planning, "Planning pull changes", None);
         let snapshots = provider.list_snapshots(&repository)?;
         let mut snapshots_by_id = HashMap::with_capacity(snapshots.len());
@@ -706,10 +740,13 @@ pub fn pull_repo(
             &request.snapshot_ids,
             policy,
         )?;
+        // Planned first: a placeholder manifest written now would look newer
+        // than the remote's and keep it from being downloaded.
+        ensure_repo_layout(&repo_paths, &repository.name)?;
         control.checkpoint()?;
-        let context = PullContext {
+        let mut context = PullContext {
             repo: repo_root,
-            repo_paths: &repo_paths,
+            repo_paths,
             repository: &repository,
             provider,
             download_client: build_download_client()?,
@@ -718,7 +755,7 @@ pub fn pull_repo(
 
         let mut stats = RepoPullResult {
             command: "repo pull",
-            repo_root: repo_paths.repo_root.clone(),
+            repo_root: context.repo_paths.repo_root.clone(),
             remote_repo_id: repository.id.clone(),
             repo_manifest_downloaded: false,
             chunk_map_downloaded: false,
@@ -787,7 +824,7 @@ pub fn pull_repo(
         }
 
         progress.next_step(ProgressPhase::Artifact, "Resolving bundles", None);
-        let local_bundles_by_snapshot = required_bundle_ids_by_snapshot(&repo_paths)?;
+        let local_bundles_by_snapshot = required_bundle_ids_by_snapshot(&context.repo_paths)?;
         let kept_bundles: HashSet<String> = local_bundles_by_snapshot
             .iter()
             .flat_map(|snapshot| snapshot.bundle_ids.iter())
@@ -808,7 +845,7 @@ pub fn pull_repo(
             .collect();
         let bundles_by_snapshot = match &request.bundles {
             PullBundles::Files(files) => {
-                bundles_holding_files(&repo_paths, bundles_by_snapshot, files)?
+                bundles_holding_files(&context.repo_paths, bundles_by_snapshot, files)?
             }
             _ => bundles_by_snapshot,
         };
@@ -819,7 +856,7 @@ pub fn pull_repo(
             .collect();
         let mut missing_bundles = Vec::new();
         for bundle_id in &required_bundles {
-            if !bundle_path(&repo_paths, bundle_id)?.is_file() {
+            if !bundle_path(&context.repo_paths, bundle_id)?.is_file() {
                 missing_bundles.push(bundle_id.clone());
             }
         }
@@ -849,7 +886,8 @@ pub fn pull_repo(
                 source,
                 &context.download_client,
                 bundle_id,
-                &bundle_path(&repo_paths, bundle_id)?,
+                &bundle_path(&context.repo_paths, bundle_id)?,
+                context.repo_paths.keys(),
                 control,
             )?;
         }

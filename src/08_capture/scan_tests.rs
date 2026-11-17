@@ -44,6 +44,7 @@ fn parallel_scan_preserves_serial_manifest_and_chunk_order() {
             &inventory,
             ScanDirectoryOptions {
                 chunking_profile: &crate::artifact::profiles::ChunkSizingProfile::default(),
+                chunk_gear: None,
                 available_chunk_sizes: &HashMap::new(),
                 worker_count: workers,
                 worker_pool: &pool,

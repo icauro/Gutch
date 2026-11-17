@@ -1,15 +1,21 @@
 //! Listing of stored snapshots and artifact files.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs::File;
+use std::path::Path;
 use std::path::PathBuf;
 
 use crate::Result;
 
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::loose::read_loose_header;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::{SealKeys, SealPurpose, SealedReader};
 use crate::filesystem::directory::is_owned_promotion_backup;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_id_from_bundle_path;
+use crate::repo::paths::loose_chunk_file_name;
 use crate::repo::snapshot_manifests::validate_snapshot_id;
 use std::fs;
 
@@ -80,6 +86,7 @@ fn visit_repo_artifacts(
         }
     }
     if paths.chunks_root.exists() {
+        let mut names = LooseChunkNames::new(paths);
         for entry in walkdir::WalkDir::new(&paths.chunks_root).sort_by_file_name() {
             let entry = entry?;
             if !(entry.file_type().is_file()
@@ -90,12 +97,63 @@ fn visit_repo_artifacts(
             let Some(hash) = entry.file_name().to_str() else {
                 continue;
             };
-            if let Ok(hash) = ChunkHash::parse_hex(hash) {
+            if let Ok(name) = ChunkHash::parse_hex(hash) {
+                let hash = names.chunk_hash(name, entry.path());
                 visit(ArtifactRef::LooseChunk { hash }, entry)?;
             }
         }
     }
     Ok(())
+}
+
+/// Maps loose-chunk file names to chunk hashes. A plain repository names each
+/// file by its chunk hash. An encrypted one keys the name, so it is resolved
+/// through the chunk index, or else through the sealed header, which must
+/// produce the same name. A file neither resolves keeps its name as the hash,
+/// and reading it as that chunk fails.
+enum LooseChunkNames<'a> {
+    Plain,
+    Keyed {
+        keys: &'a SealKeys,
+        indexed: HashMap<ChunkHash, ChunkHash>,
+    },
+}
+
+impl<'a> LooseChunkNames<'a> {
+    fn new(paths: &'a RepoPaths) -> Self {
+        let Some(keys) = paths.keys() else {
+            return Self::Plain;
+        };
+        // An index that cannot be read leaves every name to its header.
+        let indexed = super::index::load_chunk_index(paths)
+            .map(|index| {
+                index
+                    .entries
+                    .keys()
+                    .map(|&hash| (loose_chunk_file_name(Some(keys), hash), hash))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self::Keyed { keys, indexed }
+    }
+
+    fn chunk_hash(&mut self, name: ChunkHash, path: &Path) -> ChunkHash {
+        match self {
+            Self::Plain => name,
+            Self::Keyed { keys, indexed } => indexed
+                .get(&name)
+                .copied()
+                .or_else(|| sealed_loose_chunk_hash(keys, path))
+                .filter(|&hash| loose_chunk_file_name(Some(keys), hash) == name)
+                .unwrap_or(name),
+        }
+    }
+}
+
+fn sealed_loose_chunk_hash(keys: &SealKeys, path: &Path) -> Option<ChunkHash> {
+    let file = File::open(path).ok()?;
+    let mut reader = SealedReader::new(file, keys, SealPurpose::LooseChunk).ok()?;
+    read_loose_header(&mut reader).ok().map(|(hash, _, _)| hash)
 }
 
 #[derive(Default)]

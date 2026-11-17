@@ -9,11 +9,6 @@ use std::io::ErrorKind;
 use std::io::Write;
 use std::path::Path;
 
-/// Read a file to string.
-pub(crate) fn read_to_string(path: &Path) -> Result<String, Error> {
-    fs::read_to_string(path).io_context("reading file", path)
-}
-
 /// Metadata of the entry at `path` itself, or `None` when nothing is there.
 pub(crate) fn symlink_metadata_if_exists(path: &Path) -> std::io::Result<Option<fs::Metadata>> {
     match fs::symlink_metadata(path) {
@@ -131,7 +126,7 @@ pub(crate) fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<
 
 /// Read a file and parse it as JSON.
 pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Error> {
-    Ok(serde_json::from_str(&read_to_string(path)?)?)
+    Ok(serde_json::from_slice(&read(path)?)?)
 }
 
 #[cfg(test)]

@@ -787,6 +787,7 @@ fn pipeline_finishes_when_download_workers_exit_before_reconstruction() {
         url,
         ordinal: 1,
         missing_artifact_count: 1,
+        keys: None,
     }];
     apply_reconstruct_pipeline(
         ReconstructPipelineApplyRequest {
@@ -844,7 +845,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
                 (ArtifactRef::Bundle { id: id.into() }, encoded)
             } else {
                 let mut encoded = Vec::new();
-                write_loose_chunk(&mut encoded, hash, bytes, &profile).unwrap();
+                write_loose_chunk(&mut encoded, hash, bytes, &profile, None).unwrap();
                 (ArtifactRef::LooseChunk { hash }, encoded)
             };
             if corrupt {
@@ -907,6 +908,7 @@ fn artifact_jobs_write_only_verified_chunks_to_every_target() {
                 output_paths: &paths,
                 output_handles: &handles,
                 source_handles: &SourceHandleCache::default(),
+                keys: None,
                 control: &control,
             });
             assert_eq!(

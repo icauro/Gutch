@@ -65,7 +65,7 @@ fn init_repo_with_force_replaces_existing_repo_artifacts() {
         }],
     });
     snapshot_manifest.snapshot_id =
-        crate::snapshot::identity::snapshot_id_from_entries(&snapshot_manifest.entries);
+        crate::snapshot::identity::snapshot_id(&snapshot_manifest.entries, None);
     write_snapshot_manifest_artifacts(
         &repo_paths,
         &snapshot_manifest,

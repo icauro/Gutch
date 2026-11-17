@@ -14,6 +14,7 @@ use crate::artifact::compression::encode_to_writer;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::seal::{SealKeys, SealPurpose, SealedReader, StoredWriter};
 use crate::profiling::Profiler;
 use std::fs::File;
 use std::path::Path;
@@ -29,20 +30,46 @@ pub(crate) struct LooseChunkReadMetrics {
 }
 
 /// Reads, decompresses and verifies one loose chunk. The stored codec is read
-/// from the chunk header.
+/// from the chunk header. With `keys`, the file is sealed.
 pub(crate) fn read_loose_chunk(
     path: &Path,
     chunk_hash: ChunkHash,
     raw_size: u64,
+    keys: Option<&SealKeys>,
     profiler: Option<&Profiler>,
 ) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
-    let mut metrics = LooseChunkReadMetrics::default();
-    let (mut file, codec) = {
-        let started_at = ProfileInstant::detailed(profiler);
+    let started_at = ProfileInstant::detailed(profiler);
+    let file = File::open(path)?;
+    let compressed_bytes = file.metadata()?.len();
+    format::size_u32(compressed_bytes)?;
+    let metrics = LooseChunkReadMetrics {
+        compressed_bytes,
+        ..LooseChunkReadMetrics::default()
+    };
+    // Each storage gets its own decoder instance, so plain chunks read the
+    // file directly.
+    match keys {
+        None => decode_loose_chunk(file, chunk_hash, raw_size, metrics, started_at, profiler),
+        Some(keys) => decode_loose_chunk(
+            SealedReader::new(file, keys, SealPurpose::LooseChunk)?,
+            chunk_hash,
+            raw_size,
+            metrics,
+            started_at,
+            profiler,
+        ),
+    }
+}
 
-        let mut file = File::open(path)?;
-        metrics.compressed_bytes = file.metadata()?.len();
-        format::size_u32(metrics.compressed_bytes)?;
+fn decode_loose_chunk(
+    mut file: impl Read,
+    chunk_hash: ChunkHash,
+    raw_size: u64,
+    mut metrics: LooseChunkReadMetrics,
+    started_at: ProfileInstant,
+    profiler: Option<&Profiler>,
+) -> Result<(Vec<u8>, LooseChunkReadMetrics)> {
+    let (mut file, codec) = {
         let (declared_hash, declared_size, codec) = read_loose_header(&mut file)?;
         if declared_hash != chunk_hash || u64::from(declared_size) != raw_size {
             return Err(Error::artifact(
@@ -87,15 +114,29 @@ pub(crate) fn read_loose_chunk(
     Ok((bytes, metrics))
 }
 
+/// Writes one loose chunk, sealed when `keys` are given.
 pub(crate) fn write_loose_chunk(
     writer: &mut impl Write,
     hash: ChunkHash,
     bytes: &[u8],
     profile: &CompressionProfile,
+    keys: Option<&SealKeys>,
 ) -> Result<()> {
     if bytes.is_empty() || bytes.len() as u64 > format::MAX_RAW_CHUNK_SIZE {
         return Err(Error::artifact("loose chunk exceeds raw size limit"));
     }
+    let mut writer = StoredWriter::new(writer, keys, SealPurpose::LooseChunk)?;
+    encode_loose_chunk(&mut writer, hash, bytes, profile)?;
+    writer.finish()?;
+    Ok(())
+}
+
+fn encode_loose_chunk(
+    writer: &mut impl Write,
+    hash: ChunkHash,
+    bytes: &[u8],
+    profile: &CompressionProfile,
+) -> Result<()> {
     writer.write_all(format::LOOSE_CHUNK_MAGIC)?;
     writer.write_all(&format::VERSION.to_le_bytes())?;
     format::write_codec(writer, profile.compression)?;
@@ -149,15 +190,41 @@ mod tests {
                 hash,
                 &bytes,
                 &profile,
+                None,
             )
             .unwrap();
             // The stored codec remains authoritative after repository defaults change.
-            let (decoded, _) = read_loose_chunk(&path, hash, bytes.len() as u64, None).unwrap();
+            let (decoded, _) =
+                read_loose_chunk(&path, hash, bytes.len() as u64, None, None).unwrap();
             assert_eq!(decoded, bytes);
             let mut encoded = std::fs::read(&path).unwrap();
             encoded[20..24]
                 .copy_from_slice(&((format::MAX_RAW_CHUNK_SIZE + 1) as u32).to_le_bytes());
             assert!(read_loose_header(&mut &encoded[..]).is_err());
         }
+    }
+
+    #[test]
+    fn sealed_chunks_round_trip_and_need_their_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let keys = SealKeys::from_master_key(&[3; 32]);
+        let bytes = vec![5u8; 3 * 1024 * 1024 + 7];
+        let hash = ChunkHash::of(&bytes);
+        let path = directory.path().join("sealed");
+        let profile = CompressionProfile::for_algorithm(CompressionKind::None, None);
+        write_loose_chunk(
+            &mut std::fs::File::create(&path).unwrap(),
+            hash,
+            &bytes,
+            &profile,
+            Some(&keys),
+        )
+        .unwrap();
+        let (decoded, _) =
+            read_loose_chunk(&path, hash, bytes.len() as u64, Some(&keys), None).unwrap();
+        assert_eq!(decoded, bytes);
+        assert!(read_loose_chunk(&path, hash, bytes.len() as u64, None, None).is_err());
+        let other = SealKeys::from_master_key(&[4; 32]);
+        assert!(read_loose_chunk(&path, hash, bytes.len() as u64, Some(&other), None).is_err());
     }
 }

@@ -18,6 +18,7 @@ use crate::artifact::profiles::ChunkSizingProfile;
 use crate::artifact::profiles::Chunker;
 use crate::artifact::profiles::CompressionKind;
 use crate::artifact::profiles::CompressionProfile;
+use crate::artifact::seal::SealKeys;
 use crate::manifest::SnapshotTagSet;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
@@ -38,6 +39,9 @@ pub struct BuildConfig<'a> {
     pub(crate) storage_mode: ArtifactStorageMode,
     pub(crate) runtime_hints: RuntimeResourceHints,
     pub(crate) artifact_staging_root: Option<PathBuf>,
+    /// Keys of an encrypted repository: artifacts are sealed, names and the
+    /// snapshot ID keyed, and chunk boundaries seeded.
+    pub(crate) sealing: Option<Arc<SealKeys>>,
     pub(crate) control: OperationControl,
 }
 
@@ -53,6 +57,7 @@ impl<'a> BuildConfig<'a> {
             storage_mode: ArtifactStorageMode::default(),
             runtime_hints: RuntimeResourceHints::default(),
             artifact_staging_root: None,
+            sealing: None,
             control: OperationControl::default(),
         }
     }

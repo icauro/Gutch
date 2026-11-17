@@ -15,6 +15,45 @@ the number and size of stored snapshots and artifacts. `repo rename` changes
 only the display name stored in the repository, not the folder name or any
 remote copy.
 
+## Encryption
+
+Repositories are not encrypted unless asked, and a plain repository does no
+extra work. An encrypted one stores file content, file names, tags and the
+chunk index sealed with AES-256-GCM, and names its files so that they do not
+reveal which content is present:
+
+```sh
+export GUTCH_REPO_PASSWORD='a long passphrase'
+gutch-cli repo init --repo REPO --encrypt
+gutch-cli snapshot capture --repo REPO --source build --tag version=1.0
+```
+
+Credentials come from the environment, never from the command line:
+`GUTCH_REPO_PASSWORD` holds a password, or `GUTCH_REPO_KEY_FILE` names a key
+file. Every command that reads or writes an encrypted repository needs one;
+a plain repository ignores them. `repo init --new-key-file FILE` encrypts with
+a new random key file instead of a password. Passwords are stretched with
+Argon2id, so a key file unlocks faster.
+
+More credentials can open the same repository. Unlock it with an existing
+one, then add a password from `GUTCH_REPO_NEW_PASSWORD` or a new key file:
+
+```sh
+GUTCH_REPO_NEW_PASSWORD='second passphrase' gutch-cli repo credential add --repo REPO --new-password
+gutch-cli repo credential add --repo REPO --new-key-file team.key
+```
+
+A lost credential cannot be recovered; keep a key file somewhere safe. Copies
+made by push, pull and fetch share the repository's key, so the same
+credentials open them, and a remote stores only sealed files and snapshot IDs,
+no tags.
+
+Encrypted repositories chunk with FastCDC, using cut points derived from the
+key, so chunk sizes do not reveal content either. Encryption hides content,
+names and tags, but not the repository's display name, the number and sizes
+of its files, or when they were written. `bundle inspect` reads only bundles
+from plain repositories.
+
 ## Check stored content
 
 ```sh

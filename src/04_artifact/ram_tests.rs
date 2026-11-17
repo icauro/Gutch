@@ -91,7 +91,7 @@ fn streaming_and_capture_preserve_ram_boundaries_and_hashes() {
             let window = profile.avg_chunk_bytes as usize;
             let maximum = profile.max_chunk_bytes as usize;
             let (scan, _) =
-                scan_file_chunks(&path, size as u64, &profile, &Default::default()).unwrap();
+                scan_file_chunks(&path, size as u64, &profile, None, &Default::default()).unwrap();
             let mut stream = ChunkStream::with_boundary(
                 ShortRead(Cursor::new(data[..size].to_vec())),
                 Ram::new(window, maximum),

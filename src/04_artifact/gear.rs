@@ -90,6 +90,38 @@ const fn shifted_table() -> [u64; 256] {
 // Compile-time derivation preserves the two-byte FastCDC kernel's lookup table.
 pub(super) const GEAR_LS: [u64; 256] = shifted_table();
 
+/// Gear tables drawn from a repository's chunker seed. An encrypted
+/// repository cuts chunks with them, so boundaries, and the chunk sizes they
+/// produce, cannot be predicted from known content without the key.
+pub(crate) struct GearTables {
+    pub(super) gear: [u64; 256],
+    pub(super) gear_ls: [u64; 256],
+}
+
+impl GearTables {
+    pub(crate) fn seeded(seed: &[u8; 32]) -> Self {
+        let mut stream = blake3::Hasher::new_keyed(seed)
+            .update(b"gutch fastcdc gear table")
+            .finalize_xof();
+        let mut gear = [0u64; 256];
+        let mut bytes = [0u8; 8];
+        for value in &mut gear {
+            stream.fill(&mut bytes);
+            *value = u64::from_le_bytes(bytes);
+        }
+        Self {
+            gear,
+            gear_ls: gear.map(|value| value << 1),
+        }
+    }
+}
+
+impl std::fmt::Debug for GearTables {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("GearTables(..)")
+    }
+}
+
 #[inline]
 pub(super) fn update(hash: u64, byte: u8, table: &[u64; 256]) -> u64 {
     (hash << 1).wrapping_add(table[byte as usize])

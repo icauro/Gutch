@@ -4,6 +4,7 @@ pub(crate) mod blueprint_codec;
 pub(crate) mod blueprint_columns;
 pub(crate) mod constraints;
 mod content;
+pub(crate) mod encryption;
 pub(crate) mod external_dependency;
 pub(crate) mod format;
 pub(crate) mod launch;
@@ -17,6 +18,7 @@ pub use content::FileManifest;
 pub use content::SnapshotEntry;
 pub use content::SymlinkManifest;
 pub(crate) use content::validate_snapshot_entries;
+pub use encryption::{RepoCipher, RepoEncryption, RepoKeySlot};
 pub use external_dependency::ExternalProductDependencyRequirement;
 pub(crate) use external_dependency::validate_external_product_dependency_requirements;
 pub use format::{

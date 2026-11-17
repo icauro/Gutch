@@ -12,6 +12,7 @@ use crate::installation::{
     InstallationRepairResult, InstallationVerifyRequest, InstallationVerifyResult,
 };
 use crate::manifest::SnapshotTagSet;
+use crate::repo::encryption::RepoCredential;
 use crate::repo::file_read::{SnapshotFileReadRequest, read_snapshot_file};
 use crate::repo::init_policy::{RepoInitRequest, init_repo};
 use crate::repo::paths::RepoPaths;
@@ -47,6 +48,18 @@ impl Repo {
         let root = root.into();
         init_repo(&RepoInitRequest {
             repo_root: root.clone(),
+            ..Default::default()
+        })?;
+        Ok(Self { root })
+    }
+
+    /// Creates an encrypted repository in a folder that is missing or empty.
+    /// `credential` unlocks it, here and in later processes.
+    pub fn init_encrypted(root: impl Into<PathBuf>, credential: RepoCredential) -> Result<Self> {
+        let root = root.into();
+        init_repo(&RepoInitRequest {
+            repo_root: root.clone(),
+            encryption: Some(credential),
             ..Default::default()
         })?;
         Ok(Self { root })

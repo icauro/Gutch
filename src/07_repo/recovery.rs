@@ -9,6 +9,7 @@ use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::loose::read_loose_header;
 use crate::artifact::profiles::ArtifactStorageMode;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::{SealKeys, SealPurpose, StoredReader};
 use crate::progress::OperationControl;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntry;
@@ -89,7 +90,7 @@ fn recover_index(
         let artifacts = super::inventory::list_repo_artifact_paths(&paths)?;
         for (artifact, path) in artifacts {
             control.checkpoint()?;
-            match recover_artifact_chunks(&artifact, &path) {
+            match recover_artifact_chunks(&artifact, &path, paths.keys()) {
                 Err(error) => result
                     .corrupt_artifacts
                     .push(format!("{}: {error}", artifact.id())),
@@ -166,7 +167,7 @@ pub(crate) fn rebuild_chunk_index_from_artifacts(
     let recovered = pool.install(|| {
         artifacts
             .par_iter()
-            .map(|(artifact, path)| recover_artifact_chunks(artifact, path))
+            .map(|(artifact, path)| recover_artifact_chunks(artifact, path, paths.keys()))
             .collect::<Result<Vec<_>>>()
     })?;
     let mut entries = BTreeMap::new();
@@ -185,12 +186,14 @@ pub(crate) fn rebuild_chunk_index_from_artifacts(
 fn recover_artifact_chunks(
     artifact: &ArtifactRef,
     path: &Path,
+    keys: Option<&SealKeys>,
 ) -> Result<Vec<(ChunkHash, ChunkIndexEntry)>> {
     let size = size_u32(fs::metadata(path)?.len())?;
     match artifact {
         ArtifactRef::Bundle { id } => {
-            let mut reader = BundleReader::open(File::open(path)?)?;
-            reader.verify_identity(id)?;
+            let file = StoredReader::new(File::open(path)?, keys, SealPurpose::Bundle)?;
+            let mut reader = BundleReader::open(file)?;
+            reader.verify_identity(id, keys)?;
             let shared_id = std::sync::Arc::clone(id);
             Ok(reader
                 .entries()
@@ -211,11 +214,12 @@ fn recover_artifact_chunks(
                 .collect())
         }
         ArtifactRef::LooseChunk { hash } => {
-            let (declared, raw, _) = read_loose_header(&mut File::open(path)?)?;
+            let mut file = StoredReader::new(File::open(path)?, keys, SealPurpose::LooseChunk)?;
+            let (declared, raw, _) = read_loose_header(&mut file)?;
             if declared != *hash {
                 return Err(Error::repo("loose artifact filename disagrees with header"));
             }
-            read_loose_chunk(path, *hash, u64::from(raw), None)?;
+            read_loose_chunk(path, *hash, u64::from(raw), keys, None)?;
             Ok(vec![(
                 *hash,
                 ChunkIndexEntry::new(

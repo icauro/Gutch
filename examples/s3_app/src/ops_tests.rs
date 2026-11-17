@@ -84,7 +84,7 @@ fn capture_on_one_machine_install_and_repair_on_another() {
     let second = Remote::new(SharedStore(bucket), temp.path().join("cache2"));
 
     let repo_id = first
-        .create_repo("team", "game", OperationControl::default())
+        .create_repo("team", "game", None, OperationControl::default())
         .unwrap();
     assert_eq!(repo_id, "team--game");
     assert_eq!(second.repos().unwrap()[0].repository_id, repo_id);
@@ -175,11 +175,11 @@ fn create_repo_refuses_a_taken_name_and_leaves_no_copy() {
     let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
     let second = Remote::new(SharedStore(bucket), temp.path().join("cache2"));
     first
-        .create_repo("team", "game", OperationControl::default())
+        .create_repo("team", "game", None, OperationControl::default())
         .unwrap();
 
     let error = second
-        .create_repo("team", "game", OperationControl::default())
+        .create_repo("team", "game", None, OperationControl::default())
         .unwrap_err();
 
     assert!(error.to_string().contains("already exists"), "{error}");
@@ -208,7 +208,7 @@ fn browsing_a_snapshot_downloads_only_that_snapshot() {
     let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
     let second = Remote::new(SharedStore(bucket), temp.path().join("cache2"));
     let repo_id = first
-        .create_repo("team", "game", OperationControl::default())
+        .create_repo("team", "game", None, OperationControl::default())
         .unwrap();
     let source = temp.path().join("source");
     let control = OperationControl::default;
@@ -302,4 +302,56 @@ fn count_files(dir: &Path) -> usize {
             if path.is_dir() { count_files(&path) } else { 1 }
         })
         .sum()
+}
+
+#[test]
+fn an_encrypted_repository_opens_only_with_its_password() {
+    let temp = tempfile::tempdir().unwrap();
+    let bucket = std::sync::Arc::new(MemoryStore::default());
+    let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
+    let second = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache2"));
+    let password = RepoCredential::Password("correct horse".into());
+
+    let repo_id = first
+        .create_repo(
+            "team",
+            "vault",
+            Some(password.clone()),
+            OperationControl::default(),
+        )
+        .unwrap();
+    let source = temp.path().join("source");
+    write(&source.join("secret.txt"), "only for the team\n");
+    first
+        .capture_and_push(
+            &repo_id,
+            &source,
+            "version=1.0",
+            OperationControl::default(),
+        )
+        .unwrap();
+    let stored = bucket.objects.lock().unwrap().clone();
+    assert!(
+        stored.values().all(|bytes| !bytes
+            .windows(17)
+            .any(|window| window == b"only for the team")),
+        "the bucket holds plaintext"
+    );
+    assert!(stored.keys().all(|key| !key.contains("version")));
+
+    // A second machine has no unlocked keys and no password yet.
+    gutch::api::lock_repos();
+    let snapshot_id = second.snapshots(&repo_id).unwrap()[0].snapshot_id.clone();
+    let app = temp.path().join("app");
+    let install = |control| second.install(&repo_id, &snapshot_id, &app, None, control);
+    assert!(install(OperationControl::default()).is_err());
+    gutch::api::set_default_repo_credential(Some(RepoCredential::Password("wrong".into())));
+    assert!(install(OperationControl::default()).is_err());
+    gutch::api::set_default_repo_credential(Some(password));
+    install(OperationControl::default()).unwrap();
+    assert_eq!(
+        fs::read_to_string(app.join("secret.txt")).unwrap(),
+        "only for the team\n".repeat(500)
+    );
+    gutch::api::lock_repos();
 }

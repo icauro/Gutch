@@ -81,6 +81,8 @@ class Case:
     sequence: int = 0
     checks: list[str] = field(default_factory=list)
     details: dict = field(default_factory=dict)
+    # Further variables for every command, such as repository credentials.
+    variables: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.payload.mkdir(parents=True, exist_ok=True)
@@ -95,6 +97,7 @@ class Case:
             "XDG_CONFIG_HOME": str(self.payload / "config"),
             "XDG_DATA_HOME": str(self.payload / "data"),
             "XDG_CACHE_HOME": str(self.payload / "cache"),
+            **self.variables,
         }
 
     def log(self, label):

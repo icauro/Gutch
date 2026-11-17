@@ -4,6 +4,7 @@ use crate::artifact::bundle::BundleReader;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::{SealPurpose, StoredReader};
 use crate::manifest::FileManifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
@@ -56,7 +57,12 @@ pub fn read_snapshot_file(request: &SnapshotFileReadRequest) -> Result<Vec<u8>> 
             }
             match artifact {
                 ArtifactRef::Bundle { .. } => {
-                    let mut reader = BundleReader::open(File::open(&path)?)?;
+                    let file = File::open(&path)?;
+                    let mut reader = BundleReader::open(StoredReader::new(
+                        file,
+                        paths.keys(),
+                        SealPurpose::Bundle,
+                    )?)?;
                     let entries = reader.entries().to_vec();
                     let required: Vec<bool> = entries
                         .iter()
@@ -72,7 +78,8 @@ pub fn read_snapshot_file(request: &SnapshotFileReadRequest) -> Result<Vec<u8>> 
                         .entries
                         .get(&hash)
                         .map_or(0, |entry| entry.raw_size);
-                    let (bytes, _) = read_loose_chunk(&path, hash, u64::from(raw_size), None)?;
+                    let (bytes, _) =
+                        read_loose_chunk(&path, hash, u64::from(raw_size), paths.keys(), None)?;
                     chunks.insert(hash, bytes);
                 }
             }

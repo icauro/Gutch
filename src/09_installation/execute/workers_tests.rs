@@ -160,6 +160,7 @@ fn failed_or_cancelled_verification_batch_releases_resources_before_terminal_eve
             output_handles: handles,
             control,
             reconstruct_worker_count: 1,
+            sealing: None,
         });
         let weak_context = Arc::downgrade(&context);
         let pool = rayon::ThreadPoolBuilder::new()
@@ -428,6 +429,7 @@ fn source_batch_reports_success_or_stops_on_failure_and_releases_resources() {
             output_handles: handles,
             control,
             reconstruct_worker_count: 1,
+            sealing: None,
         });
         let weak_context = Arc::downgrade(&context);
         let pool = rayon::ThreadPoolBuilder::new()

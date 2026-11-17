@@ -74,7 +74,7 @@ fn capture_repository_group(
         control.checkpoint()?;
         let build_pool = build_capture_pool(&control, &runtime_hints)?;
 
-        let repo_paths = RepoPaths::from_repo_root(&repo_root);
+        let repo_paths = RepoPaths::open(&repo_root)?;
         let _existing_state_span =
             control.profile_span("capture.prepare_source.load_existing_store_state");
         let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, &control)?;
@@ -285,6 +285,7 @@ fn configure_build<'a>(
         .with_storage_mode(request.storage_mode)
         .with_runtime_hints(request.runtime_hints)
         .with_artifact_staging_root(repo_paths.bundles_root.clone());
+    build_config.sealing = repo_paths.sealing.clone();
     build_config.control = request.control.clone();
     build_config
 }

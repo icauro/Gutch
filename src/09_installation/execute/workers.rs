@@ -3,6 +3,7 @@
 use super::handles::{OutputHandleCache, SourceHandleCache};
 use super::job_io::{ReconstructedFileSizeCheck, check_reconstructed_output_size, reconstruct_job};
 use super::jobs::{ReconstructJob, ReconstructPipelineFile};
+use crate::artifact::seal::SealKeys;
 use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::ProfileInstant;
 use crate::profiling::trace_args;
@@ -168,6 +169,7 @@ pub(crate) struct ReconstructWorkContext {
     pub(crate) output_handles: Arc<OutputHandleCache>,
     pub(crate) control: OperationControl,
     pub(crate) reconstruct_worker_count: usize,
+    pub(crate) sealing: Option<Arc<SealKeys>>,
 }
 
 pub(crate) fn dispatch_ready_work(
@@ -244,6 +246,7 @@ pub(crate) fn spawn_reconstruct_work(
                             output_paths: &context.output_paths,
                             output_handles: &context.output_handles,
                             source_handles: &context.source_handles,
+                            keys: context.sealing.as_deref(),
                             control: &context.control,
                         })?);
                     }

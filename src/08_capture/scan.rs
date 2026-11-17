@@ -12,6 +12,7 @@ use crate::Error;
 use crate::Result;
 use crate::artifact::chunk::scan_file_chunks;
 use crate::artifact::format::size_u32;
+use crate::artifact::gear::GearTables;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::profiles::ChunkSizingProfile;
 use crate::capture::build::progress::BuildProgressTracker;
@@ -57,6 +58,8 @@ pub(crate) struct ChunkPlacementKey {
 
 pub(crate) struct ScanDirectoryOptions<'a> {
     pub chunking_profile: &'a ChunkSizingProfile,
+    /// An encrypted repository's keyed chunk boundaries.
+    pub chunk_gear: Option<&'a GearTables>,
     pub available_chunk_sizes: &'a HashMap<ChunkHash, u64>,
     pub worker_count: usize,
     pub worker_pool: &'a ThreadPool,
@@ -416,6 +419,7 @@ fn scan_file(request: ScanFileRequest<'_>) -> Result<FileBuildEntry> {
         path,
         source_metadata.len(),
         options.chunking_profile,
+        options.chunk_gear,
         control,
     )?;
     let file_size = chunk_scan.file_size;

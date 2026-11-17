@@ -10,7 +10,7 @@ use crate::filesystem::paths::validate_manifest_relative_path;
 use crate::manifest::blueprint_codec::read_snapshot_blueprint_bytes;
 use crate::manifest::blueprint_columns;
 use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
-use crate::snapshot::identity::snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id;
 use std::io::{Cursor, Read};
 use std::str::from_utf8;
 
@@ -90,7 +90,7 @@ fn fuzz_bundle_roundtrip() {
         builder.add_chunk(hash, bytes.to_vec());
         let (id, encoded) = builder.build_with_id().unwrap();
         let mut reader = bundle::read_bundle(&encoded).unwrap();
-        reader.verify_identity(&id).unwrap();
+        reader.verify_identity(&id, None).unwrap();
         assert_eq!(reader.read_chunk(0).unwrap(), bytes);
         let mut damaged = encoded.clone();
         let offset = bytes[0] as usize % damaged.len();
@@ -143,10 +143,7 @@ fn fuzz_blueprint_roundtrip() {
         let groups = blueprint_columns::encode(&entries).unwrap();
         let encoded = metadata::encode(SNAPSHOT_BLUEPRINT_MAGIC, &groups).unwrap();
         let restored = read_snapshot_blueprint_bytes(&encoded).unwrap();
-        assert_eq!(
-            snapshot_id_from_entries(&entries),
-            snapshot_id_from_entries(&restored)
-        );
+        assert_eq!(snapshot_id(&entries, None), snapshot_id(&restored, None));
         assert_eq!(blueprint_columns::encode(&restored).unwrap(), groups);
         let mut mutated = groups;
         let group = usize::from(properties) % mutated.len();

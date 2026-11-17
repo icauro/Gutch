@@ -1,5 +1,6 @@
 //! Repository initialization: risk assessment of the target path and confirmation policy.
 
+use super::encryption::RepoCredential;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -61,6 +62,8 @@ pub struct RepoInitRequest {
     pub repo_root: PathBuf,
     pub force: bool,
     pub constraints: RepoConstraints,
+    /// Encrypts the new repository; this credential unlocks it.
+    pub encryption: Option<RepoCredential>,
     pub control: OperationControl,
 }
 
@@ -234,6 +237,9 @@ pub fn init_repo(request: &RepoInitRequest) -> Result<RepoInitResult> {
         let mut repo_manifest = ensure_repo_layout(&repo_paths, repo_name)?;
         repo_manifest.constraints =
             (!request.constraints.is_empty()).then(|| request.constraints.clone());
+        if let Some(credential) = &request.encryption {
+            repo_manifest.encryption = Some(super::encryption::new_repo_encryption(credential)?);
+        }
         write_repo_manifest(&repo_paths, &repo_manifest)?;
         Ok(RepoInitResult {
             repo_root: repo_root.to_path_buf(),

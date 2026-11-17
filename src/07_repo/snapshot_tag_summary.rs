@@ -2,7 +2,7 @@
 
 use crate::manifest;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct SnapshotTagSummary {
     pub(crate) version_tag: String,
     pub(crate) os: String,

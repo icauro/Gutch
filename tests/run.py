@@ -67,6 +67,7 @@ SCENARIOS = [
     Scenario("reconstruction.symlinks_and_attributes_survive", "local"),
     Scenario("repair.damaged_files_recover_without_losing_extras", "local"),
     Scenario("repository.initialization_preserves_unrelated_files", "local"),
+    Scenario("repository.encryption_hides_content_and_needs_a_credential", "local"),
     Scenario("repository.deletion_preserves_shared_artifacts", "local"),
     Scenario("repository.recapture_recovers_missing_artifacts", "local"),
     Scenario("reconstruction.overlapping_staging_preserves_files", "local"),

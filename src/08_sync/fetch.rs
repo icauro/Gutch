@@ -8,8 +8,8 @@ use super::limits::{MAX_CHUNK_INDEX_BYTES, MAX_METADATA_BYTES, MAX_SNAPSHOT_BLUE
 use crate::Error;
 use crate::Result;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::SealKeys;
 use crate::filesystem;
-use crate::manifest::SnapshotProductMetadata;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::manifest::snapshot::SnapshotManifest;
 use crate::progress::OperationControl;
@@ -21,8 +21,9 @@ use crate::progress::emit_progress;
 use crate::repo::artifacts::required_artifacts;
 use crate::repo::artifacts::verify_bundle_identity_file;
 use crate::repo::coordination::write_with_control;
+use crate::repo::encryption::check_same_repo_key;
 use crate::repo::index::ChunkIndex;
-use crate::repo::index::binary_codec::load_chunk_index_binary_from_bytes;
+use crate::repo::index::binary_codec::load_stored_chunk_index;
 use crate::repo::index::load_chunk_index;
 use crate::repo::index::preserve_local_chunk_locations;
 use crate::repo::index::write_chunk_index;
@@ -30,8 +31,8 @@ use crate::repo::paths::RepoPaths;
 use crate::repo::paths::ensure_repo_layout;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::write_repo_manifest;
-use crate::repo::snapshot_manifests::SNAPSHOT_PRODUCT_METADATA_FILE;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
+use crate::repo::snapshot_manifests::load_stored_snapshot_product_metadata;
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_download;
 use crate::repo::snapshot_manifests::snapshot_manifest_from_parts;
@@ -39,7 +40,6 @@ use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::VerifiedArtifacts;
 use crate::repo::verify::verify_snapshot_artifacts;
-use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::sync::fetch_types::SnapshotFetchResult;
 use crate::transfer::artifact_download::TransferDownloadRequest;
@@ -156,7 +156,7 @@ pub(crate) fn prepare_snapshot_fetch(
         "Preparing local repo layout",
         Some(snapshot_id),
     );
-    let repo_paths = RepoPaths::from_repo_root(&request.repo_root);
+    let mut repo_paths = RepoPaths::from_repo_root(&request.repo_root);
     let repository_existed = repo_paths.repo_metadata_path.exists();
     ensure_repo_layout(&repo_paths, "download")?;
 
@@ -166,11 +166,18 @@ pub(crate) fn prepare_snapshot_fetch(
             let message = "Downloading repo metadata";
             downloader.announce(phase, message, None);
             let bytes = downloader.download(url, phase, message, None, MAX_METADATA_BYTES)?;
-            RepoManifest::from_json_bytes("remote repo_metadata.json", &bytes)?
+            let incoming = RepoManifest::from_json_bytes("remote repo_metadata.json", &bytes)?;
+            if repository_existed {
+                let (_, local) = load_repo_manifest(&repo_paths.repo_root)?;
+                check_same_repo_key(local.encryption.as_ref(), incoming.encryption.as_ref())?;
+            }
+            incoming
         }
         None => load_repo_manifest(&repo_paths.repo_root)?.1,
     };
-    let (downloaded_manifest, blueprint_bytes) = download_snapshot_manifest(request, &downloader)?;
+    repo_paths.unlock_for(&repo_manifest)?;
+    let (downloaded_manifest, blueprint_bytes) =
+        download_snapshot_manifest(request, &downloader, repo_paths.keys())?;
     check_incoming_constraints(
         &repo_paths,
         &repo_manifest,
@@ -189,13 +196,10 @@ pub(crate) fn prepare_snapshot_fetch(
             let phase = ProgressPhase::ChunkIndex;
             let message = "Downloading chunk index";
             downloader.announce(phase, message, None);
-            load_chunk_index_binary_from_bytes(&downloader.download(
-                url,
-                phase,
-                message,
-                None,
-                MAX_CHUNK_INDEX_BYTES,
-            )?)?
+            load_stored_chunk_index(
+                downloader.download(url, phase, message, None, MAX_CHUNK_INDEX_BYTES)?,
+                repo_paths.keys(),
+            )?
         }
         None => load_chunk_index(&repo_paths)?,
     };
@@ -281,6 +285,7 @@ impl MetadataDownloader<'_> {
 fn download_snapshot_manifest(
     request: &SnapshotFetchRequest,
     downloader: &MetadataDownloader<'_>,
+    keys: Option<&SealKeys>,
 ) -> Result<(SnapshotManifest, Vec<u8>)> {
     let snapshot_id = request.snapshot_id.as_str();
     let phase = ProgressPhase::SnapshotMetadata;
@@ -293,7 +298,7 @@ fn download_snapshot_manifest(
         Some(snapshot_id),
         MAX_METADATA_BYTES,
     )?;
-    let metadata = snapshot_manifest_from_download(snapshot_id, &metadata_bytes)?;
+    let metadata = snapshot_manifest_from_download(snapshot_id, metadata_bytes, keys)?;
     let product_metadata = match request.product_metadata_url.as_deref() {
         Some(url) => {
             let bytes = downloader.download(
@@ -303,10 +308,7 @@ fn download_snapshot_manifest(
                 Some(snapshot_id),
                 MAX_METADATA_BYTES,
             )?;
-            Some(SnapshotProductMetadata::from_json_bytes(
-                SNAPSHOT_PRODUCT_METADATA_FILE,
-                &bytes,
-            )?)
+            Some(load_stored_snapshot_product_metadata(bytes, keys)?)
         }
         None => None,
     };
@@ -317,7 +319,8 @@ fn download_snapshot_manifest(
         Some(snapshot_id),
         MAX_SNAPSHOT_BLUEPRINT_BYTES,
     )?;
-    let manifest = snapshot_manifest_from_parts(metadata, product_metadata, &blueprint_bytes)?;
+    let manifest =
+        snapshot_manifest_from_parts(metadata, product_metadata, blueprint_bytes.clone(), keys)?;
     Ok((manifest, blueprint_bytes))
 }
 
@@ -360,15 +363,16 @@ fn prefer_verified_local_snapshot(
     }
     let local = load_snapshot_manifest(repo_paths, snapshot_id)?;
     let local_index = load_chunk_index(repo_paths)?;
-    let local_is_complete = snapshot_id_from_entries(&local.entries) == snapshot_id
-        && verify_snapshot_artifacts(
-            repo_paths,
-            &local_index,
-            &local,
-            RepoVerifyMode::Strict,
-            &mut VerifiedArtifacts::new(),
-        )
-        .is_ok_and(|result| result.ok);
+    let local_is_complete =
+        crate::snapshot::identity::snapshot_id(&local.entries, repo_paths.keys()) == snapshot_id
+            && verify_snapshot_artifacts(
+                repo_paths,
+                &local_index,
+                &local,
+                RepoVerifyMode::Strict,
+                &mut VerifiedArtifacts::new(),
+            )
+            .is_ok_and(|result| result.ok);
     Ok(if local_is_complete { local } else { downloaded })
 }
 
@@ -385,7 +389,7 @@ fn find_existing_artifacts(
             continue;
         }
         if let ArtifactRef::Bundle { id } = artifact {
-            match verify_bundle_identity_file(&path, id) {
+            match verify_bundle_identity_file(&path, id, repo_paths.keys()) {
                 Ok(()) => {}
                 Err(Error::Artifact(_) | Error::HashMismatch { .. }) => {
                     fs::remove_file(&path)?;
@@ -433,6 +437,7 @@ fn build_pending_artifact_downloads(
                 artifact_path,
                 ordinal,
                 missing_artifact_count,
+                keys: repo_paths.sealing.clone(),
             })
         })
         .collect()

@@ -9,10 +9,10 @@ use crate::filesystem;
 use crate::manifest::SnapshotManifest;
 use crate::repo::paths::RepoPaths;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
-use crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote;
-use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
 use crate::repo::snapshot_manifests::snapshot_metadata_path;
+use crate::repo::snapshot_manifests::stored_snapshot_metadata;
+use crate::repo::snapshot_manifests::stored_snapshot_product_metadata;
 use std::path::Path;
 
 pub(super) fn local_repo_metadata_hash_b3(repo_paths: &RepoPaths) -> Result<String> {
@@ -30,9 +30,10 @@ pub(super) fn local_snapshot_metadata_hash_b3(
     let Some(manifest) = load_local_snapshot(repo_paths, snapshot_id)? else {
         return Ok(String::new());
     };
-    Ok(remote_artifact_hash(
-        &serialize_snapshot_metadata_for_remote(&manifest)?,
-    ))
+    Ok(remote_artifact_hash(&stored_snapshot_metadata(
+        &manifest,
+        repo_paths.keys(),
+    )?))
 }
 
 pub(super) fn local_snapshot_product_metadata_hash_b3(
@@ -42,7 +43,7 @@ pub(super) fn local_snapshot_product_metadata_hash_b3(
     let Some(manifest) = load_local_snapshot(repo_paths, snapshot_id)? else {
         return Ok(String::new());
     };
-    let Some(bytes) = serialize_snapshot_product_metadata_for_remote(&manifest)? else {
+    let Some(bytes) = stored_snapshot_product_metadata(&manifest, repo_paths.keys())? else {
         return Ok(String::new());
     };
     Ok(remote_artifact_hash(&bytes))

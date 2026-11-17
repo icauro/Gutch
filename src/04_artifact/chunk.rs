@@ -1,7 +1,8 @@
 //! Content-defined chunking of files and byte slices with the selected chunker.
 
 use super::chunk_stream::ChunkBoundary;
-use super::chunk_stream::{BoundaryFinder, ChunkStream};
+use super::chunk_stream::{BoundaryFinder, ChunkStream, KeyedBoundaryFinder};
+use super::gear::GearTables;
 use crate::profiling::ProfileInstant;
 #[cfg(test)]
 use fastcdc::v2020::Chunk;
@@ -102,12 +103,20 @@ fn chunk_slice_from_cdc(chunk: Chunk, source: &[u8]) -> ChunkSlice {
     }
 }
 
+/// Chunks a file. `gear` holds an encrypted repository's keyed tables, which
+/// only the FastCDC chunker can use.
 pub(crate) fn scan_file_chunks(
     path: &Path,
     inventory_size: u64,
     profile: &ChunkSizingProfile,
+    gear: Option<&GearTables>,
     control: &OperationControl,
 ) -> Result<(ChunkFileScan, ChunkScanTimings)> {
+    if let Some(tables) = gear {
+        check_keyed_chunker(profile.chunker)?;
+        let finder = KeyedBoundaryFinder::new(profile, tables);
+        return scan_with_boundary(path, inventory_size, control, finder);
+    }
     match profile.chunker {
         Chunker::FastCdc => {
             scan_with_boundary(path, inventory_size, control, BoundaryFinder::new(profile))
@@ -134,6 +143,17 @@ pub(crate) fn scan_file_chunks(
                 super::jc::Parameters::Plakar,
             ),
         ),
+    }
+}
+
+/// Encrypted repositories chunk with keyed FastCDC; the other chunkers have
+/// no key and would reveal content through chunk sizes.
+pub(crate) fn check_keyed_chunker(chunker: Chunker) -> Result<()> {
+    match chunker {
+        Chunker::FastCdc => Ok(()),
+        _ => Err(crate::Error::invalid_input(
+            "encrypted repositories chunk with FastCDC; choose the fastcdc chunker",
+        )),
     }
 }
 

@@ -19,7 +19,10 @@ fn identity_ignores_chunk_layout_and_preserves_installation_differences() {
         path: "empty".into(),
         read_only: false,
     });
-    let id = snapshot_id_from_entries(&[SnapshotEntry::File(file.clone()), directory.clone()]);
+    let id = snapshot_id(
+        &[SnapshotEntry::File(file.clone()), directory.clone()],
+        None,
+    );
     let mut repacked = file.clone();
     repacked.chunks = vec![ChunkRef {
         chunk_hash: crate::artifact::hash::ChunkHash::parse_hex(&"a".repeat(64)).unwrap(),
@@ -27,7 +30,7 @@ fn identity_ignores_chunk_layout_and_preserves_installation_differences() {
     }];
     assert_eq!(
         id,
-        snapshot_id_from_entries(&[directory.clone(), SnapshotEntry::File(repacked)])
+        snapshot_id(&[directory.clone(), SnapshotEntry::File(repacked)], None)
     );
     for changed in [
         FileManifest {
@@ -49,7 +52,7 @@ fn identity_ignores_chunk_layout_and_preserves_installation_differences() {
     ] {
         assert_ne!(
             id,
-            snapshot_id_from_entries(&[SnapshotEntry::File(changed), directory.clone()])
+            snapshot_id(&[SnapshotEntry::File(changed), directory.clone()], None)
         );
     }
     let link = |target: &str| {
@@ -59,8 +62,8 @@ fn identity_ignores_chunk_layout_and_preserves_installation_differences() {
         })
     };
     assert_ne!(
-        snapshot_id_from_entries(&[link("one")]),
-        snapshot_id_from_entries(&[link("two")])
+        snapshot_id(&[link("one")], None),
+        snapshot_id(&[link("two")], None)
     );
     let read_only_directory = SnapshotEntry::Directory(DirectoryManifest {
         path: "empty".into(),
@@ -68,15 +71,18 @@ fn identity_ignores_chunk_layout_and_preserves_installation_differences() {
     });
     assert_ne!(
         id,
-        snapshot_id_from_entries(&[SnapshotEntry::File(file.clone()), read_only_directory])
+        snapshot_id(
+            &[SnapshotEntry::File(file.clone()), read_only_directory],
+            None
+        )
     );
     let directory_at_file_path = SnapshotEntry::Directory(DirectoryManifest {
         path: file.path.clone(),
         read_only: false,
     });
     assert_ne!(
-        snapshot_id_from_entries(&[SnapshotEntry::File(file)]),
-        snapshot_id_from_entries(&[directory_at_file_path])
+        snapshot_id(&[SnapshotEntry::File(file)], None),
+        snapshot_id(&[directory_at_file_path], None)
     );
 }
 
@@ -103,11 +109,11 @@ fn identity_encoding_is_pinned() {
         }),
     ];
     assert_eq!(
-        snapshot_id_from_entries(&[]),
+        snapshot_id(&[], None),
         "7fc0260419cc769d8b36885f26217943238a988ca6aa722179645f5548486a94"
     );
     assert_eq!(
-        snapshot_id_from_entries(&entries),
+        snapshot_id(&entries, None),
         "8368fd370c0898f5c1aacc27c9d0bce45071d66be95bd7f6df8fd57400fc7a8a"
     );
 }

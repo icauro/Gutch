@@ -29,6 +29,7 @@ use crate::artifact::bundle::BundleReader;
 use crate::artifact::hash::ChunkHash;
 use crate::artifact::loose::read_loose_chunk;
 use crate::artifact::reference::ArtifactRef;
+use crate::artifact::seal::{SealKeys, SealPurpose, StoredReader};
 use crate::filesystem::paths::ManifestPathResolver;
 use crate::installation::contracts::ReconstructTimings;
 use crate::profiling::file_trace_args;
@@ -43,6 +44,8 @@ pub(crate) struct ReconstructJobRequest<'a> {
     pub(crate) output_paths: &'a [PathBuf],
     pub(crate) output_handles: &'a OutputHandleCache,
     pub(crate) source_handles: &'a SourceHandleCache,
+    /// The repository's keys when it is encrypted.
+    pub(crate) keys: Option<&'a SealKeys>,
     pub(crate) control: &'a OperationControl,
 }
 
@@ -53,11 +56,15 @@ pub(crate) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
         output_paths,
         output_handles,
         source_handles,
+        keys,
         control,
     } = request;
     match job {
-        ReconstructJob::Artifact(job) => reconstruct_artifact_job(job, output_handles, control)
-            .map_err(|e| e.with_io_context("reading reconstruction artifact", &job.artifact_path)),
+        ReconstructJob::Artifact(job) => {
+            reconstruct_artifact_job(job, output_handles, keys, control).map_err(|e| {
+                e.with_io_context("reading reconstruction artifact", &job.artifact_path)
+            })
+        }
         ReconstructJob::SourceChunk(job) => {
             reconstruct_source_chunk_job(job, output_handles, source_handles, control)
         }
@@ -71,6 +78,7 @@ pub(crate) fn reconstruct_job(request: ReconstructJobRequest<'_>) -> Result<Reco
 fn reconstruct_artifact_job(
     job: &ReconstructArtifactJob,
     output_handles: &OutputHandleCache,
+    keys: Option<&SealKeys>,
     control: &OperationControl,
 ) -> Result<ReconstructTimings> {
     control.checkpoint()?;
@@ -89,9 +97,11 @@ fn reconstruct_artifact_job(
 
     match &job.artifact {
         ArtifactRef::Bundle { .. } => {
-            let mut reader = BundleReader::open(File::open(&job.artifact_path).map_err(|e| {
+            let file = File::open(&job.artifact_path).map_err(|e| {
                 Error::io_context("opening reconstruction artifact", &job.artifact_path, e)
-            })?)?;
+            })?;
+            let mut reader =
+                BundleReader::open(StoredReader::new(file, keys, SealPurpose::Bundle)?)?;
             let mut required = vec![false; reader.entries().len()];
             let mut required_chunks = vec![None; reader.entries().len()];
             for (index, entry) in reader.entries().iter().enumerate() {
@@ -182,6 +192,7 @@ fn reconstruct_artifact_job(
                 &job.artifact_path,
                 *hash,
                 u64::from(chunk.raw_size),
+                keys,
                 profiler,
             )?;
             timings.artifact_read = read_metrics.read

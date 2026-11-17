@@ -1,13 +1,18 @@
 //! Content-derived snapshot identity.
 
 use crate::artifact::hash::hash_hex;
+use crate::artifact::seal::SealKeys;
 use crate::manifest::SnapshotEntry;
 
 /// Hashes entries in path order, so the ID ignores input order. Paths must be
 /// unique, as manifest validation guarantees; capture already sorts entries,
-/// so that path neither allocates nor sorts again.
-pub(crate) fn snapshot_id_from_entries(entries: &[SnapshotEntry]) -> String {
-    let mut hasher = blake3::Hasher::new();
+/// so that path neither allocates nor sorts again. In an encrypted repository
+/// the ID is keyed, so it does not confirm which tree a snapshot holds.
+pub(crate) fn snapshot_id(entries: &[SnapshotEntry], keys: Option<&SealKeys>) -> String {
+    let mut hasher = match keys {
+        None => blake3::Hasher::new(),
+        Some(keys) => keys.name_hasher(),
+    };
     hasher.update(b"gutch-installation-id-v2");
     hasher.update(&(entries.len() as u64).to_le_bytes());
     if entries

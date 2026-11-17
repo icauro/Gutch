@@ -3,6 +3,7 @@
 use super::adaptive::{ADAPTIVE_SAMPLE_INTERVAL, AdaptiveTransferState, TransferObservation};
 use super::artifact_download::download_pending_artifact;
 use super::progress::FetchTransferProgress;
+use crate::artifact::seal::SealKeys;
 use crate::profiling::Arguments;
 use crate::profiling::trace_args;
 use std::cmp::Ordering;
@@ -40,6 +41,8 @@ pub(crate) struct PendingArtifactDownload {
     pub artifact_path: PathBuf,
     pub ordinal: usize,
     pub missing_artifact_count: usize,
+    /// The repository's keys when it is encrypted: the artifact is sealed.
+    pub keys: Option<Arc<SealKeys>>,
 }
 
 /// Download order for the max-heap, compared field by field: artifacts that
@@ -437,6 +440,7 @@ mod tests {
                 artifact_path: PathBuf::new(),
                 ordinal: 0,
                 missing_artifact_count: 1,
+                keys: None,
             },
             priority: ArtifactPriority {
                 ready_file_bytes,

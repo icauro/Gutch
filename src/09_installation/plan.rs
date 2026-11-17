@@ -443,6 +443,7 @@ impl<'a> PipelinePlanBuilder<'a> {
             required_artifacts,
             required_chunk_count,
             reused_chunk_count: self.reused_chunk_count,
+            sealing: self.repo_paths.sealing.clone(),
         }
     }
 }

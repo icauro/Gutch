@@ -41,7 +41,6 @@ use crate::repo::paths::chunk_path_in_root;
 use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::verify_repo;
 use crate::runtime::build_thread_pool;
-use crate::snapshot::identity::snapshot_id_from_entries;
 use crate::test_util::chunk_entries;
 use crate::test_util::index_manifest;
 use crate::test_util::loose_bytes;
@@ -74,7 +73,7 @@ fn batch_product_metadata_save_gives_snapshots_the_same_canonical_hash() {
             full_file_hash: ChunkHash::of(b""),
             chunks: Vec::new(),
         });
-        snapshot.snapshot_id = snapshot_id_from_entries(&snapshot.entries);
+        snapshot.snapshot_id = crate::snapshot::identity::snapshot_id(&snapshot.entries, None);
         write_snapshot_manifest_artifacts(
             &paths,
             &snapshot,
@@ -296,7 +295,7 @@ fn check_repo_reports_snapshots() {
         }],
     });
 
-    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = crate::snapshot::identity::snapshot_id(&manifest.entries, None);
 
     write_snapshot_manifest_artifacts(
         &repo_paths,
@@ -376,7 +375,7 @@ fn check_and_verify_report_loose_chunk_artifacts() {
             raw_size: raw_bytes.len() as u32,
         }],
     });
-    snapshot.snapshot_id = snapshot_id_from_entries(&snapshot.entries);
+    snapshot.snapshot_id = crate::snapshot::identity::snapshot_id(&snapshot.entries, None);
     write_snapshot_manifest_artifacts(
         &paths,
         &snapshot,
@@ -554,7 +553,7 @@ fn inspect_repo_shows_snapshot_tags() {
             raw_size: 100,
         }],
     });
-    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = crate::snapshot::identity::snapshot_id(&manifest.entries, None);
     write_snapshot_manifest_artifacts(
         &paths,
         &manifest,
@@ -601,7 +600,7 @@ fn snapshot_blueprint_roundtrip_preserves_hash_fields() {
         ],
     });
 
-    manifest.snapshot_id = snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = crate::snapshot::identity::snapshot_id(&manifest.entries, None);
 
     write_snapshot_manifest_artifacts(
         &paths,

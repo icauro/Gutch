@@ -33,9 +33,9 @@ use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_path;
 use crate::repo::paths::load_repo_manifest;
 use crate::repo::snapshot_manifests::load_snapshot_manifest;
-use crate::repo::snapshot_manifests::serialize_snapshot_metadata_for_remote;
-use crate::repo::snapshot_manifests::serialize_snapshot_product_metadata_for_remote;
 use crate::repo::snapshot_manifests::snapshot_blueprint_path;
+use crate::repo::snapshot_manifests::stored_snapshot_metadata;
+use crate::repo::snapshot_manifests::stored_snapshot_product_metadata;
 use crate::repo::status::repo_status;
 use crate::repo::summarize_snapshot_tags;
 use std::collections::BTreeSet;
@@ -89,7 +89,12 @@ fn collect_local_sync_snapshots(
     let mut local_snapshots = Vec::with_capacity(status.snapshots.len());
     for snapshot in &status.snapshots {
         let manifest = load_snapshot_manifest(&repo_paths, &snapshot.snapshot_id)?;
-        let summary = summarize_snapshot_tags(&manifest.snapshot_tags);
+        // An encrypted repository keeps tags inside its sealed metadata and
+        // gives the remote none.
+        let summary = match repo_paths.keys() {
+            None => summarize_snapshot_tags(&manifest.snapshot_tags),
+            Some(_) => Default::default(),
+        };
         local_snapshots.push(LocalSyncSnapshot {
             snapshot_id: manifest.snapshot_id.clone(),
             version: summary.version_tag,
@@ -310,7 +315,7 @@ impl<P: RemoteRepoWriter + ?Sized> PushContext<'_, P> {
         self.provider.upload_artifact(
             self.repository,
             RemoteArtifactTarget::SnapshotMetadata(remote_snapshot),
-            serialize_snapshot_metadata_for_remote(manifest)?,
+            stored_snapshot_metadata(manifest, self.repo_paths.keys())?,
             self.control,
         )?;
         stats.snapshot_manifest_uploaded_count += 1;
@@ -335,7 +340,7 @@ impl<P: RemoteRepoWriter + ?Sized> PushContext<'_, P> {
             "Uploading snapshot product metadata",
             Some(snapshot_id.clone()),
         );
-        if let Some(bytes) = serialize_snapshot_product_metadata_for_remote(manifest)? {
+        if let Some(bytes) = stored_snapshot_product_metadata(manifest, self.repo_paths.keys())? {
             self.provider.upload_artifact(
                 self.repository,
                 RemoteArtifactTarget::SnapshotProductMetadata(remote_snapshot),

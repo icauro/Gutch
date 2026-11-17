@@ -8,7 +8,9 @@ License: MIT; preserve LICENSE and source copyright notices when redistributing.
 
 mod.rs retains the masks and two-byte cut routine. The unchanged default Gear
 table lives in ../gear.rs, with its shifted table derived at compile time. The
-entry point uses these tables directly. Seeded tables, alternate algorithms,
+entry point uses these tables directly. Gutch adds `cut_with`, the same routine
+over given tables, for its own keyed tables (`GearTables` in ../gear.rs);
+upstream's seeded tables, alternate algorithms,
 async adapters, owned chunk iterators, and unrelated APIs are omitted. The kernel
 retains upstream boundary behavior; Gutch owns the borrowed streaming adapter in
 ../chunk_stream.rs. Gutch fixes normalization at level 1, as in its persisted chunking profile.

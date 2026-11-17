@@ -28,6 +28,7 @@ use crate::artifact::format;
 use crate::artifact::format::BUNDLE_FOOTER_MAGIC as FOOTER_MAGIC;
 use crate::artifact::format::BUNDLE_MAGIC;
 use crate::artifact::integrity::with_hash_read_buffer;
+use crate::artifact::seal::{SealKeys, SealPurpose, StoredReader, StoredWriter, stored_len};
 use crate::error::Error;
 use crate::filesystem;
 use crate::profiling::Profiler;
@@ -38,6 +39,15 @@ const BUNDLE_HEADER_SIZE: u64 = 16 + 2 + 2 + 4;
 const BUNDLE_TRAILER_SIZE: u64 = 4 + 16;
 const BUNDLE_ID_SIZE: u64 = 32;
 const BUNDLE_TABLE_ENTRY_SIZE: usize = 36;
+
+/// The hasher of bundle IDs: plain BLAKE3, or keyed in an encrypted
+/// repository so an ID does not confirm which content a bundle holds.
+pub(crate) fn bundle_id_hasher(keys: Option<&SealKeys>) -> blake3::Hasher {
+    match keys {
+        None => blake3::Hasher::new(),
+        Some(keys) => keys.name_hasher(),
+    }
+}
 
 pub(crate) fn encoded_metadata_size(chunk_count: u64) -> u64 {
     BUNDLE_HEADER_SIZE
@@ -142,18 +152,25 @@ impl BundleBuilder {
             .iter()
             .map(|chunk| (chunk.hash, chunk.raw_size))
             .collect::<Vec<_>>();
-        write_bundle_to_staging(&chunks, &self.profile, staging_root, profiler, |index| {
-            Ok(self.chunks[index].raw.as_slice())
-        })
+        write_bundle_to_staging(
+            &chunks,
+            &self.profile,
+            staging_root,
+            None,
+            profiler,
+            |index| Ok(self.chunks[index].raw.as_slice()),
+        )
     }
 }
 
 /// Encode ordered chunks without retaining the complete raw payload.
 /// The loader is called once per descriptor; each chunk is released before loading the next.
+/// With `keys`, the bundle is sealed and its ID keyed.
 pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
     chunks: &[(ChunkHash, u64)],
     profile: &CompressionProfile,
     staging_root: &Path,
+    keys: Option<&SealKeys>,
     profiler: Option<&Profiler>,
     mut load_chunk: impl FnMut(usize) -> Result<B>,
 ) -> Result<BundleBuildArtifact> {
@@ -167,7 +184,17 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
     let mut temporary = tempfile::NamedTempFile::new_in(staging_root)?;
     let capture = {
         let file = temporary.as_file_mut();
-        let capture = write_bundle(chunks, profile, file, profiler, &mut load_chunk)?;
+        let mut stored = StoredWriter::new(&mut *file, keys, SealPurpose::Bundle)?;
+        let mut capture = write_bundle(
+            chunks,
+            profile,
+            &mut stored,
+            bundle_id_hasher(keys),
+            profiler,
+            &mut load_chunk,
+        )?;
+        stored.finish()?;
+        capture.size = stored_len(keys, capture.size);
         let _flush_span = profiler.map(|profiler| {
             profiler.span_with_args(
                 "capture.bundle.flush",
@@ -192,13 +219,18 @@ pub(crate) fn write_bundle_to_staging<B: AsRef<[u8]>>(
 fn write_bundle<B: AsRef<[u8]>>(
     chunks: &[(ChunkHash, u64)],
     profile: &CompressionProfile,
-    file: &mut File,
+    output: &mut impl Write,
+    hasher: blake3::Hasher,
     profiler: Option<&Profiler>,
     load_chunk: &mut impl FnMut(usize) -> Result<B>,
 ) -> Result<BundleBuildArtifact> {
     let chunk_count = u32::try_from(chunks.len())
         .map_err(|_| Error::Artifact("bundle contains too many chunks".into()))?;
-    let mut hashing = HashingWriter::new(file);
+    let mut hashing = HashingWriter {
+        output,
+        hasher,
+        position: 0,
+    };
     hashing.write_all(BUNDLE_MAGIC)?;
     hashing.write_all(&format::VERSION.to_le_bytes())?;
     format::write_codec(&mut hashing, profile.compression)?;
@@ -245,7 +277,7 @@ fn write_bundle<B: AsRef<[u8]>>(
     let compression_time = compression_started_at
         .elapsed()
         .saturating_sub(input_load_time);
-    let payload_end = hashing.position()?;
+    let payload_end = hashing.position;
     let compressed_output_bytes = payload_end
         .checked_sub(BUNDLE_HEADER_SIZE)
         .ok_or_else(|| Error::Artifact("bundle payload position underflow".into()))?;
@@ -261,15 +293,15 @@ fn write_bundle<B: AsRef<[u8]>>(
     hashing.write_all(&footer)?;
     hashing.write_all(&format::size_u32(footer_length)?.to_le_bytes())?;
     hashing.write_all(FOOTER_MAGIC)?;
-    let bytes_without_id = hashing.position()?;
+    let bytes_without_id = hashing.position;
 
     let footer_bytes = bytes_without_id
         .checked_sub(payload_end)
         .ok_or_else(|| Error::Artifact("bundle footer position underflow".into()))?;
 
-    let HashingWriter { file, hasher } = hashing;
+    let HashingWriter { output, hasher, .. } = hashing;
     let digest = hasher.finalize();
-    file.write_all(digest.as_bytes())?;
+    output.write_all(digest.as_bytes())?;
     let bundle_id = hash::hash_hex(&digest);
     let bundle_size = bytes_without_id
         .checked_add(BUNDLE_ID_SIZE)
@@ -291,33 +323,23 @@ fn write_bundle<B: AsRef<[u8]>>(
         },
     })
 }
-struct HashingWriter<'a> {
-    file: &'a mut File,
+/// Hashes and counts the bundle bytes on their way to the output.
+struct HashingWriter<'a, W: Write> {
+    output: &'a mut W,
     hasher: blake3::Hasher,
+    position: u64,
 }
 
-impl<'a> HashingWriter<'a> {
-    fn new(file: &'a mut File) -> Self {
-        Self {
-            file,
-            hasher: blake3::Hasher::new(),
-        }
-    }
-
-    fn position(&mut self) -> Result<u64> {
-        Ok(self.file.stream_position()?)
-    }
-}
-
-impl Write for HashingWriter<'_> {
+impl<W: Write> Write for HashingWriter<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        let written = self.file.write(bytes)?;
+        let written = self.output.write(bytes)?;
         self.hasher.update(&bytes[..written]);
+        self.position += written as u64;
         Ok(written)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.file.flush()
+        self.output.flush()
     }
 }
 
@@ -488,17 +510,17 @@ impl<R: Read + Seek> BundleReader<R> {
     where
         F: FnMut(usize, &[u8]) -> Result<()>,
     {
-        self.stream_chunks(profiler, required, false, on_chunk)
+        self.stream_chunks(profiler, required, None, on_chunk)
     }
 
-    /// Streams chunks as `stream_bundle_chunks` does. With `check_identity`,
-    /// also hashes the whole bundle in the same pass and compares it with
-    /// the trailing ID.
+    /// Streams chunks as `stream_bundle_chunks` does. With an identity
+    /// hasher, also hashes the whole bundle in the same pass and compares it
+    /// with the trailing ID.
     fn stream_chunks<F>(
         &mut self,
         profiler: Option<&Profiler>,
         required: &[bool],
-        check_identity: bool,
+        identity: Option<blake3::Hasher>,
         mut on_chunk: F,
     ) -> Result<BundleReadMetrics>
     where
@@ -524,7 +546,7 @@ impl<R: Read + Seek> BundleReader<R> {
 
         let read_started_at = ProfileInstant::detailed(profiler);
 
-        let mut hasher = check_identity.then(blake3::Hasher::new);
+        let mut hasher = identity;
         if let Some(hasher) = hasher.as_mut() {
             self.reader.seek(SeekFrom::Start(0))?;
             let mut header = [0u8; BUNDLE_HEADER_SIZE as usize];
@@ -601,7 +623,13 @@ impl<R: Read + Seek> BundleReader<R> {
         self.read_chunk(index)
     }
 
-    pub(crate) fn verify_identity(&mut self, expected_id: &str) -> Result<()> {
+    /// Checks the trailing ID against `expected_id`, then every chunk and the
+    /// bundle's own hash. `keys` are the repository's when it is encrypted.
+    pub(crate) fn verify_identity(
+        &mut self,
+        expected_id: &str,
+        keys: Option<&SealKeys>,
+    ) -> Result<()> {
         let expected = ChunkHash::parse_hex(expected_id)?;
         self.reader.seek(SeekFrom::End(-(BUNDLE_ID_SIZE as i64)))?;
         if read_exact_array::<32>(&mut self.reader)?.as_slice() != expected.as_bytes() {
@@ -609,7 +637,7 @@ impl<R: Read + Seek> BundleReader<R> {
                 "bundle filename and trailing identity disagree",
             ));
         }
-        self.verify()
+        self.verify(keys)
     }
 
     /// Hashes the footer after the payload and compares the whole bundle's
@@ -635,10 +663,11 @@ impl<R: Read + Seek> BundleReader<R> {
 
     /// Decodes every chunk, checks each chunk's hash and the bundle's own
     /// content hash.
-    fn verify(&mut self) -> Result<()> {
+    fn verify(&mut self, keys: Option<&SealKeys>) -> Result<()> {
         let hashes: Vec<_> = self.entries.iter().map(|entry| entry.chunk_hash).collect();
         let required = vec![true; hashes.len()];
-        self.stream_chunks(None, &required, true, |index, bytes| {
+        let identity = Some(bundle_id_hasher(keys));
+        self.stream_chunks(None, &required, identity, |index, bytes| {
             ChunkHash::of(bytes).verify(hashes[index])
         })?;
         Ok(())
@@ -664,11 +693,14 @@ pub(crate) fn verify_bundle_identity_bytes(bundle_id: &str, bytes: &[u8]) -> Res
 
 /// Verifies complete bundle identity for a stored bundle file without
 /// loading it: the path-derived ID, the trailing ID, and the BLAKE3 of the
-/// pre-ID bytes must all match the expected manifest ID.
+/// pre-ID bytes must all match the expected manifest ID. With `keys`, the
+/// file is sealed and the ID keyed.
 pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     file: &mut R,
     bundle_id: &str,
+    keys: Option<&SealKeys>,
 ) -> Result<()> {
+    let mut file = StoredReader::new(file, keys, SealPurpose::Bundle)?;
     let expected_hash = ChunkHash::parse_hex(bundle_id)?;
     let id_size = BUNDLE_ID_SIZE as usize;
     let total_len = file.seek(SeekFrom::End(0))?;
@@ -676,7 +708,7 @@ pub(crate) fn verify_bundle_identity_reader<R: Read + Seek>(
     let content_len = total_len.checked_sub(id_size as u64).ok_or_else(|| {
         Error::Artifact(format!("bundle '{bundle_id}' is missing its content hash"))
     })?;
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = bundle_id_hasher(keys);
     let mut remaining = content_len;
     with_hash_read_buffer(|buffer| {
         while remaining > 0 {

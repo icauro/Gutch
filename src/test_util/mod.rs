@@ -185,7 +185,7 @@ pub(crate) fn chunk_entries(mut entries: BTreeMap<String, ChunkIndexEntry>) -> C
 
 pub(crate) fn loose_bytes(bytes: &[u8], profile: &CompressionProfile) -> Vec<u8> {
     let mut encoded = Vec::new();
-    write_loose_chunk(&mut encoded, ChunkHash::of(bytes), bytes, profile).unwrap();
+    write_loose_chunk(&mut encoded, ChunkHash::of(bytes), bytes, profile, None).unwrap();
     encoded
 }
 

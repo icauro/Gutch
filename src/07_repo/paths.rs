@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -9,6 +10,7 @@ use serde::Serialize;
 use crate::Error;
 use crate::Result;
 use crate::artifact::hash::ChunkHash;
+use crate::artifact::seal::SealKeys;
 use crate::filesystem;
 use crate::filesystem::write_json;
 use crate::manifest::REPO_METADATA_FILE;
@@ -35,6 +37,8 @@ pub struct RepoPaths {
     pub(crate) snapshots_root: PathBuf,
     pub(crate) bundles_root: PathBuf,
     pub(crate) chunks_root: PathBuf,
+    /// File keys of an encrypted repository; `None` stores files as they are.
+    pub(crate) sealing: Option<Arc<SealKeys>>,
 }
 
 impl RepoPaths {
@@ -61,11 +65,31 @@ impl RepoPaths {
             snapshots_root: repo_root.join("snapshots"),
             bundles_root: repo_root.join("bundles"),
             chunks_root: repo_root.join("chunks"),
+            sealing: None,
         }
+    }
+
+    /// The layout of an existing repository, unlocked if it is encrypted.
+    pub(crate) fn open(repo_root: &Path) -> Result<Self> {
+        load_repo_manifest(repo_root).map(|(paths, _)| paths)
     }
 
     pub fn repo_root(&self) -> &Path {
         &self.repo_root
+    }
+
+    /// Unlocks the layout with the keys of `manifest`, when it is encrypted.
+    pub(crate) fn unlock_for(&mut self, manifest: &RepoManifest) -> Result<()> {
+        self.sealing = match &manifest.encryption {
+            None => None,
+            Some(encryption) => Some(super::encryption::repo_keys(&self.repo_root, encryption)?),
+        };
+        Ok(())
+    }
+
+    /// The file keys, or `None` in a plain repository.
+    pub(crate) fn keys(&self) -> Option<&SealKeys> {
+        self.sealing.as_deref()
     }
 }
 
@@ -103,7 +127,7 @@ pub(crate) fn ensure_repo_layout(paths: &RepoPaths, name: &str) -> Result<RepoMa
 }
 
 pub fn load_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoManifest)> {
-    let paths = RepoPaths::from_repo_root(repo_root);
+    let mut paths = RepoPaths::from_repo_root(repo_root);
     if !paths.repo_metadata_path.exists() {
         return Err(Error::repo(format!(
             "gutch repo manifest not found at {}",
@@ -111,6 +135,7 @@ pub fn load_repo_manifest(repo_root: &Path) -> Result<(RepoPaths, RepoManifest)>
         )));
     }
     let repo_manifest = read_repo_manifest(&paths)?;
+    paths.unlock_for(&repo_manifest)?;
     Ok((paths, repo_manifest))
 }
 
@@ -204,14 +229,31 @@ pub(crate) fn bundle_path(paths: &RepoPaths, bundle_id: &str) -> Result<PathBuf>
     bundle_path_in_root(&paths.bundles_root, bundle_id)
 }
 
-/// Loose chunks are sharded by the first two hex digits of their hash.
-pub(crate) fn chunk_path_in_root(chunks_root: &Path, chunk_hash: ChunkHash) -> PathBuf {
-    let hex = chunk_hash.to_hex();
+/// Loose chunks are sharded by the first two hex digits of their file name.
+pub(crate) fn chunk_path_in_root(chunks_root: &Path, file_name: ChunkHash) -> PathBuf {
+    let hex = file_name.to_hex();
     chunks_root.join(&hex[..2]).join(hex)
 }
 
 pub(crate) fn chunk_path(paths: &RepoPaths, chunk_hash: ChunkHash) -> PathBuf {
-    chunk_path_in_root(&paths.chunks_root, chunk_hash)
+    chunk_path_in_root(
+        &paths.chunks_root,
+        loose_chunk_file_name(paths.keys(), chunk_hash),
+    )
+}
+
+/// A loose chunk's file name: its hash, or in an encrypted repository a keyed
+/// hash of it, so stored names do not reveal which content is present.
+pub(crate) fn loose_chunk_file_name(keys: Option<&SealKeys>, chunk_hash: ChunkHash) -> ChunkHash {
+    match keys {
+        None => chunk_hash,
+        Some(keys) => ChunkHash::from_blake3(
+            keys.name_hasher()
+                .update(b"loose chunk")
+                .update(chunk_hash.as_bytes())
+                .finalize(),
+        ),
+    }
 }
 
 pub(crate) fn bundle_id_from_bundle_path(path: &Path) -> Option<String> {

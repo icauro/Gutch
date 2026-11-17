@@ -15,10 +15,11 @@ use gutch::api::{
     Error, InstallationReconstructRequest, InstallationRepairRequest, InstallationVerifyRequest,
     ObjectStoreRemote, OperationControl, PullBundles, RemoteObjectStore, RemoteRepoBindRequest,
     RemoteRepoCreateRequest, RemoteRepoReader, RemoteRepoService, RemoteRepoSummary,
-    RemoteSnapshot, Repo, RepoPullRequest, RepoPushRequest, Result, SnapshotCaptureOutcome,
-    SnapshotCaptureRequest, SnapshotFileReadRequest, SnapshotTagSet, bind_remote_repo,
-    capture_snapshot, create_remote_repo, load_snapshot_manifest, pull_repo, push_repo,
-    read_snapshot_file, reconstruct_installation, repair_installation, verify_installation,
+    RemoteSnapshot, Repo, RepoCredential, RepoPullRequest, RepoPushRequest, Result,
+    SnapshotCaptureOutcome, SnapshotCaptureRequest, SnapshotFileReadRequest, SnapshotTagSet,
+    bind_remote_repo, capture_snapshot, create_remote_repo, load_snapshot_manifest, pull_repo,
+    push_repo, read_snapshot_file, reconstruct_installation, repair_installation,
+    verify_installation,
 };
 
 pub struct Remote<S> {
@@ -39,12 +40,14 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
     }
 
     /// Creates an empty local copy and the remote repository it is bound to,
-    /// then pushes the empty copy so others can pull it at once.
+    /// then pushes the empty copy so others can pull it at once. With
+    /// `encryption`, the repository is encrypted and that credential opens it.
     /// Returns the remote repository ID, `SCOPE--NAME`.
     pub fn create_repo(
         &self,
         scope: &str,
         name: &str,
+        encryption: Option<RepoCredential>,
         control: OperationControl,
     ) -> Result<String> {
         let repo_root = self.cache_dir.join(scope.trim()).join(name.trim());
@@ -54,7 +57,10 @@ impl<S: RemoteObjectStore + 'static> Remote<S> {
                 repo_root.display()
             )));
         }
-        let repo = Repo::init(&repo_root)?;
+        let repo = match encryption {
+            None => Repo::init(&repo_root)?,
+            Some(credential) => Repo::init_encrypted(&repo_root, credential)?,
+        };
         let created = create_remote_repo(
             &RemoteRepoCreateRequest {
                 repo_root: repo.root().to_path_buf(),

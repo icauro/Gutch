@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::Result;
+use crate::artifact::seal::{SealKeys, SealPurpose, open_bytes, seal_bytes};
 use crate::filesystem;
 use crate::manifest::{
     blueprint_codec,
@@ -18,7 +19,7 @@ use crate::repo::paths::load_repo_manifest;
 use crate::repo::paths::validate_path_component;
 use crate::snapshot::diff::SnapshotDiffResult;
 use crate::snapshot::diff::compare_snapshot_entries;
-use crate::snapshot::identity::snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id;
 use std::fs;
 use std::path::Path;
 use std::str::from_utf8;
@@ -91,8 +92,11 @@ pub(crate) fn snapshot_product_metadata_path(
 
 pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<SnapshotManifest> {
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
-    let metadata_json = filesystem::read_to_string(&metadata_path)?;
-    let manifest = load_snapshot_metadata_from_json_text(snapshot_id, &metadata_json)?;
+    let manifest = snapshot_manifest_from_download(
+        snapshot_id,
+        filesystem::read(&metadata_path)?,
+        paths.keys(),
+    )?;
     let blueprint_path = snapshot_blueprint_path(paths, snapshot_id)?;
     if !blueprint_path.is_file() {
         return Err(crate::Error::repo(format!(
@@ -102,18 +106,21 @@ pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<Sn
     }
     let product_metadata = load_snapshot_product_metadata(paths, snapshot_id)?;
     let blueprint = crate::artifact::metadata::read_file(&blueprint_path)?;
-    snapshot_manifest_from_parts(manifest, product_metadata, &blueprint)
+    snapshot_manifest_from_parts(manifest, product_metadata, blueprint, paths.keys())
 }
 
 /// Completes snapshot metadata with its product metadata and blueprint, then
 /// checks the snapshot's identity and every launch configuration it carries.
+/// The blueprint is as stored; `keys` are the repository's when it is
+/// encrypted.
 pub(crate) fn snapshot_manifest_from_parts(
     mut metadata: SnapshotManifest,
     product_metadata: Option<SnapshotProductMetadata>,
-    blueprint: &[u8],
+    blueprint: Vec<u8>,
+    keys: Option<&SealKeys>,
 ) -> Result<SnapshotManifest> {
-    metadata.entries = blueprint_codec::read_snapshot_blueprint_bytes(blueprint)?;
-    validate_snapshot_identity(&metadata)?;
+    metadata.entries = blueprint_codec::read_stored_snapshot_blueprint(blueprint, keys)?;
+    validate_snapshot_identity(&metadata, keys)?;
     metadata.total_logical_size = metadata.files().map(|file| file.size).sum();
     metadata.product_metadata = product_metadata;
     metadata.sync_launch_from_product_metadata();
@@ -123,8 +130,8 @@ pub(crate) fn snapshot_manifest_from_parts(
     Ok(metadata)
 }
 
-fn validate_snapshot_identity(manifest: &SnapshotManifest) -> Result<()> {
-    let actual_id = snapshot_id_from_entries(&manifest.entries);
+fn validate_snapshot_identity(manifest: &SnapshotManifest, keys: Option<&SealKeys>) -> Result<()> {
+    let actual_id = snapshot_id(&manifest.entries, keys);
     if actual_id != manifest.snapshot_id {
         return Err(crate::Error::SnapshotIntegrityMismatch {
             snapshot_id: manifest.snapshot_id.clone(),
@@ -137,6 +144,39 @@ pub(crate) fn serialize_snapshot_metadata_for_remote(
     snapshot_manifest: &SnapshotManifest,
 ) -> Result<Vec<u8>> {
     serde_json::to_vec_pretty(&snapshot_manifest.metadata()).map_err(Into::into)
+}
+
+/// The snapshot metadata as stored, sealed in an encrypted repository.
+pub(crate) fn stored_snapshot_metadata(
+    snapshot_manifest: &SnapshotManifest,
+    keys: Option<&SealKeys>,
+) -> Result<Vec<u8>> {
+    seal_bytes(
+        keys,
+        SealPurpose::SnapshotMetadata,
+        serialize_snapshot_metadata_for_remote(snapshot_manifest)?,
+    )
+}
+
+/// The product metadata as stored, sealed in an encrypted repository.
+pub(crate) fn stored_snapshot_product_metadata(
+    snapshot_manifest: &SnapshotManifest,
+    keys: Option<&SealKeys>,
+) -> Result<Option<Vec<u8>>> {
+    serialize_snapshot_product_metadata_for_remote(snapshot_manifest)?
+        .map(|bytes| seal_bytes(keys, SealPurpose::SnapshotProductMetadata, bytes))
+        .transpose()
+}
+
+/// Decodes product metadata bytes as stored in the repository.
+pub(crate) fn load_stored_snapshot_product_metadata(
+    stored: Vec<u8>,
+    keys: Option<&SealKeys>,
+) -> Result<SnapshotProductMetadata> {
+    SnapshotProductMetadata::from_json_bytes(
+        SNAPSHOT_PRODUCT_METADATA_FILE,
+        &open_bytes(keys, SealPurpose::SnapshotProductMetadata, stored)?,
+    )
 }
 
 pub(crate) fn serialize_snapshot_product_metadata_for_remote(
@@ -162,10 +202,7 @@ pub(crate) fn load_snapshot_product_metadata(
     if !metadata_path.is_file() {
         return Ok(None);
     }
-    Ok(Some(SnapshotProductMetadata::from_json_bytes(
-        SNAPSHOT_PRODUCT_METADATA_FILE,
-        &filesystem::read(&metadata_path)?,
-    )?))
+    load_stored_snapshot_product_metadata(filesystem::read(&metadata_path)?, paths.keys()).map(Some)
 }
 
 pub(crate) fn write_snapshot_product_metadata(
@@ -177,7 +214,11 @@ pub(crate) fn write_snapshot_product_metadata(
     if let Some(metadata) = metadata {
         metadata.validate_structure()?;
         filesystem::create_dir_all(&paths.snapshots_root.join(snapshot_id))?;
-        let bytes = serde_json::to_vec_pretty(metadata)?;
+        let bytes = seal_bytes(
+            paths.keys(),
+            SealPurpose::SnapshotProductMetadata,
+            serde_json::to_vec_pretty(metadata)?,
+        )?;
         filesystem::write(&metadata_path, &bytes)?;
         let size = fs::metadata(&metadata_path)?.len();
         return Ok(Some((metadata_path, size)));
@@ -200,7 +241,7 @@ pub fn set_snapshot_product_metadata(
                 "at least one snapshot id is required to save product metadata",
             ));
         }
-        let paths = RepoPaths::from_repo_root(repo_root);
+        let paths = RepoPaths::open(repo_root)?;
         let mut manifests = Vec::with_capacity(snapshot_ids.len());
         for snapshot_id in snapshot_ids {
             let mut snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
@@ -231,7 +272,7 @@ pub fn check_snapshot_product_metadata(
     if let Some(metadata) = product_metadata {
         metadata.validate_structure()?;
     }
-    let paths = RepoPaths::from_repo_root(repo_root);
+    let paths = RepoPaths::open(repo_root)?;
     for snapshot_id in snapshot_ids {
         let snapshot_manifest = load_snapshot_manifest(&paths, snapshot_id)?;
         if let Some(metadata) = product_metadata {
@@ -271,18 +312,26 @@ pub(crate) fn write_snapshot_manifest_artifacts(
     metadata.snapshot_tags = metadata.snapshot_tags.normalized()?;
     metadata.sync_product_metadata_from_launch();
     let product_metadata = metadata.product_metadata.clone();
-    let metadata_json = serde_json::to_vec_pretty(&metadata.metadata())?;
+    let keys = paths.keys();
+    let metadata_json = seal_bytes(
+        keys,
+        SealPurpose::SnapshotMetadata,
+        serde_json::to_vec_pretty(&metadata.metadata())?,
+    )?;
     filesystem::write(&staging_path.join(SNAPSHOT_METADATA_FILE), &metadata_json)?;
     if let Some(product_metadata) = product_metadata.as_ref() {
         product_metadata.validate_structure()?;
-        filesystem::write(
-            &staging_path.join(SNAPSHOT_PRODUCT_METADATA_FILE),
-            &serde_json::to_vec_pretty(product_metadata)?,
+        let bytes = seal_bytes(
+            keys,
+            SealPurpose::SnapshotProductMetadata,
+            serde_json::to_vec_pretty(product_metadata)?,
         )?;
+        filesystem::write(&staging_path.join(SNAPSHOT_PRODUCT_METADATA_FILE), &bytes)?;
     }
     blueprint_codec::write_snapshot_blueprint_binary(
         &staging_path.join(SNAPSHOT_BLUEPRINT_FILE),
         &snapshot_manifest.blueprint(),
+        keys,
     )?;
     let staging_path = staging_dir.keep();
     let snapshot_dir = paths.snapshots_root.join(snapshot_id);
@@ -303,11 +352,14 @@ pub(crate) fn load_snapshot_metadata_from_json_text(
     Ok(SnapshotManifest::from_metadata(metadata))
 }
 
+/// Decodes snapshot metadata bytes as stored in the repository.
 pub(crate) fn snapshot_manifest_from_download(
     snapshot_id: &str,
-    manifest_bytes: &[u8],
+    stored: Vec<u8>,
+    keys: Option<&SealKeys>,
 ) -> Result<SnapshotManifest> {
-    let metadata_json = from_utf8(manifest_bytes).map_err(|err| {
+    let manifest_bytes = open_bytes(keys, SealPurpose::SnapshotMetadata, stored)?;
+    let metadata_json = from_utf8(&manifest_bytes).map_err(|err| {
         crate::Error::repo(format!("snapshot metadata is not valid UTF-8: {}", err))
     })?;
     crate::repo::snapshot_manifests::load_snapshot_metadata_from_json_text(
@@ -325,17 +377,18 @@ mod tests {
     fn rejects_blueprints_with_a_different_snapshot_id() {
         let root = tempfile::tempdir().unwrap();
         let manifest = SnapshotManifest::new(
-            crate::snapshot::identity::snapshot_id_from_entries(&[]),
+            crate::snapshot::identity::snapshot_id(&[], None),
             Default::default(),
         );
         let path = root.path().join("blueprint");
-        blueprint_codec::write_snapshot_blueprint_binary(&path, &manifest.blueprint()).unwrap();
+        blueprint_codec::write_snapshot_blueprint_binary(&path, &manifest.blueprint(), None)
+            .unwrap();
         let bytes = std::fs::read(path).unwrap();
-        assert!(snapshot_manifest_from_parts(manifest.clone(), None, &bytes).is_ok());
+        assert!(snapshot_manifest_from_parts(manifest.clone(), None, bytes.clone(), None).is_ok());
         let mut incorrect = manifest;
         incorrect.snapshot_id = "a".repeat(64);
         assert!(matches!(
-            snapshot_manifest_from_parts(incorrect, None, &bytes).unwrap_err(),
+            snapshot_manifest_from_parts(incorrect, None, bytes, None).unwrap_err(),
             crate::Error::SnapshotIntegrityMismatch { snapshot_id } if snapshot_id == "a".repeat(64)
         ));
     }

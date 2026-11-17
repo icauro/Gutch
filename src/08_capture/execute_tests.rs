@@ -26,7 +26,7 @@ use crate::repo::snapshots::replace_snapshot_tags;
 use crate::repo::verify::RepoVerifyMode;
 use crate::repo::verify::verify_repo;
 use crate::runtime::RuntimeResourceHints;
-use crate::snapshot::identity::snapshot_id_from_entries;
+use crate::snapshot::identity::snapshot_id;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
@@ -67,7 +67,7 @@ fn plan_capture_snapshot_keeps_tagless_snapshots_distinct() {
         .cloned()
         .map(Into::into)
         .collect::<Vec<_>>();
-    let old_snapshot_id = snapshot_id_from_entries(&old_entries);
+    let old_snapshot_id = snapshot_id(&old_entries, None);
     let mut old_manifest =
         SnapshotManifest::new(old_snapshot_id.clone(), manifest::SnapshotTagSet::default());
     old_manifest.source_modified_at = format_system_time_utc(

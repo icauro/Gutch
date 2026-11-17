@@ -19,7 +19,7 @@ fn save_test_snapshot(paths: &RepoPaths, path: &str, bytes: &[u8]) -> SnapshotMa
             }]
         },
     });
-    manifest.snapshot_id = crate::snapshot::identity::snapshot_id_from_entries(&manifest.entries);
+    manifest.snapshot_id = crate::snapshot::identity::snapshot_id(&manifest.entries, None);
     crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts(
         paths,
         &manifest,
@@ -152,8 +152,8 @@ fn structural_verification_does_not_claim_content_addressed_identity() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("bundle");
     std::fs::write(&path, encoded).unwrap();
-    verify_bundle_file(&path, &bundle_id, RepoVerifyMode::Strict).unwrap();
+    verify_bundle_file(&path, &bundle_id, RepoVerifyMode::Strict, None).unwrap();
     let incorrect_id = "0".repeat(64);
-    verify_bundle_file(&path, &incorrect_id, RepoVerifyMode::Fast).unwrap();
-    assert!(verify_bundle_file(&path, &incorrect_id, RepoVerifyMode::Strict).is_err());
+    verify_bundle_file(&path, &incorrect_id, RepoVerifyMode::Fast, None).unwrap();
+    assert!(verify_bundle_file(&path, &incorrect_id, RepoVerifyMode::Strict, None).is_err());
 }

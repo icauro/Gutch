@@ -17,9 +17,6 @@ pub fn load_repo_manifest(repo_root: &Path) -> Result<RepoManifest> {
 /// Load a coherent snapshot metadata/blueprint pair under reader protection.
 pub fn load_snapshot_manifest(repo_root: &Path, snapshot_id: &str) -> Result<SnapshotManifest> {
     coordination::read(repo_root, || {
-        snapshot_manifests::load_snapshot_manifest(
-            &RepoPaths::from_repo_root(repo_root),
-            snapshot_id,
-        )
+        snapshot_manifests::load_snapshot_manifest(&RepoPaths::open(repo_root)?, snapshot_id)
     })
 }

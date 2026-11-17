@@ -64,6 +64,16 @@ R2 needs only an API token:
 If the token may not list accounts, paste the account ID from the R2 overview
 page. Buckets in the EU or FedRAMP jurisdiction need the matching jurisdiction.
 
+## Encrypted repositories
+
+Type a password under **Repository password** and tick **Encrypt with the
+password** before creating a repository; its files, names and tags then reach
+the bucket encrypted. The same password opens it on every machine. The app
+keeps the password in memory only; `GUTCH_REPO_PASSWORD` fills it in at start.
+A lost password cannot be recovered. See
+[Encryption](../../_docs/05_managing_repositories.md#encryption) for what stays
+visible.
+
 ## Settings and cache
 
 The app remembers the connection fields, the cache folder, the tags and the

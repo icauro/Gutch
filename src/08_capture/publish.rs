@@ -16,7 +16,7 @@ use crate::repo::artifacts::required_artifacts;
 use crate::repo::index::write_chunk_index;
 use crate::repo::paths::RepoPaths;
 use crate::repo::paths::bundle_path_in_root;
-use crate::repo::paths::chunk_path_in_root;
+use crate::repo::paths::chunk_path;
 use crate::repo::snapshot_manifests::write_snapshot_manifest_artifacts;
 use rayon::prelude::*;
 use std::path::Path;
@@ -78,7 +78,7 @@ fn ensure_durable<'a>(
 }
 
 fn write_loose_chunks(
-    chunks_root: &Path,
+    repo_paths: &RepoPaths,
     chunks: &[BuiltLooseChunk],
     pool: &rayon::ThreadPool,
     control: &OperationControl,
@@ -94,7 +94,7 @@ fn write_loose_chunks(
     ensure_durable(chunks.iter().map(|chunk| &chunk.staged_file), pool, control)?;
     for chunk in chunks {
         control.checkpoint()?;
-        let chunk_path = chunk_path_in_root(chunks_root, chunk.chunk_hash);
+        let chunk_path = chunk_path(repo_paths, chunk.chunk_hash);
         if let Some(parent) = chunk_path.parent() {
             filesystem::create_dir_all(parent)?;
         }
@@ -143,12 +143,7 @@ pub(super) fn publish_snapshot_artifacts(
         build_pool,
         control,
     )?;
-    write_loose_chunks(
-        &repo_paths.chunks_root,
-        &result.loose_chunks,
-        build_pool,
-        control,
-    )?;
+    write_loose_chunks(repo_paths, &result.loose_chunks, build_pool, control)?;
     drop(_artifact_write_span);
     let _index_span = control.profile_span("capture.publish_snapshot.update_chunk_index");
     {

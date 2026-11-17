@@ -57,7 +57,7 @@ fn empty_lz4_bundle() {
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data).unwrap();
     assert_eq!(reader.chunk_count(), 0);
-    reader.verify().unwrap();
+    reader.verify(None).unwrap();
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn verify_bundle() {
 
     let bundle_data = builder.build().unwrap();
     let mut reader = read_bundle(&bundle_data).unwrap();
-    reader.verify().unwrap();
+    reader.verify(None).unwrap();
 }
 
 #[test]
@@ -286,7 +286,7 @@ fn bundle_identity_accepts_intact_file_and_bytes() {
     let (bundle_id, bundle_data) = test_bundle_with_id();
     verify_bundle_identity_bytes(&bundle_id, &bundle_data).unwrap();
     let path = write_named_bundle(temp.path(), &bundle_id, &bundle_data);
-    verify_bundle_identity_file(&path, &bundle_id).unwrap();
+    verify_bundle_identity_file(&path, &bundle_id, None).unwrap();
 }
 
 #[test]
@@ -328,16 +328,16 @@ fn invalid_download_is_not_promoted_over_a_valid_cached_bundle() {
     corrupt[0] ^= 0xff;
     let result = write_atomic_with(&path, |file| {
         file.write_all(&corrupt)?;
-        verify_bundle_identity_reader(file, &bundle_id)
+        verify_bundle_identity_reader(file, &bundle_id, None)
     });
     assert!(matches!(result, Err(crate::Error::HashMismatch { .. })));
     assert_eq!(fs::read(&path).unwrap(), bundle_data);
     write_atomic_with(&path, |file| {
         file.write_all(&bundle_data)?;
-        verify_bundle_identity_reader(file, &bundle_id)
+        verify_bundle_identity_reader(file, &bundle_id, None)
     })
     .unwrap();
-    verify_bundle_identity_file(&path, &bundle_id).unwrap();
+    verify_bundle_identity_file(&path, &bundle_id, None).unwrap();
     assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
 }
 
@@ -349,10 +349,10 @@ fn bundle_identity_rejects_corrupt_filename() {
     let other_id = "0".repeat(64);
     assert_ne!(other_id, bundle_id);
     let path = write_named_bundle(temp.path(), &other_id, &bundle_data);
-    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+    assert!(verify_bundle_identity_file(&path, &bundle_id, None).is_err());
     // A non-hex filename is rejected before any hashing.
     let path = write_named_bundle(temp.path(), "not-a-bundle-id", &bundle_data);
-    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+    assert!(verify_bundle_identity_file(&path, &bundle_id, None).is_err());
 }
 
 #[test]
@@ -368,7 +368,7 @@ fn bundle_identity_rejects_corrupt_trailing_id() {
 
     let temp = tempfile::tempdir().unwrap();
     let path = write_named_bundle(temp.path(), &bundle_id, &bundle_data);
-    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+    assert!(verify_bundle_identity_file(&path, &bundle_id, None).is_err());
 }
 
 #[test]
@@ -389,7 +389,7 @@ fn bundle_identity_rejects_corrupt_framing_and_payload() {
 
     let temp = tempfile::tempdir().unwrap();
     let path = write_named_bundle(temp.path(), &bundle_id, &payload);
-    assert!(verify_bundle_identity_file(&path, &bundle_id).is_err());
+    assert!(verify_bundle_identity_file(&path, &bundle_id, None).is_err());
 }
 
 #[test]
@@ -457,8 +457,13 @@ fn streamed_bundle_releases_each_loaded_chunk_before_requesting_the_next() {
         let directory = tempfile::tempdir().unwrap();
         let live = Arc::new(AtomicUsize::new(0));
         let mut next_index = 0;
-        let artifact =
-            write_bundle_to_staging(&descriptors, &profile, directory.path(), None, |index| {
+        let artifact = write_bundle_to_staging(
+            &descriptors,
+            &profile,
+            directory.path(),
+            None,
+            None,
+            |index| {
                 assert_eq!(index, next_index);
                 next_index += 1;
                 assert_eq!(
@@ -470,8 +475,9 @@ fn streamed_bundle_releases_each_loaded_chunk_before_requesting_the_next() {
                     bytes: inputs[index].clone(),
                     live: live.clone(),
                 })
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         assert_eq!(next_index, inputs.len());
         assert_eq!(live.load(Ordering::SeqCst), 0);
         let encoded = fs::read(&artifact.staged_path).unwrap();
@@ -499,8 +505,13 @@ fn streamed_bundle_discards_partial_staging_on_loader_failure_or_wrong_length() 
         // Exercise failure after an earlier chunk has already entered the codec.
         for wrong_length in [None, Some(0), Some(5), Some(7)] {
             let directory = tempfile::tempdir().unwrap();
-            let result =
-                write_bundle_to_staging(&descriptors, &profile, directory.path(), None, |index| {
+            let result = write_bundle_to_staging(
+                &descriptors,
+                &profile,
+                directory.path(),
+                None,
+                None,
+                |index| {
                     if index == 0 {
                         return Ok(first.clone());
                     }
@@ -508,7 +519,8 @@ fn streamed_bundle_discards_partial_staging_on_loader_failure_or_wrong_length() 
                         Some(size) => Ok(vec![0; size]),
                         None => Err(crate::Error::artifact("injected source read failure")),
                     }
-                });
+                },
+            );
             assert!(result.is_err(), "{codec:?} {wrong_length:?}");
             assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
         }
@@ -525,11 +537,17 @@ fn streamed_bundle_validates_descriptors_before_loading_payloads() {
     ] {
         let directory = tempfile::tempdir().unwrap();
         let mut loaded = false;
-        let result =
-            write_bundle_to_staging(&descriptors, &profile(), directory.path(), None, |_| {
+        let result = write_bundle_to_staging(
+            &descriptors,
+            &profile(),
+            directory.path(),
+            None,
+            None,
+            |_| {
                 loaded = true;
                 Ok(Vec::<u8>::new())
-            });
+            },
+        );
         assert!(result.is_err());
         assert!(!loaded);
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
@@ -551,7 +569,7 @@ fn only_verification_checks_the_trailing_bundle_id() {
             Ok(())
         })
         .unwrap();
-    assert!(reader.verify().is_err());
+    assert!(reader.verify(None).is_err());
 }
 
 #[test]

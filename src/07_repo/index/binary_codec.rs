@@ -18,6 +18,7 @@ use crate::artifact::format::MAX_RAW_CHUNK_SIZE;
 use crate::artifact::metadata;
 use crate::artifact::metadata::read_file;
 use crate::artifact::profiles::ArtifactStorageMode;
+use crate::artifact::seal::{SealKeys, SealPurpose, open_bytes, seal_bytes};
 use crate::filesystem::write_atomic_with;
 use crate::repo::index::ChunkIndex;
 use crate::repo::index::ChunkIndexEntries;
@@ -27,8 +28,18 @@ use std::sync::Arc;
 
 const LOOSE_CHUNK_ARTIFACT_ROW: u32 = u32::MAX;
 
-pub(crate) fn load_chunk_index_binary(path: &Path) -> Result<ChunkIndex> {
-    load_chunk_index_binary_from_bytes(&read_file(path)?)
+/// Loads a stored chunk index. `keys` are the repository's when it is
+/// encrypted.
+pub(crate) fn load_chunk_index_binary(path: &Path, keys: Option<&SealKeys>) -> Result<ChunkIndex> {
+    load_stored_chunk_index(read_file(path)?, keys)
+}
+
+/// Decodes chunk index bytes as stored in the repository.
+pub(crate) fn load_stored_chunk_index(
+    stored: Vec<u8>,
+    keys: Option<&SealKeys>,
+) -> Result<ChunkIndex> {
+    load_chunk_index_binary_from_bytes(&open_bytes(keys, SealPurpose::ChunkIndex, stored)?)
 }
 
 fn decode_artifact_table(bytes: &[u8]) -> Result<Vec<Arc<super::records::IndexedArtifact>>> {
@@ -138,7 +149,11 @@ pub(crate) fn load_chunk_index_binary_from_bytes(bytes: &[u8]) -> Result<ChunkIn
     read_chunk_index_binary(&metadata::decode(bytes, CHUNK_INDEX_BINARY_MAGIC, 2)?)
 }
 
-pub(crate) fn write_chunk_index_binary(path: &Path, index: &ChunkIndex) -> Result<()> {
+pub(crate) fn write_chunk_index_binary(
+    path: &Path,
+    index: &ChunkIndex,
+    keys: Option<&SealKeys>,
+) -> Result<()> {
     let mut artifacts = BTreeMap::new();
     for (hash, entry) in &index.entries {
         if entry.raw_size == 0
@@ -217,6 +232,7 @@ pub(crate) fn write_chunk_index_binary(path: &Path, index: &ChunkIndex) -> Resul
     let bytes = metadata::encode(CHUNK_INDEX_BINARY_MAGIC, &[artifact_group, chunk_group])?;
     // Apply exactly the reader's invariants before publishing writer input.
     load_chunk_index_binary_from_bytes(&bytes)?;
+    let bytes = seal_bytes(keys, SealPurpose::ChunkIndex, bytes)?;
     write_atomic_with(path, |file| {
         file.write_all(&bytes)?;
         Ok(())

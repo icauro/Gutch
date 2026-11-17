@@ -80,7 +80,7 @@ fn mixed_storage_roundtrip_is_deterministic_and_shares_artifacts() {
         .into_iter()
         .collect(),
     };
-    write_chunk_index_binary(&path, &index).unwrap();
+    write_chunk_index_binary(&path, &index, None).unwrap();
     let first = std::fs::read(&path).unwrap();
     let groups = crate::artifact::metadata::decode(&first, CHUNK_INDEX_BINARY_MAGIC, 2).unwrap();
     for group in 0..groups.len() {
@@ -135,7 +135,7 @@ fn mixed_storage_roundtrip_is_deterministic_and_shares_artifacts() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("unique and sorted"));
-    let restored = load_chunk_index_binary(&path).unwrap();
+    let restored = load_chunk_index_binary(&path, None).unwrap();
     assert_eq!(restored.entries.len(), 3);
     let entries: Vec<_> = restored.entries.values().collect();
     assert!(std::sync::Arc::ptr_eq(
@@ -146,10 +146,10 @@ fn mixed_storage_roundtrip_is_deterministic_and_shares_artifacts() {
         entries[2].storage_mode,
         crate::artifact::profiles::ArtifactStorageMode::LooseChunks
     );
-    write_chunk_index_binary(&path, &restored).unwrap();
+    write_chunk_index_binary(&path, &restored, None).unwrap();
     assert_eq!(first, std::fs::read(&path).unwrap());
     index.entries.values_mut().last().unwrap().chunk_ordinal = 1;
-    assert!(write_chunk_index_binary(&path, &index).is_err());
+    assert!(write_chunk_index_binary(&path, &index, None).is_err());
     assert_eq!(first, std::fs::read(&path).unwrap());
 }
 
@@ -173,19 +173,19 @@ fn writer_rejects_conflicting_sizes_and_noncanonical_artifact_ids_before_publica
             })
             .collect(),
     };
-    write_chunk_index_binary(&path, &index).unwrap();
+    write_chunk_index_binary(&path, &index, None).unwrap();
     let original = std::fs::read(&path).unwrap();
     let mut inconsistent = index.clone();
     let last = inconsistent.entries.values_mut().last().unwrap();
     std::sync::Arc::make_mut(&mut last.artifact).artifact_size += 1;
-    assert!(write_chunk_index_binary(&path, &inconsistent).is_err());
+    assert!(write_chunk_index_binary(&path, &inconsistent, None).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), original);
 
     for invalid_id in ["AB".repeat(32), "xx".repeat(32), "ab".repeat(31)] {
         let mut invalid = index.clone();
         let last = invalid.entries.values_mut().last().unwrap();
         std::sync::Arc::make_mut(&mut last.artifact).bundle_id = invalid_id.into();
-        assert!(write_chunk_index_binary(&path, &invalid).is_err());
+        assert!(write_chunk_index_binary(&path, &invalid, None).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), original);
     }
 }
