@@ -1,15 +1,20 @@
 # Gutch
 
-Gutch keeps every version of a program, game or other folder of files in one
-place, and installs any of them as an exact copy that it checks file by file.
-Content that versions share is stored once, so keeping many versions costs
-little more than keeping one, and updating an installation reuses what is
-already on disk.
+Gutch is a Rust library and command-line tool that stores folder trees and
+installs them again as exact copies. When you capture a folder, Gutch cuts
+each file into chunks at points chosen by the content itself, names every
+chunk by its BLAKE3 hash, compresses it and packs it into larger bundle
+files. A chunk that is already in the store is not stored again, so a new
+version of a program costs only the bytes that actually changed. When you
+install, Gutch rebuilds the tree from those chunks in a staging folder,
+checks every file against its hash, and only then moves it into place.
 
-You capture a folder into a *repository*, the store. Each capture becomes a
-*snapshot* with a long ID and labels such as `version=1.0.0`. You can then
-install a snapshot anywhere, check that an installation is intact, and repair
-it:
+In everyday terms, it keeps every version of a program, game or other set of
+files in one place, and can put any of them on a disk quickly and correctly.
+You capture a folder into a *repository*, which is the store. Each capture
+becomes a *snapshot* with a long ID and labels such as `version=1.0.0`. You
+can then install a snapshot anywhere, check that an installation is still
+intact, and repair it:
 
 ```sh
 gutch-cli repo init --repo store
@@ -18,48 +23,45 @@ gutch-cli installation reconstruct --repo store --snapshot ID --destination app
 gutch-cli installation verify --repo store --snapshot ID --destination app
 ```
 
-Gutch can:
-
-- capture folders into snapshots, with tags such as versions and platforms;
-- install a snapshot safely: the old installation stays in place until the
-  new one is complete and checked;
-- verify an installation and repair only what is missing or damaged;
-- download a snapshot and install it at the same time;
-- encrypt a repository's content, names and tags with a password or key file;
-- enforce filename rules so every snapshot installs on chosen filesystems;
-- synchronize repositories with a server provided by a host application.
+Repair rewrites only the files that are missing or damaged. Gutch can also
+download a snapshot and install it at the same time, encrypt a repository
+with a password or key file, refuse file names that would not work on the
+systems you target, and sync repositories with a server that your own
+application provides.
 
 ## What it is for
 
-Gutch is tuned for one job: capturing large folder trees and installing them
-again, fast, many times over. That job sits at the heart of:
+Gutch is built for programs that install the same large folders over and
+over: app stores and game launchers, package managers that keep many
+versions side by side, asset servers that hand out big sets of files that
+change a little at a time, and build archives or test labs that need to bring
+back any old build exactly. It is not a backup tool. It does not keep file
+owners, timestamps or extended attributes, because an installed copy does not
+need them.
 
-- **app stores and launchers** that install and update programs and games;
-- **package managers** that keep many versions side by side;
-- **asset servers** that hand out large, slowly changing content sets;
-- **build archives and test labs** that must reinstall any old build exactly.
+## How it is designed
 
-It is not a backup tool: it does not keep ownership, timestamps or extended
-attributes, because an installed copy does not need them.
+A snapshot is usually captured once and installed many times, so installing
+gets the most attention. Capture is fast and runs in parallel too, but when
+the two pull in different directions, installing wins.
 
-## Principles
+Gutch tries never to move or write the same bytes twice. Versions share
+chunks in the store, and an update can reuse the files already on disk, so
+only the differences are downloaded and written.
 
-- **Install speed comes first.** A snapshot is captured once and installed
-  many times, so the install path gets the most care; capture is parallel
-  and fast too.
-- **Store once, move only what changed.** Content is split into chunks that
-  every version shares. Updates download and write only what differs and
-  reuse what is already on disk.
-- **The same content gets the same ID.** A snapshot's ID is computed from
-  its content: capturing the same tree again changes nothing, and every
-  install is checked against it.
-- **Never leave a half-finished install.** Gutch builds and checks the new
-  tree beside the old one and swaps it in only when it is complete.
-- **Optional features cost nothing when off.** Encryption, loose chunk
-  storage and profiling add no work to the default path.
-- **A library first.** `gutch-cli` is a thin layer over a Rust library. The
-  application that embeds Gutch owns its server, its accounts and who may
-  access what.
+A snapshot's ID comes from its content. Capturing the same tree again changes
+nothing, and every installation can be checked against that ID.
+
+An installation is never left half finished. The new copy is built and
+checked next to the old one, and the old one stays in place until the swap.
+
+Features you do not use cost nothing. Encryption, storing chunks as loose
+files, and profiling are all off by default and add no work when they are
+off.
+
+Gutch is a library first. `gutch-cli` is a thin layer on top of it, and an
+application that embeds Gutch keeps control of its own server, accounts and
+access rules.
 
 ## Documentation
 
