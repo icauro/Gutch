@@ -10,6 +10,7 @@ use crate::cli::arguments::ReconstructArgs;
 use crate::cli::arguments::RuntimeArgs;
 use crate::cli::command_support::InstallationVerifyStats;
 use crate::cli::command_support::SnapshotReconstructStats;
+use crate::cli::command_support::local_snapshot_id;
 use crate::cli::command_support::prompt_yes_no;
 use crate::cli::command_support::{InstallationCorruptStats, InstallationRepairStats};
 use crate::cli::control_with_profile;
@@ -208,14 +209,24 @@ pub(crate) fn run_installation(
 ) -> crate::Result<()> {
     match command {
         InstallationCommands::Reconstruct(arguments) => reconstruct_from_args(*arguments, profile),
-        InstallationCommands::Preview(arguments) => preview(arguments, profile),
+        InstallationCommands::Preview(mut arguments) => {
+            arguments.snapshot_id = local_snapshot_id(&arguments.repo, &arguments.snapshot_id)?;
+            arguments.source_snapshot = arguments
+                .source_snapshot
+                .map(|id| local_snapshot_id(&arguments.repo, &id))
+                .transpose()?;
+            preview(arguments, profile)
+        }
         InstallationCommands::Verify {
             repo,
             snapshot_id,
             destination,
             strict,
             runtime,
-        } => verify(repo, snapshot_id, destination, strict, runtime, profile),
+        } => {
+            let snapshot_id = local_snapshot_id(&repo, &snapshot_id)?;
+            verify(repo, snapshot_id, destination, strict, runtime, profile)
+        }
         InstallationCommands::Repair {
             repo,
             snapshot_id,
@@ -226,8 +237,8 @@ pub(crate) fn run_installation(
             confirm,
         } => repair(
             RepairCommand {
+                snapshot_id: local_snapshot_id(&repo, &snapshot_id)?,
                 repo,
-                snapshot_id,
                 destination,
                 staging_dir,
                 remove_extra_files,
@@ -256,11 +267,14 @@ fn reconstruct_from_args(arguments: ReconstructArgs, profile: &Profile) -> crate
         sources,
         transfer,
     } = arguments;
+    let reuse_snapshot_id = reuse_snapshot_id
+        .map(|id| local_snapshot_id(&repo, &id))
+        .transpose()?;
     if !fetch {
         return reconstruct(
             ReconstructCommand {
+                snapshot_id: local_snapshot_id(&repo, &snapshot_id)?,
                 repo,
-                snapshot_id,
                 destination,
                 staging_dir,
                 reuse_snapshot_id,

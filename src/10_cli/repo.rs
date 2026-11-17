@@ -9,6 +9,7 @@ use crate::cli::SECTION_SEPARATOR;
 use crate::cli::arguments::DryRunArgs;
 use crate::cli::arguments::RepoCredentialCommands;
 use crate::cli::arguments::RepoIndexCommands;
+use crate::cli::command_support::local_snapshot_id;
 use crate::cli::command_support::prompt_yes_no;
 use crate::cli::credentials::{
     KEY_FILE_VARIABLE, NEW_PASSWORD_VARIABLE, PASSWORD_VARIABLE, environment_credential,
@@ -151,7 +152,14 @@ pub(crate) fn run(
             repo,
             snapshot_id,
             strict,
-        } => verify(&repo, snapshot_id.as_deref(), strict),
+        } => verify(
+            &repo,
+            snapshot_id
+                .map(|id| local_snapshot_id(&repo, &id))
+                .transpose()?
+                .as_deref(),
+            strict,
+        ),
     }
 }
 

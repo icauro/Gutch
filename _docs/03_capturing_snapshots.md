@@ -97,6 +97,10 @@ gutch-cli snapshot list --repo REPO
 gutch-cli snapshot diff --repo REPO --from OLD_ID --to NEW_ID
 ```
 
+The list shows each snapshot ID with its tags. Wherever a command takes a
+snapshot ID, the first few characters are enough when no other snapshot
+starts the same way.
+
 `snapshot diff` compares two stored snapshots without installing them:
 
 ```text

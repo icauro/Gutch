@@ -1,8 +1,11 @@
-"""Operations: Capture two trees, compare readable/JSON output in both directions and against
-itself, then compare with payload artifacts and the index unavailable.
+"""Operations: Capture two tagged trees, list them, compare readable/JSON output in both
+directions, against itself and by shortened IDs, then compare with payload artifacts and the
+index unavailable.
 
-Expected: Sorted logical byte deltas preserve empty, same-size, type and metadata changes;
-unchanged files are omitted, comparison needs only manifests and never changes the trees.
+Expected: The list shows each ID with its tags. Sorted logical byte deltas preserve empty,
+same-size, type and metadata changes; unchanged files are omitted, a unique ID prefix names
+its snapshot, comparison needs only manifests and never changes the trees, and an unknown ID
+is reported as missing.
 """
 
 import json
@@ -28,8 +31,13 @@ def run(case):
     (after / "type").mkdir()
     (after / "grow").write_bytes(b"abcd")
     (after / "permissions").chmod(0o444)
-    first = case.capture(repo, before)["snapshot_id"]
-    second = case.capture(repo, after)["snapshot_id"]
+    first = case.capture(repo, before, "--tag", "version=1.0")["snapshot_id"]
+    second = case.capture(repo, after, "--tag", "version=1.1")["snapshot_id"]
+    case.command("snapshot", "list", "--repo", repo)
+    listed = (case.root / "commands" / f"{case.sequence:03d}-snapshot.log").read_text(
+        encoding="utf-8"
+    )
+    assert f"{first}  version=1.0" in listed and f"{second}  version=1.1" in listed
 
     def diff(source, target, *, json_output=True, success=True):
         case.command(
@@ -91,13 +99,15 @@ def run(case):
         for path, change, delta in expected
     ]
     assert diff(first, first) == {"changes": [], "delta_bytes": 0}
+    shared = next(i for i in range(64) if first[i] != second[i])
+    assert diff(first[: shared + 1].upper(), second[: shared + 4]) == result
     # Move only this case's generated artifacts aside; a tree diff must not read them.
     for name in ("bundles", "chunks", "chunk_map.gtcbin"):
         path = repo / name
         if path.exists():
             path.rename(case.payload / f"unavailable-{name}")
     assert diff(first, second) == result
-    diff(first, "f" * 64, success=False)
+    assert "no snapshot" in diff(first, "f" * 64, success=False)
     assert (before / "same-size").read_bytes() == b"abcd"
     assert (after / "same-size").read_bytes() == b"wxyz"
     case.checks.append("snapshot-diff-json-readable-and-manifest-only")

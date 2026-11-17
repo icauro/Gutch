@@ -48,8 +48,9 @@ gutch-cli installation reconstruct --repo REPO --snapshot ID --destination FOLDE
   --snapshot-metadata-url URL --blueprint-url URL --artifact-url-manifest urls.json
 ```
 
-The URLs come from wherever the repository is published, such as presigned
-object-storage links. Provide the artifact downloads with one of:
+Here `ID` must be the full 64-character ID, since the snapshot is not stored
+yet. The URLs come from wherever the repository is published, such as
+presigned object-storage links. Provide the artifact downloads with one of:
 
 - `--artifact-url ARTIFACT_ID=URL`, repeated for each bundle or chunk;
 - `--artifact-url-manifest FILE`, a JSON object mapping artifact IDs to URLs:

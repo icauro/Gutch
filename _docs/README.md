@@ -48,8 +48,10 @@ with two differences:
   `$env:NAME = 'value'` in PowerShell. It lasts until the window is closed.
 
 Words in capitals, such as `REPO`, `FOLDER` and `ID`, stand for your own
-values. A snapshot `ID` is always the full 64-character ID; shortened IDs
-such as `8ccb64f0...860a` in this guide only save space.
+values. For a snapshot `ID`, the first few characters are enough when no
+other snapshot in the repository starts the same way. IDs written as
+`8ccb64f0...860a` here are only shortened for space; type yours in full or
+just its start.
 
 Every command also documents itself: run `gutch-cli --help`, or add `--help` to
 any command, such as `gutch-cli installation repair --help`.

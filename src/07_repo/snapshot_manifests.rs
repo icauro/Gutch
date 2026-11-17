@@ -92,11 +92,16 @@ pub(crate) fn snapshot_product_metadata_path(
 
 pub fn load_snapshot_manifest(paths: &RepoPaths, snapshot_id: &str) -> Result<SnapshotManifest> {
     let metadata_path = snapshot_metadata_path(paths, snapshot_id)?;
-    let manifest = snapshot_manifest_from_download(
-        snapshot_id,
-        filesystem::read(&metadata_path)?,
-        paths.keys(),
-    )?;
+    let metadata = filesystem::read(&metadata_path).map_err(|error| match error {
+        crate::Error::IoContext { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
+            crate::Error::invalid_input(format!(
+                "no snapshot {snapshot_id} in {}; see `snapshot list`",
+                paths.repo_root().display()
+            ))
+        }
+        other => other,
+    })?;
+    let manifest = snapshot_manifest_from_download(snapshot_id, metadata, paths.keys())?;
     let blueprint_path = snapshot_blueprint_path(paths, snapshot_id)?;
     if !blueprint_path.is_file() {
         return Err(crate::Error::repo(format!(

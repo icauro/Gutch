@@ -18,6 +18,7 @@ use crate::cli::arguments::SnapshotTagsCommands;
 use crate::cli::command_support::SnapshotCaptureManyStats;
 use crate::cli::command_support::SnapshotCaptureStats;
 use crate::cli::command_support::load_snapshot_manifest_from_repo;
+use crate::cli::command_support::local_snapshot_id;
 use crate::cli::command_support::prompt_yes_no;
 use crate::cli::control_with_profile;
 use crate::cli::output;
@@ -98,14 +99,24 @@ fn capture_stats_from_engine_result(
 
 pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result<()> {
     match command {
-        SnapshotCommands::Diff { repo, from, to } => diff(&repo, &from, &to, profile),
+        SnapshotCommands::Diff { repo, from, to } => diff(
+            &repo,
+            &local_snapshot_id(&repo, &from)?,
+            &local_snapshot_id(&repo, &to)?,
+            profile,
+        ),
         SnapshotCommands::Capture(args) => capture(args, profile),
         SnapshotCommands::List { repo } => list(&repo),
         SnapshotCommands::Delete {
             repo,
             snapshot_id,
             confirm,
-        } => delete(&repo, &snapshot_id, confirm, profile),
+        } => delete(
+            &repo,
+            &local_snapshot_id(&repo, &snapshot_id)?,
+            confirm,
+            profile,
+        ),
         SnapshotCommands::Tags {
             command:
                 SnapshotTagsCommands::Replace {
@@ -117,7 +128,9 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
                 },
         } => replace_tags(
             &repo,
-            snapshot_id,
+            snapshot_id
+                .map(|id| local_snapshot_id(&repo, &id))
+                .transpose()?,
             &tags,
             tags_file.as_deref(),
             confirm,
@@ -277,7 +290,10 @@ fn list(repo: &Path) -> crate::Result<()> {
     output::line(format_args!("{SECTION_SEPARATOR}"));
     output::line(format_args!("Snapshots"));
     for snapshot in &status.snapshots {
-        output::line(format_args!("{}", snapshot.snapshot_id));
+        let tags: Vec<String> = (snapshot.snapshot_tags.key_value.iter())
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect();
+        output::line(format_args!("{}  {}", snapshot.snapshot_id, tags.join(" ")));
     }
     output::line(format_args!("{SECTION_SEPARATOR}"));
     output::line(format_args!("Repository"));

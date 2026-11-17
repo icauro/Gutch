@@ -705,3 +705,34 @@ fn a_newer_repository_format_is_refused_for_reading_and_writing() {
         crate::repo::coordination::write(temp.path(), || Ok(())).unwrap_err()
     ));
 }
+
+#[test]
+fn snapshot_ids_resolve_from_a_unique_prefix() {
+    use crate::repo::inventory::resolve_snapshot_id;
+    let temp = tempfile::tempdir().unwrap();
+    let paths = RepoPaths::from_repo_root(temp.path());
+    ensure_repo_layout(&paths, "prefixes").unwrap();
+    let ids = [
+        "ab".repeat(32),
+        format!("ab{}", "cd".repeat(31)),
+        "ef".repeat(32),
+    ];
+    for id in &ids {
+        let metadata = snapshot_metadata_path(&paths, id).unwrap();
+        fs::create_dir_all(metadata.parent().unwrap()).unwrap();
+        fs::write(metadata, b"{}").unwrap();
+    }
+
+    assert_eq!(resolve_snapshot_id(&paths, "EF").unwrap(), ids[2]);
+    assert_eq!(resolve_snapshot_id(&paths, "abc").unwrap(), ids[1]);
+    let ambiguous = resolve_snapshot_id(&paths, "ab").unwrap_err().to_string();
+    assert!(ambiguous.contains("2 snapshots"), "{ambiguous}");
+    let missing = resolve_snapshot_id(&paths, "0").unwrap_err().to_string();
+    assert!(missing.contains("no snapshot"), "{missing}");
+    assert!(resolve_snapshot_id(&paths, "abc...").is_err());
+    // A full ID is taken as it is, for snapshots about to be fetched.
+    assert_eq!(
+        resolve_snapshot_id(&paths, &"0".repeat(64)).unwrap(),
+        "0".repeat(64)
+    );
+}

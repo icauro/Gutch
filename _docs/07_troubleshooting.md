@@ -9,9 +9,10 @@ in a file; see [error reports](06_scripting_and_output.md#error-reports).
 terminal cannot find the program. Run it by its full path, or put its folder
 on your `PATH`; see [get the program](01_getting_started.md#get-the-program).
 
-**`The system cannot find the path specified` / `No such file or directory`
-for `snapshots/…/snapshot_metadata.json`** — the snapshot ID is incomplete
-or mistyped. Copy the full 64-character ID from `snapshot list`.
+**`no snapshot … has an ID starting with …`**, **`… is not a snapshot ID`** —
+the ID is mistyped or belongs to another repository. Copy it, or its first
+few characters, from `snapshot list`. **`2 snapshots have an ID starting
+with …`** — give more characters.
 
 ## Capture
 

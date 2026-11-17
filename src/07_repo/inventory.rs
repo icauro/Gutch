@@ -54,6 +54,36 @@ pub(crate) fn list_repo_snapshot_ids(paths: &RepoPaths) -> Result<Vec<String>> {
     Ok(snapshot_ids)
 }
 
+/// Expands `text`, a full snapshot ID or the start of one, to the full ID of
+/// a snapshot in the repository. A full ID is returned as it is, without
+/// looking, so it may name a snapshot that is not stored yet.
+pub(crate) fn resolve_snapshot_id(paths: &RepoPaths, text: &str) -> Result<String> {
+    let prefix = text.trim().to_ascii_lowercase();
+    if validate_snapshot_id(&prefix).is_ok() {
+        return Ok(prefix);
+    }
+    if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(crate::Error::invalid_input(format!(
+            "'{text}' is not a snapshot ID; IDs are 64 characters of 0-9 and a-f"
+        )));
+    }
+    let mut matches: Vec<String> = list_repo_snapshot_ids(paths)?
+        .into_iter()
+        .filter(|id| id.starts_with(&prefix))
+        .collect();
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err(crate::Error::invalid_input(format!(
+            "no snapshot in {} has an ID starting with '{prefix}'; see `snapshot list`",
+            paths.repo_root().display()
+        ))),
+        count => Err(crate::Error::invalid_input(format!(
+            "{count} snapshots have an ID starting with '{prefix}'; give more characters: {}",
+            matches.join(", ")
+        ))),
+    }
+}
+
 pub(crate) fn list_repo_artifact_paths(paths: &RepoPaths) -> Result<Vec<(ArtifactRef, PathBuf)>> {
     let mut artifacts = Vec::new();
     visit_repo_artifacts(paths, |artifact, entry| {

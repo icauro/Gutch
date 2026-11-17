@@ -68,9 +68,15 @@ List what the repository holds:
 gutch-cli snapshot list --repo my-repo
 ```
 
-Commands need the full snapshot ID; copy it from the capture output or the
-list. The list shows only IDs; to see which one is which version, run
-`snapshot list --repo my-repo --json` and look for `versionTag`.
+Each line shows a snapshot ID and its tags:
+
+```text
+8ccb64f0d1…860a  version=1.0
+c41e09a7b2…3f1d  version=1.1
+```
+
+Commands accept the full ID or its first few characters, as long as no
+other snapshot starts the same way; `8ccb` would do here.
 
 ## Install a snapshot
 
@@ -79,10 +85,10 @@ folder next to the destination, checks every file, and only then puts it in
 place, so a failure never leaves a half-written installation behind.
 
 ```sh
-gutch-cli installation reconstruct --repo my-repo --snapshot 8ccb64f0...860a --destination installed-app
+gutch-cli installation reconstruct --repo my-repo --snapshot 8ccb --destination installed-app
 ```
 
-(Replace `8ccb64f0...860a` with the full ID.) Reconstruction replaces the
+(Replace `8ccb` with the start of your own ID.) Reconstruction replaces the
 whole destination: anything already in that folder is removed, so never
 point it at a folder holding other files you want to keep.
 

@@ -22,6 +22,7 @@ use crate::installation::InstallationReconstructResult;
 use crate::manifest::SnapshotManifest;
 use crate::manifest::repo_manifest::RepoManifest;
 use crate::profiling::Profiler;
+use crate::repo::inventory::resolve_snapshot_id;
 use crate::repo::paths::RepoPaths;
 use crate::repo::read::load_repo_manifest;
 use crate::repo::read::load_snapshot_manifest;
@@ -254,6 +255,12 @@ impl SnapshotFetchStats {
     }
 }
 
+/// Expands a snapshot ID typed on the command line, which may be the start
+/// of one, to the full ID of a snapshot in `repo_root`.
+pub(crate) fn local_snapshot_id(repo_root: &Path, text: &str) -> crate::Result<String> {
+    resolve_snapshot_id(&RepoPaths::open(repo_root)?, text)
+}
+
 pub(crate) fn load_snapshot_manifest_from_repo(
     repo_root: &Path,
     snapshot_id: &str,
@@ -261,13 +268,6 @@ pub(crate) fn load_snapshot_manifest_from_repo(
     let repo_manifest = load_repo_manifest(repo_root)?;
     let repo_paths = RepoPaths::open(repo_root)?;
     let manifest_path = snapshot_metadata_path(&repo_paths, snapshot_id)?;
-    if !manifest_path.exists() {
-        return Err(crate::Error::invalid_input(format!(
-            "snapshot metadata not found at {}",
-            manifest_path.display()
-        )));
-    }
-
     let snapshot_manifest = load_snapshot_manifest(repo_root, snapshot_id)?;
     Ok((repo_paths, repo_manifest, manifest_path, snapshot_manifest))
 }
