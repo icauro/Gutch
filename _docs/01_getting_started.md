@@ -9,9 +9,10 @@ Gutch is a single executable, `gutch-cli` (`gutch-cli.exe` on Windows). Either:
 
 - **Download a build.** In the project's GitHub page, open **Actions → Build
   Gutch CLI**, pick a successful run and download the package for your system
-  (Linux or Windows, x86-64 or ARM64). Each package contains the executable,
-  a `SHA256SUMS` file and license notices. These builds are unsigned and kept
-  for 30 days.
+  (Linux or Windows, x86-64 or ARM64; most PCs are x86-64). GitHub asks you
+  to sign in first. Unzip it: it contains the executable, a `SHA256SUMS` file
+  and license notices. These builds are unsigned, so Windows may warn before
+  running one, and they are kept for 30 days.
 - **Build it yourself.** Install Rust 1.100 or newer, then run this from the
   project folder:
 
@@ -21,8 +22,10 @@ Gutch is a single executable, `gutch-cli` (`gutch-cli.exe` on Windows). Either:
 
   The executable is written to `.builds/compiler-cache/cargo/release/`.
 
-Put the executable somewhere on your `PATH`, or call it by its full path.
-Check that it runs:
+Put the executable in a folder on your `PATH`, the list of folders the
+terminal searches for programs, or run it by its full path, such as
+`C:\tools\gutch-cli.exe`, or as `./gutch-cli` from its own folder. Check
+that it runs:
 
 ```sh
 gutch-cli --version
@@ -66,7 +69,8 @@ gutch-cli snapshot list --repo my-repo
 ```
 
 Commands need the full snapshot ID; copy it from the capture output or the
-list.
+list. The list shows only IDs; to see which one is which version, run
+`snapshot list --repo my-repo --json` and look for `versionTag`.
 
 ## Install a snapshot
 
@@ -79,7 +83,8 @@ gutch-cli installation reconstruct --repo my-repo --snapshot 8ccb64f0...860a --d
 ```
 
 (Replace `8ccb64f0...860a` with the full ID.) Reconstruction replaces the
-whole destination: anything already in that folder is removed.
+whole destination: anything already in that folder is removed, so never
+point it at a folder holding other files you want to keep.
 
 ## Check and repair it
 

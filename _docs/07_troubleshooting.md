@@ -3,6 +3,16 @@
 Add `--error-output report.json` to a failing command to get the full details
 in a file; see [error reports](06_scripting_and_output.md#error-reports).
 
+## Getting started
+
+**`gutch-cli: command not found`**, **`'gutch-cli' is not recognized`** — the
+terminal cannot find the program. Run it by its full path, or put its folder
+on your `PATH`; see [get the program](01_getting_started.md#get-the-program).
+
+**`The system cannot find the path specified` / `No such file or directory`
+for `snapshots/…/snapshot_metadata.json`** — the snapshot ID is incomplete
+or mistyped. Copy the full 64-character ID from `snapshot list`.
+
 ## Capture
 
 **`capture rejected: N filename compatibility violation(s)`** — the folder
@@ -56,6 +66,18 @@ lost or damaged. Capture the original folder again to restore it, or pull it
 from a remote copy. Snapshots that use only healthy artifacts still install.
 
 **The chunk index is missing or damaged** — run `repo index rebuild`.
+
+**`repository at … is encrypted; unlock it with a password or key file`** —
+set `GUTCH_REPO_PASSWORD` or `GUTCH_REPO_KEY_FILE` in this terminal window
+first; see [encryption](05_managing_repositories.md#encryption).
+
+**`wrong password for the encrypted repository`**, **`wrong key file …`** —
+the credential does not open this repository. Check for typing mistakes and
+extra spaces. A forgotten password cannot be recovered; use another
+credential added with `repo credential add`.
+
+**`encrypted repositories chunk with FastCDC`** — encrypted repositories
+refuse `--chunker jc` and `vram256`. Leave `--chunker` out.
 
 **`needs_newer_gutch` / `unsupported_format`** — the repository was written by
 a newer version of Gutch. Upgrade `gutch-cli`.

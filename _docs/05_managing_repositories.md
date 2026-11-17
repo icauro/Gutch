@@ -23,10 +23,13 @@ chunk index sealed with AES-256-GCM, and names its files so that they do not
 reveal which content is present:
 
 ```sh
-export GUTCH_REPO_PASSWORD='a long passphrase'
+export GUTCH_REPO_PASSWORD='a long passphrase'   # PowerShell: $env:GUTCH_REPO_PASSWORD = 'a long passphrase'
 gutch-cli repo init --repo REPO --encrypt
 gutch-cli snapshot capture --repo REPO --source build --tag version=1.0
 ```
+
+Later commands in the same window use the password without asking. In a new
+window, set it again first.
 
 Credentials come from the environment, never from the command line:
 `GUTCH_REPO_PASSWORD` holds a password, or `GUTCH_REPO_KEY_FILE` names a key
@@ -43,7 +46,9 @@ GUTCH_REPO_NEW_PASSWORD='second passphrase' gutch-cli repo credential add --repo
 gutch-cli repo credential add --repo REPO --new-key-file team.key
 ```
 
-A lost credential cannot be recovered; keep a key file somewhere safe. Copies
+A lost credential cannot be recovered, and nobody can open the repository
+without one: keep a key file or a written-down password somewhere safe, apart
+from the repository. Copies
 made by push, pull and fetch share the repository's key, so the same
 credentials open them, and a remote stores only sealed files and snapshot IDs,
 no tags.

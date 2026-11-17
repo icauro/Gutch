@@ -1,9 +1,15 @@
 # Gutch
 
-Gutch packages software builds into compact, versioned snapshots and installs
-them anywhere as verified copies. Identical content is stored once, so
-keeping many versions costs little more than keeping one, and updating an
-installation reuses what is already on disk.
+Gutch keeps every version of a program, game or other folder of files in one
+place, and installs any of them as an exact copy that it checks file by file.
+Content that versions share is stored once, so keeping many versions costs
+little more than keeping one, and updating an installation reuses what is
+already on disk.
+
+You capture a folder into a *repository*, the store. Each capture becomes a
+*snapshot* with a long ID and labels such as `version=1.0.0`. You can then
+install a snapshot anywhere, check that an installation is intact, and repair
+it:
 
 ```sh
 gutch-cli repo init --repo store
