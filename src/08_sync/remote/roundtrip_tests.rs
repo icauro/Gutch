@@ -426,7 +426,8 @@ fn pull_step_total_matches_the_steps_reported() {
             repo_root: root.path().join(clone),
             on_conflict: PullConflictPolicy::KeepRemote,
             prune,
-            control: OperationControl::default().with_progress(steps.clone()),
+            // Record every step directly: live UI feedback intentionally coalesces them.
+            control: OperationControl::default().with_replaced_progress(steps.clone()),
             ..Default::default()
         };
         pull_repo(&request, &provider).unwrap();
