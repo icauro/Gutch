@@ -323,6 +323,8 @@ fn verify_with_hints_records_runtime_plan() {
 #[cfg(unix)]
 #[test]
 fn verify_inventory_supports_symlinked_parent_inside_root() {
+    use crate::manifest::DirectoryManifest;
+    use crate::manifest::SymlinkManifest;
     use std::os::unix::fs::symlink;
 
     let dir_temp = tempfile::tempdir().unwrap();
@@ -331,7 +333,7 @@ fn verify_inventory_supports_symlinked_parent_inside_root() {
     fs::write(dir.join("real/data.bin"), b"symlink parent").unwrap();
     symlink("real", dir.join("link")).unwrap();
 
-    let hash = ChunkHash::of(b"symlink parent").to_hex();
+    let hash = ChunkHash::of(b"symlink parent");
     let mut manifest = empty_manifest();
     manifest.entries = vec![
         SnapshotEntry::Directory(DirectoryManifest {
@@ -347,7 +349,7 @@ fn verify_inventory_supports_symlinked_parent_inside_root() {
             size: 14,
             executable: false,
             read_only: false,
-            full_file_hash: hash.clone(),
+            full_file_hash: hash,
             chunks: Vec::new(),
         }),
         SnapshotEntry::File(FileManifest {
