@@ -25,11 +25,41 @@ Gutch can:
   new one is complete and checked;
 - verify an installation and repair only what is missing or damaged;
 - download a snapshot and install it at the same time;
+- encrypt a repository's content, names and tags with a password or key file;
 - enforce filename rules so every snapshot installs on chosen filesystems;
 - synchronize repositories with a server provided by a host application.
 
-Gutch is built for software delivery, not backup: it does not keep
-ownership, timestamps or extended attributes.
+## What it is for
+
+Gutch is tuned for one job: capturing large folder trees and installing them
+again, fast, many times over. That job sits at the heart of:
+
+- **app stores and launchers** that install and update programs and games;
+- **package managers** that keep many versions side by side;
+- **asset servers** that hand out large, slowly changing content sets;
+- **build archives and test labs** that must reinstall any old build exactly.
+
+It is not a backup tool: it does not keep ownership, timestamps or extended
+attributes, because an installed copy does not need them.
+
+## Principles
+
+- **Install speed comes first.** A snapshot is captured once and installed
+  many times, so the install path gets the most care; capture is parallel
+  and fast too.
+- **Store once, move only what changed.** Content is split into chunks that
+  every version shares. Updates download and write only what differs and
+  reuse what is already on disk.
+- **The same content gets the same ID.** A snapshot's ID is computed from
+  its content: capturing the same tree again changes nothing, and every
+  install is checked against it.
+- **Never leave a half-finished install.** Gutch builds and checks the new
+  tree beside the old one and swaps it in only when it is complete.
+- **Optional features cost nothing when off.** Encryption, loose chunk
+  storage and profiling add no work to the default path.
+- **A library first.** `gutch-cli` is a thin layer over a Rust library. The
+  application that embeds Gutch owns its server, its accounts and who may
+  access what.
 
 ## Documentation
 
