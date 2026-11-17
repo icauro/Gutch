@@ -1,0 +1,166 @@
+name: Release
+# Pushing a tag such as v0.2.0 releases that version to crates.io and GitHub.
+# Every check runs before anything is published, and the GitHub release stays
+# a draft until crates.io has accepted both crates, because a crates.io
+# version can never be replaced. A rerun skips crates that are already there.
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  TOOLCHAIN: 1.100.0
+jobs:
+  check:
+    name: Check version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          sparse-checkout: |
+            gutch-cli
+            src
+      - name: Tag must point at a commit on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - id: version
+        name: Tag must match the version in Cargo.toml and Cargo.lock
+        shell: python
+        run: |
+          import os, tomllib
+          tag = os.environ['GITHUB_REF_NAME']
+          manifest = tomllib.load(open('Cargo.toml', 'rb'))
+          lock = tomllib.load(open('Cargo.lock', 'rb'))
+          found = {
+              'workspace.package.version': manifest['workspace']['package']['version'],
+              'workspace.dependencies.gutch.version': manifest['workspace']['dependencies']['gutch']['version'],
+              **{f'Cargo.lock {p["name"]}': p['version'] for p in lock['package']
+                 if p['name'] in ('gutch', 'gutch-cli') and 'source' not in p},
+          }
+          if len(found) != 4:
+              raise SystemExit(f'Cargo.lock is missing gutch or gutch-cli: {found}')
+          wrong = {key: value for key, value in found.items() if f'v{value}' != tag}
+          if wrong:
+              raise SystemExit(f'tag {tag} does not match {wrong}')
+          version = tag[1:]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'version={version}\nprerelease={str("-" in version).lower()}\n')
+
+  tests:
+    needs: check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-cli.yml
+    with:
+      expected-version: ${{ needs.check.outputs.version }}
+
+  draft:
+    name: Draft GitHub release
+    needs: [check, tests, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.check.outputs.version }}
+      PRERELEASE: ${{ needs.check.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: gutch-cli-*
+          path: packages
+      - name: Archive each platform
+        run: |
+          mkdir dist
+          for dir in packages/gutch-cli-*; do
+            platform=${dir#packages/gutch-cli-}
+            name=gutch-cli-$VERSION-$platform
+            mv "$dir" "$name"
+            case $platform in
+              windows-*) zip -qr "dist/$name.zip" "$name" ;;
+              *) chmod +x "$name/gutch-cli"   # artifact downloads drop the executable bit
+                 tar -czf "dist/$name.tar.gz" "$name" ;;
+            esac
+          done
+          cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+          test "$(ls | wc -l)" -eq 5
+      - name: Create or update the draft
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft > is_draft.txt 2>/dev/null; then
+            test "$(cat is_draft.txt)" = true || { echo "release $GITHUB_REF_NAME is already published"; exit 1; }
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            flags=()
+            [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+            gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag \
+              --title "Gutch $VERSION" --generate-notes "${flags[@]}"
+          fi
+
+  crates:
+    name: Publish to crates.io
+    needs: [check, draft]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # crates.io's trusted publisher entry for both crates names this
+    # workflow and environment, so no crates.io token is stored on GitHub.
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .cargo
+            gutch-cli
+            src
+      - run: rustup toolchain install "$TOOLCHAIN" --profile minimal
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: auth
+      - name: Publish gutch, then gutch-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          for crate in gutch gutch-cli; do
+            status=$(curl -s -o /dev/null -w '%{http_code}' \
+              -A 'gutch-release-workflow (https://github.com/icauro/Gutch)' \
+              "https://crates.io/api/v1/crates/$crate/$VERSION")
+            if [ "$status" = 200 ]; then
+              echo "$crate $VERSION is already on crates.io"
+            else
+              cargo "+$TOOLCHAIN" publish --locked --package "$crate"
+            fi
+          done
+
+  publish:
+    name: Publish GitHub release
+    needs: crates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: gh release edit "$GITHUB_REF_NAME" --draft=false

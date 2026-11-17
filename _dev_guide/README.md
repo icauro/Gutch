@@ -13,6 +13,7 @@ to the one you need. How the engine works inside is described in the
 | [04 Performance and benchmarks](04_performance_and_benchmarks.md) | Runtime planning, profiling, live feedback and benchmark execution |
 | [05 Correctness testing](05_correctness_testing.md) | The correctness runner, scenarios and the frozen corpus |
 | [06 CLI builds](06_cli_builds.md) | Release builds of `gutch-cli` in GitHub Actions |
+| [07 Releases](07_releases.md) | Publishing a version to crates.io and GitHub Releases |
 | [Engine internals](internals/README.md) | Boundaries, stored formats, pipelines and integration contracts |
 
 ## Related guides

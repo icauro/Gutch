@@ -1,17 +1,27 @@
 [package]
 name = "gutch"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.100"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Provider-independent snapshot, artifact delivery, reconstruction, and verification engine"
 license = "MIT AND Apache-2.0 AND ISC"
-repository = "https://github.com/icauro/Gutch"
+repository.workspace = true
 readme = "README.md"
 include = ["/src/**", "/README.md", "/LICENSE", "/THIRD_PARTY_NOTICES.md"]
 
 [workspace]
 members = ["gutch-cli"]
 resolver = "3"
+
+# A release changes the version here, in both places, and nowhere else.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+repository = "https://github.com/icauro/Gutch"
+
+[workspace.dependencies]
+gutch = { version = "0.1.0", path = "." }
 
 [workspace.lints.cargo]
 unused_dependencies = "deny"
