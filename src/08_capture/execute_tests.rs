@@ -638,6 +638,7 @@ fn failed_artifact_write_publishes_no_snapshot() {
         compression_level: None,
         storage_mode: ArtifactStorageMode::Bundled,
         runtime_hints: RuntimeResourceHints::default(),
+        reuse_remote_bundles: false,
         control: OperationControl::default(),
     });
     let read_write = Permissions::from_mode(0o755);
