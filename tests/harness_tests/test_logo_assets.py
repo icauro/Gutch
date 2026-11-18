@@ -37,3 +37,9 @@ def test_committed_banner_matches_its_sources():
     from _tools.render_banner import main as render_banner
 
     assert render_banner(["--check"]) == 0
+
+
+def test_committed_install_profile_matches_its_sources():
+    from _tools.render_profile import main as render_profile
+
+    assert render_profile(["--check"]) == 0
