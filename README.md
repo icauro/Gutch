@@ -31,8 +31,8 @@ and capture can refuse file names that would break on the systems you ship to.
 
 [![Gutch benchmark comparisons](https://raw.githubusercontent.com/icauro/Gutch-Benchmarks/main/_docs/reports/comparison.svg)](https://github.com/icauro/Gutch-Benchmarks)
 
-Reconstruct comes first. It is the command that runs every time a user
-installs, updates or repairs, so it is what Gutch is built around. Against
+Gutch is optimized for `installation reconstruct`, the command that runs
+every time a user installs, updates or repairs. Against
 Restic, Kopia, Borg, Rustic and Plakar, a fresh install is 2.2–4.6× faster
 and a repair 2.4–8× faster (29× against Plakar).
 
