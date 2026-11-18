@@ -4,10 +4,6 @@
 
 # Gutch
 
-Gutch installs Blender 5.1 for Windows, 977 MB in 6,368 files, in 0.65 s,
-and checks every file against its hash before the folder goes live. Copying
-the same folder uncompressed with robocopy takes 0.77 s.
-
 Gutch is a deduplicating store and installer for folder trees, written in
 Rust as a library and a command-line tool. You capture each version of a
 folder into a repository, which keeps every piece of content once, so a new
@@ -47,9 +43,11 @@ tools. Anyone can run it again.
   <a href="_docs/assets/install_profile.svg"><img src="_docs/assets/install_profile.svg" width="100%" alt="Perfetto timeline of one Gutch install: 12 workers unpack, check and write bundles side by side until the install is done"></a>
 </p>
 
-This is the Blender install from the top of the page, stored as 380 MB and
-installed with default settings on an AMD Ryzen 9 7900 (12 cores) with a
-KIOXIA Exceria G2 NVMe SSD and Windows 11. Unpacking and checking are thin
+Gutch installs Blender 5.1 for Windows, 977 MB in 6,368 files stored as
+380 MB, in 0.65 s and checks every file before the folder goes live. Copying
+the same folder uncompressed with robocopy takes 0.77 s. Both ran with
+default settings on an AMD Ryzen 9 7900 (12 cores) with a KIOXIA Exceria G2
+NVMe SSD and Windows 11. Unpacking and checking are thin
 slivers; nearly all the time goes to writing files, so the disk sets the
 pace. Limited to 4 or 8 threads, Gutch takes about 0.7 s, level with robocopy
 on the same thread count. Each figure is the median of three runs with the
