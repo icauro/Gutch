@@ -140,6 +140,10 @@ jobs:
       - name: Publish gutch, then gutch-cli
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          # .cargo/config.toml ignores crate versions under 7 days old, which
+          # would hide the gutch this step has just published from gutch-cli.
+          # --locked still holds every other dependency to Cargo.lock.
+          CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE: allow
         run: |
           for crate in gutch gutch-cli; do
             status=$(curl -s -o /dev/null -w '%{http_code}' \
