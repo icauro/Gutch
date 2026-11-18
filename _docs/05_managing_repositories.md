@@ -178,7 +178,9 @@ would delete them from the remote, so pull everything before you push.
 and compare files; a later pull without it downloads the bundles. Such a copy
 can also publish new versions without downloading the old ones: capture with
 `snapshot capture --reuse-remote-bundles`, then push. Push checks that the
-remote holds each bundle missing here and uploads only the new ones.
+remote holds each bundle missing here and uploads only the new ones. To
+retire a version, delete its snapshot in the copy and push; the push deletes
+the bundles no remaining snapshot needs from the remote.
 
 These commands need a connection to a server, which the application that
 embeds Gutch provides; its documentation says how to sign in and what
