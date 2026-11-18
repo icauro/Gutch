@@ -9,8 +9,8 @@ Gutch is a single executable, `gutch-cli` (`gutch-cli.exe` on Windows). Either:
 
 - **Download a release.** From the project's
   [latest release](https://github.com/icauro/Gutch/releases/latest), download
-  the executable for your system, such as `gutch-cli-0.1.0-linux-x86_64` or
-  `gutch-cli-0.1.0-windows-x86_64.exe` (Linux or Windows, x86-64 or ARM64;
+  the executable for your system, such as `gutch-cli-0.2.0-linux-x86_64` or
+  `gutch-cli-0.2.0-windows-x86_64.exe` (Linux or Windows, x86-64 or ARM64;
   most PCs are x86-64), and rename it `gutch-cli` (`gutch-cli.exe` on
   Windows). `SHA256SUMS` lists each file's checksum; check yours with
   `sha256sum --ignore-missing -c SHA256SUMS`. On Linux, make it executable

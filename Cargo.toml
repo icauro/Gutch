@@ -15,13 +15,13 @@ resolver = "3"
 
 # A release changes the version here, in both places, and nowhere else.
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.100"
 repository = "https://github.com/icauro/Gutch"
 
 [workspace.dependencies]
-gutch = { version = "0.1.0", path = "." }
+gutch = { version = "0.2.0", path = "." }
 
 [workspace.lints.cargo]
 unused_dependencies = "deny"
