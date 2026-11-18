@@ -44,10 +44,10 @@ application keeps control of its own accounts and access rules.
 Think of a game sold through a store such as Steam or the Epic Games Store.
 The developer uploads each build once, and players download it millions of
 times: they install it, update it with every patch and repair it when files
-are damaged. All three run the same command, `installation reconstruct`, and
-that is the command Gutch is optimized for. Against Restic, Kopia, Borg,
-Rustic and Plakar, a fresh install is 2.2–4.6× faster and a repair 2.4–8×
-faster (29× against Plakar).
+are damaged. All three run Gutch's install engine, the part behind
+`installation reconstruct`, and that is what Gutch is optimized for. Against
+Restic, Kopia, Borg, Rustic and Plakar, a fresh install is 2.2–4.6× faster and
+a repair 2.4–8× faster (29× against Plakar).
 
 Capture is the developer's side. It runs once per build, so it matters less,
 but it is still quick. Chunks are hashed with BLAKE3, and content the
@@ -81,39 +81,77 @@ a 10-second pause between runs.</sub>
 
 ## How it works
 
+Gutch has two halves. Capture turns a folder into a snapshot inside a
+repository. The install engine turns a snapshot back into a folder, and it
+does this for a fresh install, an update and a repair alike. Each snapshot's
+ID is derived from its content, so any installation can be checked against
+it.
+
 <p align="center">
   <img src="_docs/assets/pipeline.svg" width="100%" alt="Capture cuts a folder into chunks, names them by hash, skips known ones, compresses and packs them into bundles in the store; install plans by bundle, unpacks each once on all cores, writes chunks in place, checks each file, builds in staging and swaps in">
 </p>
 
-Capture cuts each file into chunks of about 128 KiB at points chosen by the
-content, so inserting a few bytes near the start of a file leaves the chunks
-after it unchanged. Each chunk is named by its BLAKE3 hash, which is several
-times faster to compute than the SHA-256 most backup tools use. Chunks the
-repository already holds are skipped; new ones are compressed and packed into
-8 MiB bundles. A snapshot's ID is derived from its content, so capturing the
-same folder twice changes nothing, and any installation can be checked
-against that ID.
+### Capture
 
-Install works bundle by bundle instead of file by file. Each bundle is read
-and unpacked once, on all cores, and every chunk in it goes straight to each
-file and offset that uses it. A file is checked the moment its last chunk
-lands, while other files are still being written, and when the snapshot is
-[downloaded over
-HTTP(S)](_docs/04_installing_snapshots.md#download-while-reconstructing), the
-download overlaps with unpacking. The whole tree is built in a staging folder
-next to the destination and swapped in only after every file checks out. If
-anything fails, the old installation is still there, untouched.
+1. Each file is cut into chunks of about 128 KiB at points chosen by the
+   content, so inserting a few bytes near the start of a file leaves the
+   chunks after it unchanged.
+2. Each chunk is named by its BLAKE3 hash.
+3. Chunks the repository already holds are not stored again.
+4. New chunks are compressed with zstd and packed into 8 MiB bundles.
+5. The snapshot is saved under its content-derived ID, so capturing the same
+   folder twice changes nothing.
 
-Repair first finds the files that are missing or damaged, then reads only the
-bundles those files need. An update can copy matching content from the old
-installation instead of the repository, so only the differences are
-downloaded and unpacked.
+| Option | Default | Choose it to |
+| --- | --- | --- |
+| `--chunk-preset` | `128KiB` | Find more shared content with smaller chunks, at the cost of a larger index |
+| `--compression-algorithm` | `zstd` | Trade size for speed with `lz4`, or store uncompressed with `none` |
+| `--bundle-preset` | `8MiB` | Use bundles from 4 MiB to 128 MiB |
+| `--storage-mode` | `bundled` | Keep each chunk in its own file with `loose-chunks` |
+| `repo init --encrypt` | off | Encrypt the repository with AES-256-GCM, using a password or key file |
+| `repo init --filesystem` | none | Refuse file names that would break on the systems you ship to |
 
-When capture speed and install speed pull apart, install wins. That is why
-Gutch keeps only file contents, symbolic links and the executable and
-read-only flags: there are no owners, timestamps or extended attributes to
-apply file by file. Encryption (AES-256-GCM), loose-chunk storage and
-profiling are off by default and add no work while off.
+[Capturing snapshots](_docs/03_capturing_snapshots.md#storage-options) has
+every option.
+
+### Install and update
+
+1. Gutch lists the bundles the snapshot needs. For an update, it first looks
+   for content it can copy from the old installation instead.
+2. Bundles come from the repository, or are [downloaded over
+   HTTP(S)](_docs/04_installing_snapshots.md#download-while-reconstructing)
+   while earlier ones are still being unpacked.
+3. Each bundle is decompressed once, on all cores, and every chunk in it is
+   written straight to each file and offset that uses it.
+4. A file is hashed the moment its last chunk lands, while other files are
+   still being written.
+5. The tree is built in a staging folder next to the destination and swapped
+   in only after every file checks out. If anything fails, the old
+   installation is still there, untouched.
+
+| Option | Default | Choose it to |
+| --- | --- | --- |
+| `--reuse-snapshot`, `--reuse-dir` | none | Update from an installed version, copying what is unchanged |
+| `--fetch` | off | Download the snapshot while installing |
+| `--jobs` | all cores | Limit the worker threads |
+| `--memory-budget-mib` | 25% of RAM | Limit the working memory |
+| `--staging-dir` | next to the destination | Build the tree somewhere else on the same disk |
+
+### Repair
+
+1. Every file is hashed and compared with the snapshot.
+2. Only the bundles that missing or damaged files need are read.
+3. Those files are replaced one at a time; healthy files are not touched. If
+   repair is interrupted, run it again to finish.
+
+Extra files in the folder are kept unless you pass `--remove-extra-files`.
+
+### What Gutch leaves out
+
+When capture speed and install speed pull apart, install wins. Gutch keeps
+only file contents, symbolic links and the executable and read-only flags,
+so there are no owners, timestamps or extended attributes to apply file by
+file. Encryption and profiling are off by default and add no work while off.
 
 ## Getting Gutch
 
