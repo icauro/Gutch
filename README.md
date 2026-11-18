@@ -107,7 +107,7 @@ it.
 | `--chunk-preset` | `128KiB` | Find more shared content with smaller chunks, at the cost of a larger index |
 | `--compression-algorithm` | `zstd` | Trade size for speed with `lz4`, or store uncompressed with `none` |
 | `--bundle-preset` | `8MiB` | Use bundles from 4 MiB to 128 MiB |
-| `--storage-mode` | `bundled` | Keep each chunk in its own file with `loose-chunks` |
+| `--storage-mode` | `bundled` | Keep each chunk in its own file with `loose-chunks`, so installs fetch only what they use at the cost of many more requests ([compare](_docs/03_capturing_snapshots.md#bundled-or-loose-chunks)) |
 | `repo init --encrypt` | off | Encrypt the repository with AES-256-GCM, using a password or key file |
 | `repo init --filesystem` | none | Refuse file names that would break on the systems you ship to |
 

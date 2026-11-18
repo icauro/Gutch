@@ -90,6 +90,27 @@ benefit.
 Installation reads the settings stored with each snapshot, so snapshots
 captured with different settings install the same way.
 
+### Bundled or loose chunks
+
+| | Bundled (default) | Loose chunks |
+| --- | --- | --- |
+| Storage | Chunks packed into bundles of about 8 MiB | One file per chunk, about 128 KiB on average |
+| Number of files | Few | One per chunk, so tens of thousands for a large app |
+| Cost on S3 | One request per bundle | One request per chunk, and S3 charges per request |
+| Download speed | High: few, large requests | Lower: the cost of each request adds up |
+| Bytes from other versions | An install may fetch a whole older bundle for a few of its chunks, so it also receives content that only an older version uses | None: an install fetches exactly the chunks its snapshot uses |
+| Space freed by `snapshot delete` | A bundle is removed only when no remaining snapshot uses any chunk in it | Every chunk no remaining snapshot uses is removed |
+| Compression | Each bundle is compressed as a whole, which usually saves more | Each chunk is compressed on its own |
+| Push, pull and remote download | Supported | Not yet: only bundles are published |
+
+Use bundled storage for anything you ship. A bundle holds only content that
+was new when it was written, so an install never receives content captured
+after its snapshot, but it can receive content captured before or alongside
+it. If different
+users may see different snapshots of one repository and that matters to you,
+keep them in separate repositories. Loose chunks suit local testing and
+measurements.
+
 ## List, compare and inspect
 
 ```sh
