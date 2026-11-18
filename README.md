@@ -31,23 +31,26 @@ and capture can refuse file names that would break on the systems you ship to.
 
 [![Gutch benchmark comparisons](https://raw.githubusercontent.com/icauro/Gutch-Benchmarks/main/_docs/reports/comparison.svg)](https://github.com/icauro/Gutch-Benchmarks)
 
-Gutch is optimized for `installation reconstruct`, the command that runs
-every time a user installs, updates or repairs. Against
-Restic, Kopia, Borg, Rustic and Plakar, a fresh install is 2.2–4.6× faster
-and a repair 2.4–8× faster (29× against Plakar).
+Think of a game sold through a store such as Steam or the Epic Games Store.
+The studio uploads each build once, and players download it millions of times:
+they install it, update it with every patch and repair it when files are
+damaged. All three run the same command, `installation reconstruct`, and that
+is the command Gutch is optimized for. Against Restic, Kopia, Borg, Rustic and
+Plakar, a fresh install is 2.2–4.6× faster and a repair 2.4–8× faster (29×
+against Plakar).
 
-Capture runs once per version, so it gets less attention, but it is still
-quick: chunks are hashed with BLAKE3, and content the repository already
-holds is skipped before it is compressed.
-Gutch captures faster than all of them except Kopia, which is about 1.2×
-quicker. The repository it builds ranges from 3.7% smaller to 0.2% larger
-than theirs.
+Capture is the studio's side. It runs once per build, so it matters less,
+but it is still quick. Chunks are hashed with BLAKE3, and content the
+repository already holds is skipped before it is compressed. Gutch captures
+faster than all of the tools above except Kopia, which is about 1.2× quicker,
+and its repository ends up between 3.7% smaller and 0.2% larger than theirs.
 
-Each pair runs on one machine with chunk sizes, compression, encryption and
-worker counts matched as closely as each tool allows, and every restored file
-is checked with SHA-256. [Gutch Benchmarks](https://github.com/icauro/Gutch-Benchmarks)
-has the method, the raw results and the differences that remain between the
-tools. Anyone can run it again.
+Every comparison runs both tools on the same machine, with chunk sizes,
+compression, encryption and worker counts matched as closely as each tool
+allows, and checks every restored file with SHA-256.
+[Gutch Benchmarks](https://github.com/icauro/Gutch-Benchmarks) has the
+method, the raw results and the differences that remain between the tools,
+so anyone can run it again.
 
 ### One install, up close
 
@@ -93,12 +96,11 @@ bundles those files need. An update can copy matching content from the old
 installation instead of the repository, so only the differences are
 downloaded and unpacked.
 
-A snapshot is captured once and installed many times, so when the two pull
-apart, install speed wins. That is also why Gutch keeps only file contents,
-symbolic links and the executable and read-only flags: there are no owners,
-timestamps or extended attributes to apply file by file. Encryption
-(AES-256-GCM), loose-chunk storage and profiling are off by default and add no
-work while off.
+When capture speed and install speed pull apart, install wins. That is why
+Gutch keeps only file contents, symbolic links and the executable and
+read-only flags: there are no owners, timestamps or extended attributes to
+apply file by file. Encryption (AES-256-GCM), loose-chunk storage and
+profiling are off by default and add no work while off.
 
 ## Where it fits
 
