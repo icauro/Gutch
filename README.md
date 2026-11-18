@@ -45,12 +45,11 @@ repository already holds is skipped before it is compressed. Gutch captures
 faster than all of the tools above except Kopia, which is about 1.2× quicker,
 and its repository ends up between 3.7% smaller and 0.2% larger than theirs.
 
-Every comparison runs both tools on the same machine, with chunk sizes,
-compression, encryption and worker counts matched as closely as each tool
-allows, and checks every restored file with SHA-256.
-[Gutch Benchmarks](https://github.com/icauro/Gutch-Benchmarks) has the
-method, the raw results and the differences that remain between the tools,
-so anyone can run it again.
+The [benchmarks](https://github.com/icauro/Gutch-Benchmarks) are public and
+run on GitHub Actions, so anyone can rerun them. Each one compares Gutch with
+a single other tool. The other tools offer fewer settings than Gutch, so no
+one baseline fits all of them; instead, Gutch is set to match each tool as
+closely as that tool allows.
 
 ### One install, up close
 
