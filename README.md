@@ -31,12 +31,12 @@ and capture can refuse file names that would break on the systems you ship to.
 
 | You're building | Fit | What Gutch does |
 | --- | --- | --- |
-| A game or app launcher | Good | Updates download only what changed. Repair rewrites only broken files. |
-| A tool that keeps several versions installed | Good | Content the versions share is stored once. |
-| A build archive | Good | Any old build comes back exactly. |
-| An app that ships from your own server or S3 | Good | You embed the Rust library and plug in your storage, as [`examples/s3_app`](examples/s3_app) does. |
-| Backups of file contents | Partial | Restores are fast and checked, but old versions are not pruned for you. |
-| Full system backups | Poor | Owners, timestamps, extended attributes and hard links are not kept. |
+| A game or app launcher | ✅ Good | Updates download only what changed. Repair rewrites only broken files. |
+| A tool that keeps several versions installed | ✅ Good | Content the versions share is stored once. |
+| A build archive | ✅ Good | Any old build comes back exactly. |
+| An app that ships from your own server or S3 | ✅ Good | You embed the Rust library and plug in your storage, as [`examples/s3_app`](examples/s3_app) does. |
+| Backups of file contents | 🟡 Partial | Restores are fast and checked, but old versions are not pruned for you. |
+| Full system backups | ❌ Poor | Owners, timestamps, extended attributes and hard links are not kept. |
 
 Gutch is a library first, and `gutch-cli` is a thin layer over it.
 Repositories sync with a server your application provides, so the
