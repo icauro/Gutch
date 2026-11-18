@@ -66,9 +66,9 @@ published can still be verified, and repaired from the cache.
 [`.github/workflows/launcher-publish.yml`](../../.github/workflows/launcher-publish.yml)
 runs the publisher every day, and on demand from the Actions tab. Each run:
 
-1. Reads the release list from `download.blender.org/release`. It keeps the
-   newest patch release of the 8 newest series, from 4.2 on, for Windows x64
-   and Linux x64.
+1. Reads the release list from `download.blender.org/release`, which holds
+   only stable releases. It keeps the newest patch release of the 8 newest
+   series, from 5.0 on, for Windows x64 and Linux x64.
 2. Pulls the repository's metadata from the bucket, without bundles, and
    compares the published versions with the wanted ones.
 3. Deletes retired versions' snapshots and pushes. The push deletes the
