@@ -50,7 +50,13 @@ any folder, such as builds, datasets or asset libraries, when you only need
 the file contents back. Gutch keeps file contents, symbolic links and the
 executable and read-only flags. It does not keep owners, other permissions,
 timestamps, extended attributes or hard links, and it has no retention
-schedules or cloud storage backends, so it is not a full system backup tool.
+schedules, so it is not a full system backup tool.
+
+A repository lives in a local folder, and an install can
+[download a snapshot over HTTP(S)](_docs/04_installing_snapshots.md#download-while-reconstructing)
+while it writes the files. To keep repositories in S3-compatible storage (AWS S3, MinIO,
+R2) or another object store, implement a small storage interface;
+[`examples/s3_app`](examples/s3_app) is a complete S3 app.
 
 ## Performance
 
