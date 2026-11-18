@@ -10,6 +10,7 @@ use gutch::api::{CancelFlag, OperationControl, ProgressEvent};
 use launcher_catalog::{Catalog, CatalogEntry, Os};
 
 use crate::library::{self, DEFAULT_BUCKET_URL, Installed, Library, Result, State};
+use crate::progress::{self, Progress};
 
 const GUTCH_URL: &str = "https://github.com/icauro/Gutch";
 
@@ -34,11 +35,22 @@ enum Update {
     Done(Result<Done>),
 }
 
+/// What a job works on, so its row can show the progress.
+#[derive(Clone, PartialEq)]
+enum Subject {
+    Catalog,
+    /// A published build, by snapshot.
+    Entry(String),
+    /// An installed version, by folder.
+    Install(PathBuf),
+}
+
 struct Job {
     title: &'static str,
+    subject: Subject,
     cancel: CancelFlag,
     updates: Receiver<Update>,
-    last_event: Option<ProgressEvent>,
+    progress: Progress,
 }
 
 pub struct App {
@@ -86,6 +98,8 @@ impl App {
         &mut self,
         ctx: &egui::Context,
         title: &'static str,
+        subject: Subject,
+        expected_bytes: Option<u64>,
         work: impl FnOnce(&Library, OperationControl) -> Result<Done> + Send + 'static,
     ) {
         let (sender, updates) = channel();
@@ -106,17 +120,20 @@ impl App {
         });
         self.job = Some(Job {
             title,
+            subject,
             cancel,
             updates,
-            last_event: None,
+            progress: Progress::new(expected_bytes),
         });
     }
 
     fn refresh(&mut self, ctx: &egui::Context) {
-        self.spawn(ctx, "Refresh", |library, _| {
+        let os = self.os;
+        self.spawn(ctx, "Refresh", Subject::Catalog, None, move |library, _| {
             let catalog = library.fetch_catalog()?;
+            let count = os.map_or(0, |os| catalog.for_os(os).count());
             Ok(Done {
-                message: format!("{} builds published", catalog.versions.len()),
+                message: format!("{count} versions published for this system"),
                 change: Change::Catalog(catalog),
             })
         });
@@ -129,7 +146,7 @@ impl App {
         let mut finished = None;
         for update in job.updates.try_iter() {
             match update {
-                Update::Progress(event) => job.last_event = Some(event),
+                Update::Progress(event) => job.progress.record(event),
                 Update::Done(result) => finished = Some(result),
             }
         }
@@ -176,81 +193,162 @@ impl App {
         self.status = result.unwrap_or_else(|error| error);
     }
 
-    fn installed_section(&mut self, ui: &mut egui::Ui) {
+    fn installed_section(&mut self, ui: &mut egui::Ui, idle: bool) {
         ui.heading("Installed");
+        let versions_dir = self.library.versions_dir();
+        ui.horizontal(|ui| {
+            ui.weak(format!("New versions go to {}", versions_dir.display()));
+            if ui.small_button("Open folder").clicked() {
+                let result = std::fs::create_dir_all(&versions_dir)
+                    .map_err(|error| format!("cannot create {}: {error}", versions_dir.display()))
+                    .and_then(|()| library::open_folder(&versions_dir))
+                    .map(|()| String::new());
+                if result.is_err() {
+                    self.report(result);
+                }
+            }
+        });
+        ui.add_space(4.0);
         if self.state.installs.is_empty() {
-            ui.label("Nothing installed yet.");
+            card(ui, |ui| {
+                ui.label("Nothing installed yet. Install a version below to get started.");
+            });
             return;
         }
-        let published = |installed: &Installed| {
-            self.catalog.as_ref().is_none_or(|catalog| {
-                catalog
-                    .versions
-                    .iter()
-                    .any(|entry| entry.snapshot_id == installed.snapshot_id)
-            })
-        };
         let mut action = None;
-        egui::Grid::new("installed")
-            .num_columns(3)
-            .striped(true)
-            .show(ui, |ui| {
-                for installed in &self.state.installs {
-                    let label = ui.strong(&installed.version);
-                    if !published(installed) {
-                        label.on_hover_text(
-                            "No longer published. It still runs, but a repair may \
-                             need a newer version.",
-                        );
-                    }
-                    ui.label(installed.path.display().to_string());
-                    ui.horizontal(|ui| {
-                        for (name, tip) in [
-                            ("Launch", "Start this version."),
-                            ("Verify", "Compare the files with the published build."),
-                            ("Repair", "Restore missing and changed files."),
-                            ("Move…", "Move the folder somewhere else."),
-                            ("Uninstall", "Delete the folder."),
-                        ] {
-                            if ui.button(name).on_hover_text(tip).clicked() {
-                                action = Some((name, installed.clone()));
-                            }
-                        }
+        for installed in &self.state.installs {
+            card(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(&installed.version).size(18.0).strong());
+                            self.install_tags(ui, installed);
+                        });
+                        ui.weak(installed.path.display().to_string());
                     });
-                    ui.end_row();
-                }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_enabled_ui(idle, |ui| {
+                            ui.menu_button("More…", |ui| {
+                                for (name, tip) in [
+                                    ("Open folder", "Show the files."),
+                                    ("Verify", "Compare the files with the published build."),
+                                    ("Repair", "Restore missing and changed files."),
+                                    ("Move…", "Move the folder somewhere else."),
+                                    ("Uninstall", "Delete the folder."),
+                                ] {
+                                    if ui.button(name).on_hover_text(tip).clicked() {
+                                        action = Some((name, installed.clone()));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            if ui.add(primary_button("Launch")).clicked() {
+                                action = Some(("Launch", installed.clone()));
+                            }
+                        });
+                    });
+                });
+                self.job_view(ui, &Subject::Install(installed.path.clone()));
             });
+        }
         if let Some((name, installed)) = action {
             self.run_action(ui.ctx(), name, installed);
         }
     }
 
+    /// "Update available" when a newer patch of the same series is published
+    /// and not installed; "No longer published" when the build was retired.
+    fn install_tags(&self, ui: &mut egui::Ui, installed: &Installed) {
+        let Some(catalog) = &self.catalog else {
+            return;
+        };
+        let published = catalog
+            .versions
+            .iter()
+            .any(|entry| entry.snapshot_id == installed.snapshot_id);
+        let update = catalog
+            .for_os(installed.os)
+            .filter(|entry| series(&entry.version) == series(&installed.version))
+            .filter(|entry| {
+                launcher_catalog::compare_versions(&entry.version, &installed.version).is_gt()
+            })
+            .find(|entry| {
+                !self
+                    .state
+                    .installs
+                    .iter()
+                    .any(|other| other.snapshot_id == entry.snapshot_id)
+            });
+        if let Some(entry) = update {
+            let color = ui.visuals().warn_fg_color;
+            tag(ui, &format!("Update available: {}", entry.version), color);
+        } else if !published {
+            let color = ui.visuals().weak_text_color();
+            tag(ui, "No longer published", color)
+                .on_hover_text("It still runs, but a repair may need a newer version.");
+        }
+    }
+
+    /// The progress of a job on `subject`, if one runs.
+    fn job_view(&self, ui: &mut egui::Ui, subject: &Subject) {
+        let Some(job) = self.job.as_ref().filter(|job| &job.subject == subject) else {
+            return;
+        };
+        ui.separator();
+        job.progress.show(ui, job.title);
+        if ui
+            .button("Cancel")
+            .on_hover_text("Stop as soon as it is safe to.")
+            .clicked()
+        {
+            job.cancel.cancel();
+        }
+    }
+
     fn run_action(&mut self, ctx: &egui::Context, name: &str, installed: Installed) {
         match name {
+            "Open folder" => {
+                let result = library::open_folder(&installed.path).map(|()| String::new());
+                if result.is_err() {
+                    self.report(result);
+                }
+            }
             "Launch" => {
                 let result =
                     library::launch(&installed).map(|()| format!("started {}", installed.version));
                 self.report(result);
             }
-            "Verify" => self.spawn(ctx, "Verify", move |library, control| {
-                let issues = library.verify(&installed, control)?;
-                Ok(Done {
-                    message: format!("{}: {issues}", installed.version),
-                    change: Change::None,
-                })
-            }),
-            "Repair" => {
-                let catalog = self.catalog.clone().unwrap_or_default();
-                self.spawn(ctx, "Repair", move |library, control| {
+            "Verify" => self.spawn(
+                ctx,
+                "Verify",
+                Subject::Install(installed.path.clone()),
+                None,
+                move |library, control| {
+                    let issues = library.verify(&installed, control)?;
                     Ok(Done {
-                        message: format!(
-                            "{}: {}",
-                            installed.version,
-                            library.repair(&catalog, &installed, control)?
-                        ),
+                        message: format!("{}: {issues}", installed.version),
                         change: Change::None,
                     })
-                });
+                },
+            ),
+            "Repair" => {
+                let catalog = self.catalog.clone().unwrap_or_default();
+                self.spawn(
+                    ctx,
+                    "Repair",
+                    Subject::Install(installed.path.clone()),
+                    None,
+                    move |library, control| {
+                        Ok(Done {
+                            message: format!(
+                                "{}: {}",
+                                installed.version,
+                                library.repair(&catalog, &installed, control)?
+                            ),
+                            change: Change::None,
+                        })
+                    },
+                );
             }
             "Move…" => {
                 let Some(parent) = rfd::FileDialog::new()
@@ -259,19 +357,25 @@ impl App {
                 else {
                     return;
                 };
-                self.spawn(ctx, "Move", move |_, _| {
-                    let new = library::move_folder(&installed.path, &parent)?;
-                    Ok(Done {
-                        message: format!("{} is now in {}", installed.version, new.display()),
-                        change: Change::Move(installed.path, new),
-                    })
-                });
+                self.spawn(
+                    ctx,
+                    "Move",
+                    Subject::Install(installed.path.clone()),
+                    None,
+                    move |_, _| {
+                        let new = library::move_folder(&installed.path, &parent)?;
+                        Ok(Done {
+                            message: format!("{} is now in {}", installed.version, new.display()),
+                            change: Change::Move(installed.path, new),
+                        })
+                    },
+                );
             }
             _ => self.confirm_uninstall = Some(installed),
         }
     }
 
-    fn available_section(&mut self, ui: &mut egui::Ui) {
+    fn available_section(&mut self, ui: &mut egui::Ui, idle: bool) {
         ui.heading("Available");
         let Some(os) = self.os else {
             ui.label("Builds are published for Windows and Linux only.");
@@ -281,41 +385,60 @@ impl App {
             ui.label("Press Refresh to read the published builds.");
             return;
         };
+        let latest = catalog
+            .for_os(os)
+            .map(|entry| entry.version.as_str())
+            .max_by(|left, right| launcher_catalog::compare_versions(left, right));
         let mut install = None;
-        egui::Grid::new("available")
-            .num_columns(4)
-            .striped(true)
-            .show(ui, |ui| {
-                for entry in catalog.for_os(os) {
-                    ui.strong(&entry.version);
-                    ui.label(format!("{:.0} MB", entry.size as f64 / 1_000_000.0));
-                    ui.label(entry.published_at.get(..10).unwrap_or(""));
-                    let installed = self
-                        .state
-                        .installs
-                        .iter()
-                        .any(|installed| installed.snapshot_id == entry.snapshot_id);
-                    if installed {
-                        ui.label("installed");
-                    } else {
+        for entry in catalog.for_os(os) {
+            card(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            if ui.button("Install").clicked() {
-                                install = Some((entry.clone(), None));
-                            }
-                            if ui
-                                .button("Install to…")
-                                .on_hover_text("Pick the folder to install into.")
-                                .clicked()
-                            {
-                                install = Some((entry.clone(), Some(())));
+                            ui.label(egui::RichText::new(&entry.version).size(18.0).strong());
+                            if latest == Some(entry.version.as_str()) {
+                                let color = ui.visuals().hyperlink_color;
+                                tag(ui, "Latest", color);
                             }
                         });
-                    }
-                    ui.end_row();
-                }
+                        ui.horizontal(|ui| {
+                            ui.weak(format!("{} on disk", progress::size(entry.size)));
+                            ui.weak("·");
+                            ui.hyperlink_to("Release notes", release_notes(&entry.version));
+                        });
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let installed = self
+                            .state
+                            .installs
+                            .iter()
+                            .any(|installed| installed.snapshot_id == entry.snapshot_id);
+                        if installed {
+                            ui.weak("Installed");
+                            return;
+                        }
+                        ui.add_enabled_ui(idle, |ui| {
+                            ui.menu_button("▼", |ui| {
+                                if ui
+                                    .button("Install to…")
+                                    .on_hover_text("Pick the folder to install into.")
+                                    .clicked()
+                                {
+                                    install = Some((entry.clone(), true));
+                                    ui.close();
+                                }
+                            });
+                            if ui.add(primary_button("Install")).clicked() {
+                                install = Some((entry.clone(), false));
+                            }
+                        });
+                    });
+                });
+                self.job_view(ui, &Subject::Entry(entry.snapshot_id.clone()));
             });
+        }
         if let Some((entry, pick)) = install {
-            self.install(ui.ctx(), entry, pick.is_some());
+            self.install(ui.ctx(), entry, pick);
         }
     }
 
@@ -331,15 +454,34 @@ impl App {
         } else {
             self.library.default_folder(&entry)
         };
+        if let Some(free) = library::free_space(&folder)
+            && free < entry.size
+        {
+            self.report(Err(format!(
+                "Install {}: it needs {} and only {} is free on that disk",
+                entry.version,
+                progress::size(entry.size),
+                progress::size(free)
+            )));
+            return;
+        }
         let catalog = self.catalog.clone().unwrap_or_default();
         let reuse = self.state.newest(entry.os).cloned();
-        self.spawn(ctx, "Install", move |library, control| {
-            let installed = library.install(&catalog, &entry, &folder, reuse.as_ref(), control)?;
-            Ok(Done {
-                message: format!("{} installed in {}", entry.version, folder.display()),
-                change: Change::Add(installed),
-            })
-        });
+        let subject = Subject::Entry(entry.snapshot_id.clone());
+        self.spawn(
+            ctx,
+            "Install",
+            subject,
+            Some(entry.size),
+            move |library, control| {
+                let installed =
+                    library.install(&catalog, &entry, &folder, reuse.as_ref(), control)?;
+                Ok(Done {
+                    message: format!("{} installed in {}", entry.version, folder.display()),
+                    change: Change::Add(installed),
+                })
+            },
+        );
     }
 
     fn uninstall_dialog(&mut self, ctx: &egui::Context) {
@@ -369,7 +511,8 @@ impl App {
         match answer {
             Some(true) => {
                 self.confirm_uninstall = None;
-                self.spawn(ctx, "Uninstall", move |library, control| {
+                let subject = Subject::Install(installed.path.clone());
+                self.spawn(ctx, "Uninstall", subject, None, move |library, control| {
                     library.uninstall(&installed, control)?;
                     Ok(Done {
                         message: format!("{} removed", installed.version),
@@ -408,22 +551,16 @@ impl App {
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         if let Some(job) = &self.job {
             ui.horizontal(|ui| {
-                if ui
-                    .button("Cancel")
-                    .on_hover_text("Stop as soon as it is safe to.")
-                    .clicked()
+                // A row shows its own job with a Cancel button.
+                if job.subject == Subject::Catalog
+                    && ui
+                        .button("Cancel")
+                        .on_hover_text("Stop as soon as it is safe to.")
+                        .clicked()
                 {
                     job.cancel.cancel();
                 }
-                let (fraction, text) = match &job.last_event {
-                    Some(event) => (progress_fraction(event), event.message.clone()),
-                    None => (None, format!("{}…", job.title)),
-                };
-                let bar = match fraction {
-                    Some(fraction) => egui::ProgressBar::new(fraction).show_percentage(),
-                    None => egui::ProgressBar::new(0.0).animate(true),
-                };
-                ui.add(bar.text(text));
+                job.progress.show_compact(ui, job.title);
             });
         } else if self.status_is_error {
             ui.colored_label(ui.visuals().error_fg_color, &self.status);
@@ -443,12 +580,9 @@ impl eframe::App for App {
         let idle = self.job.is_none() && self.confirm_uninstall.is_none();
         egui::Panel::top("top").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("Gutch Launcher Sample");
-                ui.add_enabled_ui(idle, |ui| {
-                    if ui.button("Refresh").clicked() {
-                        self.refresh(ui.ctx());
-                    }
-                });
+                if ui.add_enabled(idle, egui::Button::new("Refresh")).clicked() {
+                    self.refresh(ui.ctx());
+                }
                 if ui.button("About").clicked() {
                     self.show_about = true;
                 }
@@ -457,11 +591,9 @@ impl eframe::App for App {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.add_enabled_ui(idle, |ui| {
-                    self.installed_section(ui);
-                    ui.separator();
-                    self.available_section(ui);
-                });
+                self.installed_section(ui, idle);
+                ui.add_space(12.0);
+                self.available_section(ui, idle);
             });
         });
         let ctx = ui.ctx().clone();
@@ -470,13 +602,44 @@ impl eframe::App for App {
     }
 }
 
-/// Bytes when the phase moves data, otherwise items.
-fn progress_fraction(event: &ProgressEvent) -> Option<f32> {
-    if event.total_bytes > 0 {
-        Some(event.transferred_bytes as f32 / event.total_bytes as f32)
-    } else if event.total > 0 {
-        Some(event.current as f32 / event.total as f32)
-    } else {
-        None
-    }
+/// A row's frame, as wide as the window.
+fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(12))
+        .corner_radius(6)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui);
+        });
+    ui.add_space(6.0);
+}
+
+fn primary_button(text: &str) -> egui::Button<'_> {
+    egui::Button::new(egui::RichText::new(text).size(16.0).strong())
+        .min_size(egui::vec2(96.0, 32.0))
+}
+
+/// A small coloured label beside a version.
+fn tag(ui: &mut egui::Ui, text: &str, color: egui::Color32) -> egui::Response {
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.18))
+        .corner_radius(4)
+        .inner_margin(egui::Margin::symmetric(6, 1))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(text).small().color(color))
+        })
+        .response
+}
+
+/// The release series, such as `5.2` for `5.2.4`.
+fn series(version: &str) -> String {
+    version.split('.').take(2).collect::<Vec<_>>().join(".")
+}
+
+/// Blender's release notes for a version's series.
+fn release_notes(version: &str) -> String {
+    format!(
+        "https://www.blender.org/download/releases/{}/",
+        series(version).replace('.', "-")
+    )
 }

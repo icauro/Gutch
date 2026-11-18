@@ -366,6 +366,35 @@ pub fn launch(installed: &Installed) -> Result<()> {
         .map_err(|error| format!("cannot start {}: {error}", program.display()))
 }
 
+/// Opens `folder` in the system's file manager.
+pub fn open_folder(folder: &Path) -> Result<()> {
+    let program = if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    Command::new(program)
+        .arg(folder)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("cannot open {}: {error}", folder.display()))
+}
+
+/// Free bytes on the disk that holds `path` or its nearest existing parent,
+/// when the system reports it.
+pub fn free_space(path: &Path) -> Option<u64> {
+    let mut existing = std::path::absolute(path).ok()?;
+    while !existing.exists() {
+        existing = existing.parent()?.to_path_buf();
+    }
+    sysinfo::Disks::new_with_refreshed_list()
+        .list()
+        .iter()
+        .filter(|disk| existing.starts_with(disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().as_os_str().len())
+        .map(sysinfo::Disk::available_space)
+}
+
 #[cfg(test)]
 #[path = "library_tests.rs"]
 mod tests;

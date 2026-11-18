@@ -10,6 +10,7 @@
 
 mod app;
 mod library;
+mod progress;
 
 const TITLE: &str = "Gutch Launcher Sample";
 
