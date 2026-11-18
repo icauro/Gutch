@@ -28,7 +28,13 @@ cargo run --release -p gutch-launcher-sample
 
 The launcher lists the builds published for your system (Windows x64 or Linux
 x64). With **Install**, a version goes to `DATA/versions/blender-VERSION`.
-With **Install to…**, you pick the parent folder. The launcher keeps its
+With **Install to…**, in the menu beside **Install**, you pick the parent
+folder. An install first checks that the disk has room for the version, and
+it shows its progress in the version's row: the amount downloaded and
+written, the time left, and a graph of the network and disk speeds. Gutch
+downloads and writes at the same time, so both can be busy at once.
+Installed versions have **Launch**; the rest is under **More…**. A newer
+patch of an installed series is marked as an update. The launcher keeps its
 files in each system's folders for the current user:
 
 | | `DATA`: cache and versions | The list of installs (`state.json`) |
@@ -49,6 +55,8 @@ publisher fills.
   downloaded.
 - Every download is a plain HTTP GET of a public URL from
   [`PublicLayout`](catalog/src/lib.rs). The launcher holds no keys.
+- The speeds come from the `feedback` field of Gutch's progress events,
+  which reports the download and the writes to the folder separately.
 - **Verify** calls `verify_installation` against the cached snapshot.
 - **Repair** downloads the bundles the snapshot needs, while the version is
   still published. It then calls `repair_installation`, which restores
