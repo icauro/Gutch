@@ -13,6 +13,7 @@ code in the retained Git history.
 | FastCDC v2020, fastcdc-rs 5.0.0 | `src/04_artifact/fastcdc_v2020/mod.rs`, `src/04_artifact/gear.rs` | MIT; Nathan Fiedler. Preserve the [upstream license](src/04_artifact/fastcdc_v2020/LICENSE) and source copyright notices. |
 | Plakar-compatible JC chunker and Gear table | `src/04_artifact/jc.rs`, `src/04_artifact/jc_gear.rs` | ISC; copyright (c) 2024 Gilles Chehade. Full text: [jc.LICENSE](src/04_artifact/jc.LICENSE). |
 | RAM / VectorCDC reference and adaptation | `src/04_artifact/ram.rs`, `tests/benchmarks/ram_reference.cpp` | Apache-2.0; copyright (c) 2023 WASL. Full text: [RAM license](src/04_artifact/ram/LICENSE). Changes for Gutch are identified in the source and [reference notes](src/04_artifact/ram/README.md). |
+| Titillium Web font, Regular, SemiBold and Bold | `_docs/assets/fonts/TitilliumWeb-*.ttf`; subsets embedded in `_docs/assets/banner.svg` | SIL Open Font License 1.1; copyright (c) 2009-2011 Accademia di Belle Arti di Urbino and students of the MA course of Visual design. Full text: [OFL.txt](_docs/assets/fonts/OFL.txt). Used unmodified except for subsetting. |
 
 Pinned upstream sources:
 
@@ -23,6 +24,8 @@ Pinned upstream sources:
   The `jc-v1.1.0` name identifies an algorithm variant, not a repository release
   tag. Gutch ports that chunking rule and reference Gear table to Rust; keyed
   tables and the upstream Go interfaces are not included.
+- [google/fonts, commit 7af0d90b4d532ffa4b041937b560c6df4e7b1e95](https://github.com/google/fonts/tree/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/titilliumweb).
+  The banner generator embeds only the letters the banner uses.
 - [UWASL/dedup-bench, commit 8e2697cbf6332ac5da6dc615bfab82a720e820e4](https://github.com/UWASL/dedup-bench/tree/8e2697cbf6332ac5da6dc615bfab82a720e820e4).
   The Rust RAM implementation replaces scratch arrays with bounded register
   reductions. The C++ benchmark retains reference kernels with a Gutch timing

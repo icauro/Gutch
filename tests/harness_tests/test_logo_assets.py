@@ -31,3 +31,9 @@ def test_variants_place_the_drawing_at_the_optical_center_inside_the_safe_circle
         assert abs((min(xs) + max(xs)) / 2 - (CENTER[0] + OPTICAL_SHIFT * SIZE)) < 1
         assert abs((min(ys) + max(ys)) / 2 - CENTER[1]) < 1
         assert max(math.dist(point, CENTER) for point in placed) <= SAFE_RADIUS * SIZE / 2 + 1
+
+
+def test_committed_banner_matches_its_sources():
+    from _tools.render_banner import main as render_banner
+
+    assert render_banner(["--check"]) == 0

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="_docs/assets/banner.svg" width="100%" alt="Gutch: one store serves every version to every user; updates, repairs and rollbacks send only the delta">
+</p>
+
 # Gutch
 
 Gutch is a fast deduplicating store and installer for folder trees, written
