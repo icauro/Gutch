@@ -27,7 +27,7 @@ gutch-cli installation verify --repo ./my-repo --snapshot <SNAPSHOT_ID> --destin
 | You're building | Fit | What Gutch does |
 | --- | --- | --- |
 | A game or app launcher | ✅ Good | Updates download only what changed. Repair rewrites only broken files. |
-| A tool that keeps several versions installed | ✅ Good | Content the versions share is stored once. |
+| A tool that keeps several versions installed | ✅ Good | Content the versions share is stored once, as in the [launcher sample](examples/launcher_sample). |
 | A build archive | ✅ Good | Any old build comes back exactly. |
 | An app that ships from your own server or S3 | ✅ Good | You embed the Rust library and plug in your storage, as [`examples/s3_app`](examples/s3_app) does. |
 | Backups of file contents | 🟡 Partial | Restores are fast and checked, but old versions are not pruned for you. |

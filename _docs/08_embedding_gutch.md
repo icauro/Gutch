@@ -179,6 +179,9 @@ store backed by a local folder. [`examples/s3_app`](../examples/s3_app) is a
 desktop app with a store for S3-compatible buckets (AWS S3, MinIO, R2): it
 creates repositories in a bucket, captures and pushes folders, and installs,
 updates, verifies and repairs snapshots on the local machine.
+[`examples/launcher_sample`](../examples/launcher_sample) publishes releases to
+a public bucket from a scheduled workflow, and its launcher installs them over
+plain HTTP with no keys.
 
 ### Servers with their own API
 

@@ -95,9 +95,9 @@ uses to allow only one push to a repository at a time. AWS S3, MinIO and R2 do.
 
 ## How it works
 
-[`src/store.rs`](src/store.rs) implements Gutch's `RemoteObjectStore` trait
-with presigned S3 requests. `ObjectStoreRemote` turns it into a full remote, as
-described in
+The shared [`gutch-s3-store`](../s3_store) crate implements Gutch's
+`RemoteObjectStore` trait with presigned S3 requests. `ObjectStoreRemote`
+turns it into a full remote, as described in
 [Storage remotes](../../_docs/08_embedding_gutch.md#storage-remotes).
 
 The app keeps a copy of each repository it opens in the local cache folder
