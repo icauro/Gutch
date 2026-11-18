@@ -112,6 +112,10 @@ runs with the store already in memory and a 10-second pause between runs.
 
 ## How it is designed
 
+<p align="center">
+  <img src="_docs/assets/pipeline.svg" width="100%" alt="Capture cuts a folder into chunks, names them by hash, skips known ones, compresses and packs them into bundles in the store; install plans by bundle, unpacks each once on all cores, writes chunks in place, checks each file, builds in staging and swaps in">
+</p>
+
 A snapshot is usually captured once and installed many times, so installing
 gets the most attention. Capture is fast and runs in parallel too, but when
 the two pull in different directions, installing wins.
