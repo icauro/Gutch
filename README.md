@@ -22,11 +22,6 @@ gutch-cli installation reconstruct --repo ./my-repo --snapshot <SNAPSHOT_ID> --d
 gutch-cli installation verify --repo ./my-repo --snapshot <SNAPSHOT_ID> --destination ./installed-app
 ```
 
-Repair rewrites only the files that are missing or damaged. An install can
-also [download the snapshot over HTTP(S)](_docs/04_installing_snapshots.md#download-while-reconstructing)
-while it writes, a repository can be encrypted with a password or key file,
-and capture can refuse file names that would break on the systems you ship to.
-
 ## Where it fits
 
 | You're building | Fit | What Gutch does |
@@ -100,10 +95,12 @@ against that ID.
 Install works bundle by bundle instead of file by file. Each bundle is read
 and unpacked once, on all cores, and every chunk in it goes straight to each
 file and offset that uses it. A file is checked the moment its last chunk
-lands, while other files are still being written, and downloads overlap with
-unpacking. The whole tree is built in a staging folder next to the
-destination and swapped in only after every file checks out. If anything
-fails, the old installation is still there, untouched.
+lands, while other files are still being written, and when the snapshot is
+[downloaded over
+HTTP(S)](_docs/04_installing_snapshots.md#download-while-reconstructing), the
+download overlaps with unpacking. The whole tree is built in a staging folder
+next to the destination and swapped in only after every file checks out. If
+anything fails, the old installation is still there, untouched.
 
 Repair first finds the files that are missing or damaged, then reads only the
 bundles those files need. An update can copy matching content from the old
