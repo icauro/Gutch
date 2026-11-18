@@ -67,15 +67,17 @@ closely as that tool allows.
   <a href="_docs/assets/install_profile.svg"><img src="_docs/assets/install_profile.svg" width="100%" alt="Perfetto timeline of one Gutch install: 12 workers unpack, check and write bundles side by side until the install is done"></a>
 </p>
 
-Gutch installs Blender 5.1 for Windows, 977 MB in 6,368 files stored as
-380 MB, in 0.65 s and checks every file before the folder goes live. Copying
-the same folder uncompressed with robocopy takes 0.77 s. Both ran with
-default settings on an AMD Ryzen 9 7900 (12 cores) with a KIOXIA Exceria G2
-NVMe SSD and Windows 11. Unpacking and checking are thin
-slivers; nearly all the time goes to writing files, so the disk sets the
-pace. Limited to 4 or 8 threads, Gutch takes about 0.7 s, level with robocopy
-on the same thread count. Each figure is the median of three runs with the
-store already in memory and a 10-second pause between runs.
+Gutch installs Blender 5.1 for Windows (977 MB in 6,368 files, stored as
+380 MB) in 0.65 s, checking every file before the folder goes live. Copying
+the same folder uncompressed with robocopy takes 0.77 s.
+
+The timeline above shows why. Unpacking and checking take very little time;
+almost all of it goes to writing files, so the disk sets the speed. With the
+same thread limit, 4 or 8, Gutch and robocopy both take about 0.7 s.
+
+<sub>AMD Ryzen 9 7900 (12 cores), KIOXIA Exceria G2 NVMe SSD, Windows 11,
+default settings. Median of three runs, with the store already in memory and
+a 10-second pause between runs.</sub>
 
 ## How it works
 
