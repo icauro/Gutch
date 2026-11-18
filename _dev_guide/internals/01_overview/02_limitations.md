@@ -53,7 +53,7 @@ transactions, exhaustive power-loss testing, and resumable recovery are not prov
 | No arbitrary selected-path export or filesystem mount | Public reconstruction produces a complete local tree. Repair selects damaged entries, not arbitrary export paths; no mounted random-read interface exists. |
 | No transfer bandwidth ceiling | Worker limits and adaptive backpressure control concurrency, not a bytes-per-second budget. |
 | Loose-chunk publishing is limited | Engine operations support loose chunks; production remote delivery currently publishes bundled artifacts. |
-| No client-controlled repository encryption | Artifacts are compressed and hashed without an engine encryption/key-management layer. Hashes do not conceal bytes; host authorization does not supply this guarantee. |
+| Encryption does not hide repository shape | `repo init --encrypt` seals content, file names, tags and the chunk index with AES-256-GCM, but the repository's display name, the number and sizes of its files, and when they were written stay visible. |
 
 Selective repair is not an atomic multi-file commit; failure during publication
 can require a retry. Indexes, manifests, and job plans still scale with repository
