@@ -47,11 +47,12 @@ NEW = "#fbbf24"
 # Core technologies, shown as tags along the bottom of the banner.
 STORE_LOCATIONS = ("Local", "HTTP", "S3")
 TECHNOLOGIES = ("Rust", "FastCDC", "BLAKE3", "Zstandard", "LZ4", "AES-256-GCM")
-# The name: a slanted two-tone split in the logo's colors (pale mint above, teal below a hard line),
+# The name: three hard, slanted bands in the logo's colors (mint, teal, deep teal),
 # with a tight dark shadow and no glow.
-TITLE_DEFS = f"""  <linearGradient id="title" x1="0" y1="0" x2="0.12" y2="1">
-    <stop offset="0" stop-color="#f2fffb"/><stop offset="0.6" stop-color="{MINT}"/>
-    <stop offset="0.6" stop-color="{TEAL}"/><stop offset="0.82" stop-color="#2cc4b4"/><stop offset="1" stop-color="{DEEP}"/>
+TITLE_DEFS = f"""  <linearGradient id="title" x1="0" y1="0" x2="0.25" y2="1">
+    <stop offset="0" stop-color="{MINT}"/><stop offset="0.45" stop-color="{MINT}"/>
+    <stop offset="0.45" stop-color="{TEAL}"/><stop offset="0.72" stop-color="{TEAL}"/>
+    <stop offset="0.72" stop-color="{DEEP}"/><stop offset="1" stop-color="{DEEP}"/>
   </linearGradient>
   <filter id="lift" x="-5%" y="-10%" width="110%" height="130%">
     <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#000" flood-opacity="0.6"/>
