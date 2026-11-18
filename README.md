@@ -68,6 +68,22 @@ capturing, and Kopia still captures about 1.2× faster. The
 has the full method, raw results and the remaining differences between
 tools, and anyone can run it again.
 
+### One install, up close
+
+<p align="center">
+  <a href="_docs/assets/install_profile.svg"><img src="_docs/assets/install_profile.svg" width="100%" alt="Perfetto timeline of one Gutch install: 12 workers unpack, check and write bundles side by side until the install is done"></a>
+</p>
+
+This is one profiled install of Blender 5.1.0 for Windows (977 MB in 6,368
+files, stored as 380 MB) on a desktop PC with an AMD Ryzen 9 7900 (12 cores),
+a KIOXIA Exceria G2 NVMe SSD and Windows 11. With default settings it takes
+0.65 s, while copying the uncompressed folder with robocopy on 24 threads
+takes 0.77 s. Limited to 4 or 8 threads, Gutch takes about 0.7 s, the same
+as robocopy with the same number of threads. Unpacking and checking take only
+a small share of the work; most of the time goes into writing files, so the
+disk, not the processor, sets the pace. Each figure is the median of three
+runs with the store already in memory and a 10-second pause between runs.
+
 ### Why it is faster
 
 - **Each bundle is read once.** Gutch plans an install around the bundles it
