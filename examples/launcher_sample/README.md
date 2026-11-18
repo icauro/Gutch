@@ -58,9 +58,12 @@ publisher fills.
 - The speeds come from the `feedback` field of Gutch's progress events,
   which reports the download and the writes to the folder separately.
 - **Verify** calls `verify_installation` against the cached snapshot.
-- **Repair** downloads the bundles the snapshot needs, while the version is
-  still published. It then calls `repair_installation`, which restores
-  missing and changed files and keeps files you added.
+- **Repair** first calls `verify_installation`. If the folder holds files
+  that are not part of the build, such as files you added or Python caches
+  Blender wrote, it asks whether to keep or remove them. While the version is
+  still published, it downloads the bundles the snapshot needs. It then
+  calls `repair_installation`, which restores missing and changed files and
+  removes the extra files only when you chose to (`remove_extra_files`).
 - **Move…** moves the folder, and **Uninstall** deletes it. Uninstall then
   deletes the snapshot from the cache, which keeps any bundles that other
   installed versions still need.
