@@ -1,0 +1,24 @@
+[package]
+name = "gutch-launcher-sample"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dirs = "7.0.0"
+eframe = "0.37.0"
+gutch = { path = "../../..", default-features = false }
+launcher-catalog = { path = "../catalog" }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "rustls"] }
+rfd = "0.18.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+gutch-s3-store = { path = "../../s3_store" }
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

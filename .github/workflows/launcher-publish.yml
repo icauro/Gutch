@@ -1,0 +1,66 @@
+name: Launcher sample publish
+# Publishes new official Blender builds to the Gutch Launcher Sample bucket
+# and retires old ones. See examples/launcher_sample/README.md.
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Show what would change without changing anything
+        type: boolean
+        default: false
+      max-new:
+        description: Add at most this many builds in this run
+        type: number
+        default: 4
+permissions:
+  contents: read
+# Never cancel a run that is pushing; the next one waits instead.
+concurrency:
+  group: launcher-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    environment: launcher-publish
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .cargo
+            src
+            gutch-cli
+            examples/s3_store
+            examples/launcher_sample
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.100.0 --profile minimal
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .builds/compiler-cache/cargo
+          key: launcher-publish-rust1.100.0-${{ hashFiles('examples/launcher_sample/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: launcher-publish-rust1.100.0-${{ hashFiles('examples/launcher_sample/Cargo.lock') }}-
+      - name: Build the publisher
+        working-directory: examples/launcher_sample
+        run: cargo +1.100.0 build --locked --release --package launcher-publisher
+      - name: Publish
+        env:
+          S3_ENDPOINT: https://s3.gra.io.cloud.ovh.net
+          S3_REGION: gra
+          S3_BUCKET: gutch-sample
+          AWS_ACCESS_KEY_ID: ${{ secrets.OVH_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OVH_S3_SECRET_ACCESS_KEY }}
+          DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
+          MAX_NEW: ${{ inputs.max-new || 4 }}
+        run: >
+          .builds/compiler-cache/cargo/release/launcher-publisher publish
+          --work-dir "$RUNNER_TEMP/publish-work"
+          --max-new "$MAX_NEW"
+          $DRY_RUN

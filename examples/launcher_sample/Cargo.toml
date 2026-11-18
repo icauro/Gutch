@@ -1,0 +1,15 @@
+# A separate workspace, so the sample's dependencies stay out of Gutch's own
+# builds.
+[workspace]
+members = ["catalog", "publisher", "launcher"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "MIT"
+publish = false
+
+[workspace.lints.cargo]
+unused_dependencies = "deny"
