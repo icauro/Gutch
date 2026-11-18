@@ -91,17 +91,9 @@ pub(crate) fn plan_orphan_artifact_cleanup(
             },
         );
         let manifest = load_snapshot_manifest(&repo_paths, snapshot_id)?;
-        let required_artifacts = required_artifacts(&manifest, &chunk_index)?;
-        for artifact in &required_artifacts {
-            let path = artifact.local_path(&repo_paths)?;
-            if !path.is_file() {
-                return Err(crate::Error::repo(format!(
-                    "cannot clean repository: snapshot '{snapshot_id}' requires missing artifact '{}'",
-                    path.display()
-                )));
-            }
-        }
-        still_required_artifacts.extend(required_artifacts);
+        // A metadata-only copy lacks most bundles; only files on disk that no
+        // remaining snapshot needs are removed, so missing ones do not matter.
+        still_required_artifacts.extend(required_artifacts(&manifest, &chunk_index)?);
     }
 
     let artifact_files = list_repo_artifact_paths(&repo_paths)?;

@@ -770,3 +770,43 @@ fn a_metadata_only_copy_can_capture_and_push_new_snapshots() {
         crate::repo::inventory::list_repo_snapshot_ids(&RepoPaths::from_repo_root(&full)).unwrap();
     assert!(local_ids.contains(&second));
 }
+
+#[test]
+fn a_metadata_only_copy_can_delete_a_snapshot_and_push_the_removal() {
+    let root = tempfile::tempdir().unwrap();
+    let origin = root.path().join("origin");
+    let first = capture(&origin, &root.path().join("first"), &[1; 64 * 1024]);
+    let second = capture(&origin, &root.path().join("second"), &[2; 64 * 1024]);
+    bind(&origin);
+    let provider = MemoryProvider::default();
+    push(&origin, &provider).unwrap();
+
+    let publisher = root.path().join("publisher");
+    pull_repo(
+        &RepoPullRequest {
+            repo_root: publisher.clone(),
+            remote_repo_id: Some("memory".into()),
+            bundles: PullBundles::None,
+            ..Default::default()
+        },
+        &provider,
+    )
+    .unwrap();
+    crate::repo::snapshots::delete_snapshot(&crate::repo::snapshots::SnapshotDeleteRequest {
+        repo_root: publisher.clone(),
+        snapshot_id: first.clone(),
+        control: Default::default(),
+    })
+    .unwrap();
+    push(&publisher, &provider).unwrap();
+
+    // Only the second snapshot and the bundles it needs stay on the remote.
+    let full = root.path().join("full");
+    pull(&full, &provider, false);
+    let local_ids =
+        crate::repo::inventory::list_repo_snapshot_ids(&RepoPaths::from_repo_root(&full)).unwrap();
+    assert_eq!(local_ids, [second]);
+    let fresh = root.path().join("fresh");
+    capture(&fresh, &root.path().join("second"), &[2; 64 * 1024]);
+    assert_eq!(bundle_ids(&full), bundle_ids(&fresh));
+}
