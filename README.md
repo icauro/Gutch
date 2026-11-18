@@ -61,7 +61,7 @@ a single other tool. The other tools offer fewer settings than Gutch, so no
 one baseline fits all of them; instead, Gutch is set to match each tool as
 closely as that tool allows.
 
-### One install, up close
+### Gutch maximizes throughput
 
 <p align="center">
   <a href="_docs/assets/install_profile.svg"><img src="_docs/assets/install_profile.svg" width="100%" alt="Perfetto timeline of one Gutch install: 12 workers unpack, check and write bundles side by side until the install is done"></a>
