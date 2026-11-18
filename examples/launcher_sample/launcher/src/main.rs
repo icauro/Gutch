@@ -4,6 +4,10 @@
 //!
 //! Run with `cargo run --release -p gutch-launcher-sample`. See README.md.
 
+// Release builds open no console window on Windows; debug builds keep it
+// for panic messages.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod library;
 
