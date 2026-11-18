@@ -32,14 +32,14 @@ and capture can refuse file names that would break on the systems you ship to.
 [![Gutch benchmark comparisons](https://raw.githubusercontent.com/icauro/Gutch-Benchmarks/main/_docs/reports/comparison.svg)](https://github.com/icauro/Gutch-Benchmarks)
 
 Think of a game sold through a store such as Steam or the Epic Games Store.
-The studio uploads each build once, and players download it millions of times:
-they install it, update it with every patch and repair it when files are
-damaged. All three run the same command, `installation reconstruct`, and that
-is the command Gutch is optimized for. Against Restic, Kopia, Borg, Rustic and
-Plakar, a fresh install is 2.2–4.6× faster and a repair 2.4–8× faster (29×
-against Plakar).
+The developer uploads each build once, and players download it millions of
+times: they install it, update it with every patch and repair it when files
+are damaged. All three run the same command, `installation reconstruct`, and
+that is the command Gutch is optimized for. Against Restic, Kopia, Borg,
+Rustic and Plakar, a fresh install is 2.2–4.6× faster and a repair 2.4–8×
+faster (29× against Plakar).
 
-Capture is the studio's side. It runs once per build, so it matters less,
+Capture is the developer's side. It runs once per build, so it matters less,
 but it is still quick. Chunks are hashed with BLAKE3, and content the
 repository already holds is skipped before it is compressed. Gutch captures
 faster than all of the tools above except Kopia, which is about 1.2× quicker,
