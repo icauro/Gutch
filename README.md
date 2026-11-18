@@ -27,6 +27,20 @@ also [download the snapshot over HTTP(S)](_docs/04_installing_snapshots.md#downl
 while it writes, a repository can be encrypted with a password or key file,
 and capture can refuse file names that would break on the systems you ship to.
 
+## Where it fits
+
+| If you are building | Gutch gives you |
+| --- | --- |
+| A game or app launcher | Fast installs, and updates and repairs that fetch only what changed or broke |
+| A package manager or version switcher | Several versions side by side, with shared content stored once |
+| A build archive | Every old build back exactly as it was, sharing storage with the rest |
+| Distribution from your own server or cloud storage | A Rust library with a small storage interface; [`examples/s3_app`](examples/s3_app) is a complete S3 app |
+| System backups | A poor fit: no retention schedules, and owners, timestamps, extended attributes, hard links and permissions beyond the executable and read-only flags are not kept |
+
+Gutch is a library first, and `gutch-cli` is a thin layer over it.
+Repositories sync with a server your application provides, so the
+application keeps control of its own accounts and access rules.
+
 ## Performance
 
 [![Gutch benchmark comparisons](https://raw.githubusercontent.com/icauro/Gutch-Benchmarks/main/_docs/reports/comparison.svg)](https://github.com/icauro/Gutch-Benchmarks)
@@ -100,25 +114,6 @@ Gutch keeps only file contents, symbolic links and the executable and
 read-only flags: there are no owners, timestamps or extended attributes to
 apply file by file. Encryption (AES-256-GCM), loose-chunk storage and
 profiling are off by default and add no work while off.
-
-## Where it fits
-
-Gutch suits programs that put the same large folders on many machines, again
-and again: a launcher that updates a game in place, or a package manager that
-keeps several versions of a tool side by side. A build archive gets the same
-benefit, since every old build comes back exact while sharing storage with
-the rest.
-
-It is a poor fit for system backups. It has no retention schedules, and it
-drops owners, permissions beyond the two flags, timestamps, extended
-attributes and hard links.
-
-Gutch is a library first, and `gutch-cli` is a thin layer over it. A
-repository lives in a local folder. To keep one in S3-compatible storage or
-another object store, implement a small storage interface;
-[`examples/s3_app`](examples/s3_app) is a complete S3 app. Repositories sync
-with a server your application provides, and the application keeps control of
-its own accounts and access rules.
 
 ## Getting Gutch
 
