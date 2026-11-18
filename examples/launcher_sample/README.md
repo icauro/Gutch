@@ -66,9 +66,13 @@ published can still be verified, and repaired from the cache.
 [`.github/workflows/launcher-publish.yml`](../../.github/workflows/launcher-publish.yml)
 runs the publisher every day, and on demand from the Actions tab. Each run:
 
-1. Reads the release list from `download.blender.org/release`, which holds
-   only stable releases. It keeps the newest patch release of the 8 newest
-   series, from 5.0 on, for Windows x64 and Linux x64.
+1. Reads the list of stable releases. It keeps the newest patch release of
+   the 8 newest series, from 5.0 on, for Windows x64 and Linux x64.
+   `download.blender.org` refuses GitHub's runners, so the workflow reads an
+   official mirror of it (`--releases-url`). A build is used only when two
+   mirrors run by other organizations publish the same SHA-256 for it
+   (`--confirm-url`). A build they have not copied yet waits for a later
+   run.
 2. Pulls the repository's metadata from the bucket, without bundles, and
    compares the published versions with the wanted ones.
 3. Deletes retired versions' snapshots and pushes. The push deletes the
@@ -80,7 +84,8 @@ runs the publisher every day, and on demand from the Actions tab. Each run:
 5. Writes `catalog.json`. The bucket does not allow listing, so the launcher
    finds the versions here.
 
-One run adds at most 4 builds (`--max-new`). It stops adding when the bucket
+A run with an empty release list changes nothing, so an outage never
+retires the published versions. One run adds at most 4 builds (`--max-new`). It stops adding when the bucket
 would grow past 18 GiB (`--budget-gib`). Builds left over wait for a later
 run. `--dry-run` reports what would change and changes nothing.
 
