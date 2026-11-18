@@ -7,12 +7,16 @@ one, damages the installation and repairs it. It takes a few minutes.
 
 Gutch is a single executable, `gutch-cli` (`gutch-cli.exe` on Windows). Either:
 
-- **Download a build.** In the project's GitHub page, open **Actions → Build
-  Gutch CLI**, pick a successful run and download the package for your system
-  (Linux or Windows, x86-64 or ARM64; most PCs are x86-64). GitHub asks you
-  to sign in first. Unzip it: it contains the executable, a `SHA256SUMS` file
-  and license notices. These builds are unsigned, so Windows may warn before
-  running one, and they are kept for 30 days.
+- **Download a release.** From the project's
+  [latest release](https://github.com/icauro/Gutch/releases/latest), download
+  the executable for your system, such as `gutch-cli-0.1.0-linux-x86_64` or
+  `gutch-cli-0.1.0-windows-x86_64.exe` (Linux or Windows, x86-64 or ARM64;
+  most PCs are x86-64), and rename it `gutch-cli` (`gutch-cli.exe` on
+  Windows). `SHA256SUMS` lists each file's checksum; check yours with
+  `sha256sum --ignore-missing -c SHA256SUMS`. On Linux, make it executable
+  with `chmod +x gutch-cli`. The executables are unsigned, so Windows may warn
+  before running one. `gutch-cli licenses` prints the licenses of everything
+  built into it.
 - **Build it yourself.** Install Rust 1.100 or newer, then run this from the
   project folder:
 

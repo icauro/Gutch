@@ -148,10 +148,11 @@ To work on Gutch itself, see the [developer guide](_dev_guide/README.md).
 
 ## Getting Gutch
 
-Download `gutch-cli` for Linux or Windows on x86-64 or ARM64 from the
-[latest release](https://github.com/icauro/Gutch/releases/latest). Each
-release includes `SHA256SUMS` so you can check the download. To build from
-source with Rust 1.100 or newer:
+Download the `gutch-cli` executable for Linux or Windows on x86-64 or ARM64
+from the [latest release](https://github.com/icauro/Gutch/releases/latest).
+Each release includes `SHA256SUMS` so you can check the download, and
+`gutch-cli licenses` prints the licenses of everything built into it. To build
+from source with Rust 1.100 or newer:
 
 ```sh
 cargo build --release -p gutch-cli

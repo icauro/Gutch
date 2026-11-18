@@ -207,6 +207,7 @@ let factory: &RemoteProviderFactory = &|| Ok(Box::new(MyService::connect()?));
 let host = CommandLineHost {
     bin_name: "myapp",
     remote_provider: Some(factory),
+    ..Default::default()
 };
 if let Err(error) = run_command_line(std::env::args_os(), &host) {
     eprintln!("error: {error}");
@@ -216,7 +217,10 @@ if let Err(error) = run_command_line(std::env::args_os(), &host) {
 
 `bin_name` is the program name shown in help and messages. The factory is
 called only when a command needs the remote, so local commands work without
-a connection.
+a connection. To add a `licenses` command that prints your program's license
+notices, set `licenses` to a function that returns them; it is called only
+when that command runs, and the command stays hidden while `licenses` is
+`None`.
 
 The command line is the crate's `cli` feature, on by default. An application
 with its own interface can leave it out, which also leaves out its argument

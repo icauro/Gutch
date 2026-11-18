@@ -89,7 +89,9 @@ move S3 credentials into Gutch.
 
 ## Remote commands
 
-`CommandLineHost` names the displayed executable and may supply a
+`CommandLineHost` names the displayed executable, may supply a
+`LicensesFactory` for the `licenses` command (hidden without one; `gutch-cli`
+supplies the notices its build embedded), and may supply a
 `RemoteProviderFactory`. Gutch calls the factory only when a command needs
 remote access: remote listing, creation, pull, push, tag references and
 `unbind --delete-remote` require it, and `bind` uses it when present so the

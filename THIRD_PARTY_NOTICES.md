@@ -13,7 +13,7 @@ code in the retained Git history.
 | FastCDC v2020, fastcdc-rs 5.0.0 | `src/04_artifact/fastcdc_v2020/mod.rs`, `src/04_artifact/gear.rs` | MIT; Nathan Fiedler. Preserve the [upstream license](src/04_artifact/fastcdc_v2020/LICENSE) and source copyright notices. |
 | Plakar-compatible JC chunker and Gear table | `src/04_artifact/jc.rs`, `src/04_artifact/jc_gear.rs` | ISC; copyright (c) 2024 Gilles Chehade. Full text: [jc.LICENSE](src/04_artifact/jc.LICENSE). |
 | RAM / VectorCDC reference and adaptation | `src/04_artifact/ram.rs`, `tests/benchmarks/ram_reference.cpp` | Apache-2.0; copyright (c) 2023 WASL. Full text: [RAM license](src/04_artifact/ram/LICENSE). Changes for Gutch are identified in the source and [reference notes](src/04_artifact/ram/README.md). |
-| Titillium Web font, Regular, SemiBold and Bold | `_docs/assets/fonts/TitilliumWeb-*.ttf`; subsets embedded in `_docs/assets/banner.svg` | SIL Open Font License 1.1; copyright (c) 2009-2011 Accademia di Belle Arti di Urbino and students of the MA course of Visual design. Full text: [OFL.txt](_docs/assets/fonts/OFL.txt). Used unmodified except for subsetting. |
+| Titillium Web font, Regular, SemiBold and Bold | `_docs/assets/fonts/TitilliumWeb-*.ttf`; subsets embedded in the generated SVGs under `_docs/assets/` | SIL Open Font License 1.1; copyright (c) 2009-2011 Accademia di Belle Arti di Urbino and students of the MA course of Visual design. Full text: [OFL.txt](_docs/assets/fonts/OFL.txt). Used unmodified except for subsetting. |
 
 Pinned upstream sources:
 
@@ -43,9 +43,11 @@ Cargo and Python dependencies are installed separately and retain their own
 licenses. `Cargo.lock` and `uv.lock` identify the resolved versions; package
 metadata and their distributed license/notice files identify their terms.
 The license texts above cover adapted source, not a complete binary dependency
-notice bundle. Before distributing compiled binaries or a bundled Python
-environment, include the required notices for that exact target and dependency
-set, including native libraries and Unicode data. Build caches and environments
+notice bundle. Official `gutch-cli` release executables embed the notices for
+their exact target and dependency set, including native libraries and the Rust
+standard library; `gutch-cli licenses` prints them. Anyone distributing other
+compiled binaries or a bundled Python environment must include the required
+notices for that target and dependency set themselves. Build caches and environments
 are not included in this source repository.
 
 Blender inputs are downloaded only into ignored caches. Blender, its bundled

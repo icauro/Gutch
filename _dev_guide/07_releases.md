@@ -32,7 +32,7 @@ A version with a hyphen, such as `v0.2.0-rc.1`, becomes a GitHub prerelease.
 | --- | --- |
 | Check version | Fails unless the tag is on `main` and matches the version in `Cargo.toml` and `Cargo.lock` |
 | Tests, Build | Runs the full correctness workflow and the [CLI build](06_cli_builds.md), which also checks that `gutch-cli --version` reports the tag's version |
-| Draft GitHub release | Archives each platform (`.tar.gz` for Linux, `.zip` for Windows), writes `SHA256SUMS`, and creates a draft release with notes generated from the commits |
+| Draft GitHub release | Names each platform's executable `gutch-cli-VERSION-PLATFORM` (plus `.exe` on Windows), writes `SHA256SUMS`, and creates a draft release with the five files and notes generated from the commits. The executables embed their license notices, so nothing is archived |
 | Publish to crates.io | Publishes `gutch`, then `gutch-cli` |
 | Publish GitHub release | Makes the draft public |
 
