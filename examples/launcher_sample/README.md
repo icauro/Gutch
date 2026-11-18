@@ -28,9 +28,13 @@ cargo run --release -p gutch-launcher-sample
 
 The launcher lists the builds published for your system (Windows x64 or Linux
 x64). With **Install**, a version goes to `DATA/versions/blender-VERSION`.
-With **Install to…**, you pick the parent folder. `DATA` is the local data
-folder, such as `%LOCALAPPDATA%\Gutch Launcher Sample` or
-`~/.local/share/Gutch Launcher Sample`.
+With **Install to…**, you pick the parent folder. The launcher keeps its
+files in each system's folders for the current user:
+
+| | `DATA`: cache and versions | The list of installs (`state.json`) |
+| --- | --- | --- |
+| Windows | `%LOCALAPPDATA%\Gutch Launcher Sample` | In `DATA` |
+| Linux | `$XDG_DATA_HOME/gutch-launcher-sample`, or `~/.local/share/gutch-launcher-sample` | `$XDG_STATE_HOME/gutch-launcher-sample`, or `~/.local/state/gutch-launcher-sample` |
 
 Set `LAUNCHER_BUCKET_URL` to read builds from another bucket that the
 publisher fills.
