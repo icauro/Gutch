@@ -85,17 +85,17 @@ jobs:
         with:
           pattern: gutch-cli-*
           path: packages
-      - name: Archive each platform
+      # Each executable embeds its license notices (`gutch-cli licenses`),
+      # so the release ships the bare executables and one checksum file.
+      - name: Name each platform's executable
         run: |
           mkdir dist
           for dir in packages/gutch-cli-*; do
             platform=${dir#packages/gutch-cli-}
-            name=gutch-cli-$VERSION-$platform
-            mv "$dir" "$name"
+            (cd "$dir" && sha256sum -c SHA256SUMS)
             case $platform in
-              windows-*) zip -qr "dist/$name.zip" "$name" ;;
-              *) chmod +x "$name/gutch-cli"   # artifact downloads drop the executable bit
-                 tar -czf "dist/$name.tar.gz" "$name" ;;
+              windows-*) cp "$dir/gutch-cli.exe" "dist/gutch-cli-$VERSION-$platform.exe" ;;
+              *) cp "$dir/gutch-cli" "dist/gutch-cli-$VERSION-$platform" ;;
             esac
           done
           cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS

@@ -73,6 +73,11 @@ jobs:
             .builds/compiler-cache/cargo
           key: cli-${{ matrix.target }}-rust1.100.0-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: cli-${{ matrix.target }}-rust1.100.0-${{ hashFiles('Cargo.lock') }}-
+      - name: Write the license notices to embed
+        shell: bash
+        run: |
+          notices=$(python _tools/package_cli.py notices --target "$TARGET" --toolchain 1.100.0)
+          echo "GUTCH_CLI_NOTICES=$notices" >> "$GITHUB_ENV"
       - name: Build release executable
         run: cargo +1.100.0 build --locked --release --package gutch-cli --target ${{ matrix.target }}
       - name: Smoke test native executable
@@ -83,14 +88,19 @@ jobs:
           name = 'gutch-cli.exe' if 'windows' in target else 'gutch-cli'
           binary = pathlib.Path('.builds/compiler-cache/cargo') / target / 'release' / name
           subprocess.run([str(binary.resolve()), '--help'], check=True)
+          licenses = subprocess.run([str(binary.resolve()), 'licenses'], check=True,
+                                    capture_output=True, text=True, encoding='utf-8').stdout
+          for expected_notice in ('Rust standard library', 'blake3 ', 'zstd-sys '):
+              if expected_notice not in licenses:
+                  raise SystemExit(f'gutch-cli licenses lacks {expected_notice!r}')
           expected = os.environ.get('EXPECTED_VERSION', '')
           if expected:
               reported = subprocess.run([str(binary.resolve()), '--version'], check=True,
                                         capture_output=True, text=True).stdout.split()
               if reported[-1:] != [expected]:
                   raise SystemExit(f'gutch-cli reports {reported}, expected version {expected}')
-      - name: Package executable, provenance and notices
-        run: python _tools/package_cli.py --target ${{ matrix.target }} --toolchain 1.100.0
+      - name: Package executable and provenance
+        run: python _tools/package_cli.py package --target ${{ matrix.target }} --toolchain 1.100.0
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gutch-cli-${{ matrix.platform }}
