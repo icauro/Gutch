@@ -11,10 +11,15 @@ version costs only the bytes that changed. Any stored version can then be
 installed, checked and repaired:
 
 ```sh
-gutch-cli repo init --repo store
-gutch-cli snapshot capture --repo store --source build-1.0 --tag version=1.0.0
-gutch-cli installation reconstruct --repo store --snapshot ID --destination app
-gutch-cli installation verify --repo store --snapshot ID --destination app
+# Create an empty repository in the folder ./my-repo
+gutch-cli repo init --repo ./my-repo
+
+# Store the folder ./builds/1.0; this prints the new snapshot's ID
+gutch-cli snapshot capture --repo ./my-repo --source ./builds/1.0 --tag version=1.0
+
+# Install that snapshot into ./installed-app, then check it
+gutch-cli installation reconstruct --repo ./my-repo --snapshot <SNAPSHOT_ID> --destination ./installed-app
+gutch-cli installation verify --repo ./my-repo --snapshot <SNAPSHOT_ID> --destination ./installed-app
 ```
 
 Repair rewrites only the files that are missing or damaged. An install can
