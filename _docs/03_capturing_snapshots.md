@@ -23,6 +23,11 @@ so an interrupted capture leaves the repository as it was.
   existing snapshot and restores any of its content that had gone missing.
   With different tags it fails; change tags with `snapshot tags replace`
   instead.
+- In a copy pulled with `repo pull --metadata-only`, add
+  `--reuse-remote-bundles` so content stored in bundles that only the bound
+  remote holds is reused instead of stored again. A later `repo push` uploads
+  only the new bundles; see
+  [remote synchronization](05_managing_repositories.md#remote-synchronization).
 
 To see how much space a folder would take without a repository, run:
 

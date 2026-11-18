@@ -42,7 +42,10 @@ snapshot's metadata and only the bundles holding the file, then reads it.
 `PullBundles::All` (default), `PullBundles::None` for metadata only, enough to
 list and compare files, or `PullBundles::Files` for the bundles holding given
 paths. A snapshot pulled without all its bundles cannot be installed or
-verified until a pull with `PullBundles::All` completes it.
+verified until a pull with `PullBundles::All` completes it. To capture new
+snapshots into a metadata-only copy and push them, set
+`SnapshotCaptureRequest::reuse_remote_bundles`, so content in bundles that
+only the remote holds is reused rather than stored again.
 [`examples/capture_and_install.rs`](../examples/capture_and_install.rs) is
 this program with argument handling:
 

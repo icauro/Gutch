@@ -175,7 +175,10 @@ has. `--remote-repo-id` pulls from a remote other than the bound one.
 they need. A copy pulled that way lacks the other snapshots, and a push from it
 would delete them from the remote, so pull everything before you push.
 `--metadata-only` downloads snapshot metadata but no bundles, enough to list
-and compare files; a later pull without it downloads the bundles.
+and compare files; a later pull without it downloads the bundles. Such a copy
+can also publish new versions without downloading the old ones: capture with
+`snapshot capture --reuse-remote-bundles`, then push. Push checks that the
+remote holds each bundle missing here and uploads only the new ones.
 
 These commands need a connection to a server, which the application that
 embeds Gutch provides; its documentation says how to sign in and what
