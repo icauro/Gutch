@@ -55,15 +55,15 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
-        let data_dir = dirs::data_local_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("Gutch Launcher Sample");
-        let bucket_url = std::env::var("LAUNCHER_BUCKET_URL")
+    /// The bucket comes from `LAUNCHER_BUCKET_URL`, or the sample's own.
+    pub fn bucket_url() -> String {
+        std::env::var("LAUNCHER_BUCKET_URL")
             .ok()
             .filter(|url| !url.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_BUCKET_URL.to_owned());
-        let library = Library::new(data_dir, &bucket_url);
+            .unwrap_or_else(|| DEFAULT_BUCKET_URL.to_owned())
+    }
+
+    pub fn new(library: Library) -> Self {
         let (state, status, status_is_error) = match library.load_state() {
             Ok(state) => (state, String::new(), false),
             Err(error) => (State::default(), error, true),

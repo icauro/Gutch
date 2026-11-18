@@ -51,18 +51,49 @@ impl State {
     }
 }
 
+/// The app's folder name: readable on Windows, lowercase without spaces
+/// elsewhere, as each system's own apps name theirs.
+#[cfg(windows)]
+const APP_FOLDER: &str = "Gutch Launcher Sample";
+#[cfg(not(windows))]
+const APP_FOLDER: &str = "gutch-launcher-sample";
+
 #[derive(Clone, Debug)]
 pub struct Library {
     data_dir: PathBuf,
+    state_dir: PathBuf,
     layout: PublicLayout,
 }
 
 impl Library {
+    /// Keeps the cache, the default install folder and the state in
+    /// `data_dir`.
     pub fn new(data_dir: PathBuf, bucket_url: &str) -> Self {
         Self {
+            state_dir: data_dir.clone(),
             data_dir,
             layout: PublicLayout::new(bucket_url),
         }
+    }
+
+    /// Uses the system's folders for the current user: the local data
+    /// folder (`%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` or
+    /// `~/.local/share` on Linux), and on Linux the state folder
+    /// (`$XDG_STATE_HOME` or `~/.local/state`) for the state.
+    pub fn for_current_user(bucket_url: &str) -> Result<Self> {
+        let data_dir = dirs::data_local_dir()
+            .ok_or("this system has no local data folder for the current user")?
+            .join(APP_FOLDER);
+        let mut library = Self::new(data_dir, bucket_url);
+        if let Some(state_dir) = dirs::state_dir() {
+            library.state_dir = state_dir.join(APP_FOLDER);
+        }
+        Ok(library)
+    }
+
+    /// Where versions install unless the user picks another folder.
+    pub fn versions_dir(&self) -> PathBuf {
+        self.data_dir.join("versions")
     }
 
     fn cache(&self) -> PathBuf {
@@ -70,13 +101,12 @@ impl Library {
     }
 
     fn state_path(&self) -> PathBuf {
-        self.data_dir.join("state.json")
+        self.state_dir.join("state.json")
     }
 
     /// Where a version installs unless the user picks another folder.
     pub fn default_folder(&self, entry: &CatalogEntry) -> PathBuf {
-        self.data_dir
-            .join("versions")
+        self.versions_dir()
             .join(format!("blender-{}", entry.version))
     }
 
@@ -96,7 +126,7 @@ impl Library {
         let failed = |error: &dyn std::fmt::Display| {
             format!("cannot save {}: {error}", self.state_path().display())
         };
-        fs::create_dir_all(&self.data_dir).map_err(|error| failed(&error))?;
+        fs::create_dir_all(&self.state_dir).map_err(|error| failed(&error))?;
         let bytes = serde_json::to_vec_pretty(state).map_err(|error| failed(&error))?;
         // Written beside and renamed, so a crash never leaves half a file.
         let temporary = self.state_path().with_extension("json.new");
