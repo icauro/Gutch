@@ -47,6 +47,15 @@ NEW = "#fbbf24"
 # Core technologies, shown as tags along the bottom of the banner.
 STORE_LOCATIONS = ("Local", "HTTP", "S3")
 TECHNOLOGIES = ("Rust", "FastCDC", "BLAKE3", "Zstandard", "LZ4", "AES-256-GCM")
+# The name: pale mint at the top deepening to the logo's teal, lifted by a soft shadow.
+TITLE_DEFS = f"""  <linearGradient id="title" x1="0" y1="0" x2="0.25" y2="1">
+    <stop offset="0" stop-color="#f0fffa"/><stop offset="0.45" stop-color="{MINT}"/><stop offset="1" stop-color="{TEAL}"/>
+  </linearGradient>
+  <filter id="lift" x="-10%" y="-20%" width="120%" height="150%">
+    <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#000" flood-opacity="0.55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="14" flood-color="{TEAL}" flood-opacity="0.25"/>
+  </filter>
+"""
 # Each user: label, detail, chunks on the wire and whether they travel as a delta.
 USERS = (
     ("New user", "gets all of v2.0", 6, False),
@@ -140,15 +149,12 @@ def social_preview(source: str) -> str:
   <radialGradient id="halo" gradientUnits="userSpaceOnUse" cx="{left + logo / 2:.1f}" cy="{SOCIAL_HEIGHT / 2}" r="360">
     <stop offset="0" stop-color="{TEAL}" stop-opacity="0.14"/><stop offset="1" stop-color="{TEAL}" stop-opacity="0"/>
   </radialGradient>
-  <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#ecfeff"/><stop offset="1" stop-color="{MINT}"/>
-  </linearGradient>
-</defs>""",
+{TITLE_DEFS}</defs>""",
         f'<rect width="{WIDTH}" height="{SOCIAL_HEIGHT}" fill="url(#bg)"/>',
         f'<rect width="{WIDTH}" height="{SOCIAL_HEIGHT}" fill="url(#halo)"/>',
         f'<svg x="{left:.1f}" y="{top:.1f}" width="{logo}" height="{logo}" viewBox="{X} {Y} {SIZE} {SIZE}">\n'
         f'{placed_drawing(source)}</svg>',
-        text(f"{right - 4:.1f}", 290, title_size, "url(#title)", "Gutch", 700, ' letter-spacing="-2"'),
+        text(f"{right - 4:.1f}", 290, title_size, "url(#title)", "Gutch", 700, ' letter-spacing="-2" filter="url(#lift)"'),
         text(f"{right:.1f}", 350, slogan_size, "#f1f5f9", SLOGAN, 600),
         text(f"{right:.1f}", 392, summary_size, "#a3b0c2", SUMMARY),
         tags(right, 424, TECHNOLOGIES, tag_size)[0],
@@ -173,10 +179,7 @@ def banner(source: str) -> str:
   <radialGradient id="halo2" cx="0.70" cy="0.43" r="0.4">
     <stop offset="0" stop-color="{DEEP}" stop-opacity="0.18"/><stop offset="1" stop-color="{DEEP}" stop-opacity="0"/>
   </radialGradient>
-  <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#ecfeff"/><stop offset="1" stop-color="{MINT}"/>
-  </linearGradient>
-  <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+{TITLE_DEFS}  <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
     <feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
 </defs>""",
@@ -185,7 +188,7 @@ def banner(source: str) -> str:
         f'<rect width="{WIDTH}" height="{HEIGHT}" rx="24" fill="url(#halo2)"/>',
         # Logo, scaled from its source canvas into a 272-unit square.
         f'<svg x="12" y="36" width="272" height="272" viewBox="{X} {Y} {SIZE} {SIZE}">\n{placed_drawing(source)}</svg>',
-        text(302, 136, 100, "url(#title)", "Gutch", 700, ' letter-spacing="-1.5"'),
+        text(302, 136, 100, "url(#title)", "Gutch", 700, ' letter-spacing="-1.5" filter="url(#lift)"'),
         text(308, 178, 27, "#f1f5f9", "Store, update and repair by delta", 600),
         *(f'<circle cx="315" cy="{y - 5}" r="3.5" fill="{MINT}"/>' + text(328, y, 18, "#cbd5e1", line)
           for y, line in ((218, "One store serves every user and version"), (245, "Downloads and installs at the same time"),

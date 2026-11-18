@@ -13,9 +13,13 @@
   <radialGradient id="halo" gradientUnits="userSpaceOnUse" cx="287.7" cy="320.0" r="360">
     <stop offset="0" stop-color="#19a99d" stop-opacity="0.14"/><stop offset="1" stop-color="#19a99d" stop-opacity="0"/>
   </radialGradient>
-  <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#ecfeff"/><stop offset="1" stop-color="#89f4d6"/>
+  <linearGradient id="title" x1="0" y1="0" x2="0.25" y2="1">
+    <stop offset="0" stop-color="#f0fffa"/><stop offset="0.45" stop-color="#89f4d6"/><stop offset="1" stop-color="#19a99d"/>
   </linearGradient>
+  <filter id="lift" x="-10%" y="-20%" width="120%" height="150%">
+    <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#000" flood-opacity="0.55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="14" flood-color="#19a99d" flood-opacity="0.25"/>
+  </filter>
 </defs>
 <rect width="1280" height="640" fill="url(#bg)"/>
 <rect width="1280" height="640" fill="url(#halo)"/>
@@ -41,7 +45,7 @@
   <path fill="#89f4d6" d="M769.6 558.9 C851.1 489.8 937.2 440.4 1048.2 449.6 C1115.1 455.1 1162.9 481.1 1219 513.2 C1226.4 517.4 1265.7 514.9 1276.6 519.4 C1430 546.2 1508.6 648.8 1556 788.8 C1599.3 916.8 1624.5 1048.9 1612.1 1185.1 C1608.4 1228.2 1601.1 1270.9 1590.2 1312.8 C1588.4 1320.1 1584.2 1336.5 1580.6 1342.3 C1579 1340.2 1580 1341 1576.9 1340.5 L1579.6 1317.3 C1587.3 1278 1586.1 1225.3 1585.3 1185.4 C1582.4 1039.1 1538.8 880.8 1445.1 765.9 C1322.9 616 1087 505.5 899.9 597.7 C876.6 609.2 851.5 626.5 830.6 641.8 C795.2 668.1 761.4 696.4 729.3 726.7 C701.9 752.3 676.7 780.2 646.8 802.9 C638 809.6 629.3 815.8 620.8 822.7 C611 826 605.4 828 595.1 830.5 C588.9 818.5 586 808.9 582.1 796 C582.2 794.9 580.6 784.8 580.4 783.1 C578.3 766.2 577 748.8 586.8 734 C586.3 726 593.8 715.1 595.9 706.4 C618.2 651 643.8 618.2 685.2 575.7 C692.2 568.9 699.7 563.4 706.7 556.8 L705.8 555.8 C712.5 554 762.1 556.8 769.6 558.9 Z"/>
   </g>
 </svg>
-<text x="472.7" y="290" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="150" font-weight="700" fill="url(#title)" letter-spacing="-2">Gutch</text>
+<text x="472.7" y="290" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="150" font-weight="700" fill="url(#title)" letter-spacing="-2" filter="url(#lift)">Gutch</text>
 <text x="476.7" y="350" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="38" font-weight="600" fill="#f1f5f9">Fast delta store, install and update engine</text>
 <text x="476.7" y="392" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="25" font-weight="400" fill="#a3b0c2">For software releases and digital content distribution</text>
 <text x="476.7" y="445.5" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="18" font-weight="600" fill="#cbd5e1">Rust</text><circle cx="520.6" cy="439.4" r="2.2" fill="#19a99d"/><text x="528.7" y="445.5" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="18" font-weight="600" fill="#cbd5e1">FastCDC</text><circle cx="601.5" cy="439.4" r="2.2" fill="#19a99d"/><text x="609.6" y="445.5" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="18" font-weight="600" fill="#cbd5e1">BLAKE3</text><circle cx="678.6" cy="439.4" r="2.2" fill="#19a99d"/><text x="686.7" y="445.5" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="18" font-weight="600" fill="#cbd5e1">Zstandard</text><circle cx="773.3" cy="439.4" r="2.2" fill="#19a99d"/><text x="781.4" y="445.5" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="18" font-weight="600" fill="#cbd5e1">LZ4</text><circle cx="817.7" cy="439.4" r="2.2" fill="#19a99d"/><text x="825.8" y="445.5" font-family="&apos;Titillium Web&apos;, &apos;Segoe UI&apos;, &apos;Helvetica Neue&apos;, Arial, sans-serif" font-size="18" font-weight="600" fill="#cbd5e1">AES-256-GCM</text>
