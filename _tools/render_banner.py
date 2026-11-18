@@ -47,13 +47,14 @@ NEW = "#fbbf24"
 # Core technologies, shown as tags along the bottom of the banner.
 STORE_LOCATIONS = ("Local", "HTTP", "S3")
 TECHNOLOGIES = ("Rust", "FastCDC", "BLAKE3", "Zstandard", "LZ4", "AES-256-GCM")
-# The name: pale mint at the top deepening to the logo's teal, lifted by a soft shadow.
-TITLE_DEFS = f"""  <linearGradient id="title" x1="0" y1="0" x2="0.25" y2="1">
-    <stop offset="0" stop-color="#f0fffa"/><stop offset="0.45" stop-color="{MINT}"/><stop offset="1" stop-color="{TEAL}"/>
+# The name: a slanted two-tone split in the logo's colors (pale mint above, teal below a hard line),
+# with a tight dark shadow and no glow.
+TITLE_DEFS = f"""  <linearGradient id="title" x1="0" y1="0" x2="0.12" y2="1">
+    <stop offset="0" stop-color="#f2fffb"/><stop offset="0.6" stop-color="{MINT}"/>
+    <stop offset="0.6" stop-color="{TEAL}"/><stop offset="0.82" stop-color="#2cc4b4"/><stop offset="1" stop-color="{DEEP}"/>
   </linearGradient>
-  <filter id="lift" x="-10%" y="-20%" width="120%" height="150%">
-    <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#000" flood-opacity="0.55"/>
-    <feDropShadow dx="0" dy="0" stdDeviation="14" flood-color="{TEAL}" flood-opacity="0.25"/>
+  <filter id="lift" x="-5%" y="-10%" width="110%" height="130%">
+    <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#000" flood-opacity="0.6"/>
   </filter>
 """
 # Each user: label, detail, chunks on the wire and whether they travel as a delta.
