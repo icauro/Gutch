@@ -34,5 +34,12 @@ pub(crate) fn run(cli: Cli, host: &CommandLineHost<'_>, profile: &Profile) -> cr
             ),
             DebugCommands::InspectBundle { bundle } => bundle::inspect(bundle),
         },
+        Commands::Licenses => {
+            let licenses = host.licenses.ok_or_else(|| {
+                crate::Error::invalid_input("this program does not include its license notices")
+            })?()?;
+            crate::cli::output::line(format_args!("{}", licenses.trim_end()));
+            Ok(())
+        }
     }
 }

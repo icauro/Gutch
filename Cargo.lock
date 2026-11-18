@@ -715,6 +715,7 @@ name = "gutch-cli"
 version = "0.1.0"
 dependencies = [
  "gutch",
+ "zstd",
 ]
 
 [[package]]

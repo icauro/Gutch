@@ -26,7 +26,7 @@ pub(crate) use arguments::RemoteCommands;
 pub(crate) use arguments::RepoCommands;
 pub(crate) use arguments::SnapshotCommands;
 pub(crate) use command_support::prompt_yes_no;
-pub use run::{CommandLineHost, RemoteProviderFactory, run_command_line};
+pub use run::{CommandLineHost, LicensesFactory, RemoteProviderFactory, run_command_line};
 pub(crate) use session::{
     Profile, SECTION_SEPARATOR, control_with_profile, verbose_output_enabled,
 };

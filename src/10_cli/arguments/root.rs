@@ -66,6 +66,8 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: DebugCommands,
     },
+    /// Print the licenses and notices of the code built into this program.
+    Licenses,
 }
 
 #[derive(Subcommand)]

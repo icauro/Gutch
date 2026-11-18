@@ -15,14 +15,21 @@ use std::sync::Arc;
 pub type RemoteProviderFactory<'a> =
     dyn Fn() -> crate::Result<Box<dyn RemoteRepoService + 'a>> + 'a;
 
+/// Produces the license notices of the program built around Gutch.
+pub type LicensesFactory<'a> = dyn Fn() -> std::io::Result<String> + 'a;
+
 /// How an embedding host presents and backs the Gutch command line.
 ///
 /// The command grammar and execution path remain owned by Gutch; hosts choose
-/// the displayed executable name and may supply remote repository access.
+/// the displayed executable name and may supply remote repository access and
+/// the license notices of the program built around Gutch.
 #[derive(Clone, Copy)]
 pub struct CommandLineHost<'a> {
     pub bin_name: &'a str,
     pub remote_provider: Option<&'a RemoteProviderFactory<'a>>,
+    /// Produces the text the `licenses` command prints; the command is hidden
+    /// when this is `None`. Called only when that command runs.
+    pub licenses: Option<&'a LicensesFactory<'a>>,
 }
 
 impl Default for CommandLineHost<'_> {
@@ -30,6 +37,7 @@ impl Default for CommandLineHost<'_> {
         Self {
             bin_name: "gutch",
             remote_provider: None,
+            licenses: None,
         }
     }
 }
@@ -61,7 +69,10 @@ where
     use clap::CommandFactory;
     use clap::FromArgMatches;
 
-    let command = Cli::command().bin_name(host.bin_name);
+    let mut command = Cli::command().bin_name(host.bin_name);
+    if host.licenses.is_none() {
+        command = command.mut_subcommand("licenses", |licenses| licenses.hide(true));
+    }
     let cli = match command.try_get_matches_from(args) {
         Ok(matches) => Cli::from_arg_matches(&matches)
             .map_err(|error| crate::Error::Usage(error.render().to_string()))?,

@@ -205,4 +205,4 @@ pub use crate::transfer::types::TransferStats;
 
 // CLI hosting
 #[cfg(feature = "cli")]
-pub use crate::cli::{CommandLineHost, RemoteProviderFactory, run_command_line};
+pub use crate::cli::{CommandLineHost, LicensesFactory, RemoteProviderFactory, run_command_line};

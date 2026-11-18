@@ -80,6 +80,7 @@ fn the_remote_provider_is_created_only_for_remote_commands() {
     let host = CommandLineHost {
         bin_name: "host",
         remote_provider: Some(&factory),
+        licenses: None,
     };
     run_command_line(["host", "repo", "init", "--repo", repo], &host).unwrap();
     run_command_line(["host", "snapshot", "list", "--repo", repo], &host).unwrap();
@@ -90,4 +91,24 @@ fn the_remote_provider_is_created_only_for_remote_commands() {
 
     let error = run_from_args(["gutch", "repo", "remote", "list"]).unwrap_err();
     assert!(error.to_string().contains("remote provider"), "{error}");
+}
+
+#[test]
+fn the_licenses_command_prints_the_host_notices() {
+    let root = tempfile::tempdir().unwrap();
+    let out = root.path().join("licenses.txt");
+    let host = CommandLineHost {
+        bin_name: "host",
+        licenses: Some(&|| Ok("Example license\n".to_owned())),
+        ..Default::default()
+    };
+    run_command_line(
+        ["host", "licenses", "--output", out.to_str().unwrap()],
+        &host,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "Example license\n");
+
+    let error = run_from_args(["gutch", "licenses"]).unwrap_err();
+    assert!(error.to_string().contains("license notices"), "{error}");
 }

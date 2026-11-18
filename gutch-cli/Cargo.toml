@@ -9,6 +9,10 @@ repository.workspace = true
 
 [dependencies]
 gutch = { workspace = true, features = ["cli"] }
+zstd = "0.13.4"
+
+[build-dependencies]
+zstd = "0.13.4"
 
 [lints]
 workspace = true
