@@ -148,10 +148,10 @@ Extra files in the folder are kept unless you pass `--remove-extra-files`.
 
 ### What Gutch leaves out
 
-When capture speed and install speed pull apart, install wins. Gutch keeps
-only file contents, symbolic links and the executable and read-only flags,
-so there are no owners, timestamps or extended attributes to apply file by
-file. Encryption and profiling are off by default and add no work while off.
+Gutch stores file contents, symbolic links and two flags, executable and
+read-only. It does not store owners, timestamps or extended attributes,
+because restoring them would add work for every file on every install.
+Encryption and profiling cost nothing unless you turn them on.
 
 ## Getting Gutch
 
