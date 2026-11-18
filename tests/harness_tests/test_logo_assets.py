@@ -43,3 +43,9 @@ def test_committed_install_profile_matches_its_sources():
     from _tools.render_profile import main as render_profile
 
     assert render_profile(["--check"]) == 0
+
+
+def test_committed_pipeline_diagram_matches_its_script():
+    from _tools.render_pipeline import main as render_pipeline
+
+    assert render_pipeline(["--check"]) == 0
