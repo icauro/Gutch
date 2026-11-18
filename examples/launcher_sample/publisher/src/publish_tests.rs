@@ -224,6 +224,32 @@ fn a_dry_run_changes_nothing() {
 }
 
 #[test]
+fn an_empty_release_listing_retires_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    let bucket = TestBucket::default();
+    let remote = ObjectStoreRemote::new(bucket.clone());
+    let mut releases = FakeReleases::default();
+    releases.add("5.2.0");
+    run(
+        &remote,
+        &releases,
+        &options(&temp.path().join("w")),
+        &mut |_| {},
+    )
+    .unwrap();
+
+    let error = run(
+        &remote,
+        &FakeReleases::default(),
+        &options(&temp.path().join("w")),
+        &mut |_| {},
+    )
+    .unwrap_err();
+    assert!(error.contains("lists no builds"), "{error}");
+    assert_eq!(versions(&catalog(&bucket)), ["5.2.0"]);
+}
+
+#[test]
 fn a_damaged_download_is_refused() {
     let temp = tempfile::tempdir().unwrap();
     let remote = ObjectStoreRemote::new(TestBucket::default());

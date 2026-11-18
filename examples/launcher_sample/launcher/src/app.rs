@@ -396,9 +396,9 @@ impl App {
                 ui.hyperlink(GUTCH_URL);
                 ui.separator();
                 ui.label(
-                    "The builds are official Blender releases from download.blender.org, \
-                     unchanged. Blender is free software under the GNU GPL; its source \
-                     is at blender.org.",
+                    "The builds are official Blender releases, unchanged, from \
+                     download.blender.org and its mirrors. Blender is free \
+                     software under the GNU GPL; its source is at blender.org.",
                 );
                 ui.strong("Not affiliated with or endorsed by the Blender Foundation.");
                 ui.label("Blender is a trademark of the Blender Foundation.");

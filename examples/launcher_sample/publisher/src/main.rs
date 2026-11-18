@@ -48,9 +48,12 @@ enum Command {
         /// Stop adding builds when the bucket would grow past this.
         #[arg(long, default_value_t = 18.0)]
         budget_gib: f64,
-        /// The release server, or a copy of its layout.
+        /// The release server, or a mirror of its layout.
         #[arg(long, default_value = BLENDER_RELEASES)]
         releases_url: String,
+        /// Another mirror that must publish the same checksums; repeatable.
+        #[arg(long = "confirm-url")]
+        confirm_urls: Vec<String>,
         /// Show what would change without changing anything.
         #[arg(long)]
         dry_run: bool,
@@ -102,6 +105,7 @@ fn main() -> ExitCode {
             max_new,
             budget_gib,
             releases_url,
+            confirm_urls,
             dry_run,
         } => run_publish(
             &Options {
@@ -112,6 +116,7 @@ fn main() -> ExitCode {
                 dry_run,
             },
             &releases_url,
+            &confirm_urls,
             &min_version,
         ),
     };
@@ -124,12 +129,17 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_publish(options: &Options, releases_url: &str, min_version: &str) -> Result<()> {
+fn run_publish(
+    options: &Options,
+    releases_url: &str,
+    confirm_urls: &[String],
+    min_version: &str,
+) -> Result<()> {
     let settings = settings(true)?;
     let remote = ObjectStoreRemote::new(S3Bucket(
         S3Store::new(&settings).map_err(|error| error.to_string())?,
     ));
-    let source = HttpReleases::new(releases_url, min_version)?;
+    let source = HttpReleases::new(releases_url, confirm_urls, min_version)?;
     let report = publish::run(&remote, &source, options, &mut |line| println!("{line}"))?;
     let list = |items: &[String]| {
         if items.is_empty() {

@@ -115,7 +115,12 @@ pub fn run<B: Bucket>(
     } else {
         Vec::new()
     };
-    let wanted = wanted_builds(source.builds()?, options.series);
+    let builds = source.builds()?;
+    // An empty or broken listing would otherwise retire every version.
+    if builds.is_empty() {
+        return Err("the release source lists no builds; changing nothing".into());
+    }
+    let wanted = wanted_builds(builds, options.series);
 
     let wanted_keys: HashSet<_> = wanted.iter().map(key).collect();
     let published_keys: HashSet<_> = published

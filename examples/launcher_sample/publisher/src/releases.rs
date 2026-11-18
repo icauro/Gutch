@@ -3,6 +3,10 @@
 //! `download.blender.org/release/` lists one folder per series, such as
 //! `Blender5.2/`. Each folder lists the builds and a `blender-X.Y.Z.sha256`
 //! file with the SHA-256 of every build of that version.
+//!
+//! Mirrors copy this layout. A build read from a mirror can be confirmed by
+//! other mirrors: it is used only once each of them publishes the same
+//! SHA-256 for it.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -11,6 +15,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use launcher_catalog::{Os, compare_versions};
+use reqwest::StatusCode;
 use reqwest::blocking::Client;
 
 use crate::publish::{Build, ReleaseSource};
@@ -20,13 +25,16 @@ pub const BLENDER_RELEASES: &str = "https://download.blender.org/release/";
 /// The release server, or a copy of its layout.
 pub struct HttpReleases {
     base: String,
+    /// Other copies of the layout whose checksums must match.
+    confirm: Vec<String>,
     min_version: String,
     client: Client,
 }
 
 impl HttpReleases {
     /// Series older than `min_version` (such as `5.0`) are not read.
-    pub fn new(base: &str, min_version: &str) -> Result<Self, String> {
+    /// Each of `confirm` must publish the same SHA-256 for a build.
+    pub fn new(base: &str, confirm: &[String], min_version: &str) -> Result<Self, String> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(None)
@@ -34,27 +42,86 @@ impl HttpReleases {
             .build()
             .map_err(|error| error.to_string())?;
         Ok(Self {
-            base: format!("{}/", base.trim().trim_end_matches('/')),
+            base: folder_url(base),
+            confirm: confirm.iter().map(|base| folder_url(base)).collect(),
             min_version: min_version.to_owned(),
             client,
         })
     }
 
     fn text(&self, url: &str) -> Result<String, String> {
+        self.text_if_present(url)?
+            .ok_or_else(|| format!("could not read {url}: 404 Not Found"))
+    }
+
+    /// `None` when the server has no such file.
+    fn text_if_present(&self, url: &str) -> Result<Option<String>, String> {
+        let failed = |error: &dyn std::fmt::Display| format!("could not read {url}: {error}");
         let response = self
             .client
             .get(url)
             .send()
-            .and_then(|response| response.error_for_status())
-            .map_err(|error| format!("could not read {url}: {error}"))?;
-        response
-            .text()
-            .map_err(|error| format!("could not read {url}: {error}"))
+            .map_err(|error| failed(&error))?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let response = response
+            .error_for_status()
+            .map_err(|error| failed(&error))?;
+        response.text().map(Some).map_err(|error| failed(&error))
     }
+
+    /// The checksums `base` publishes for `versions` of `series`; files a
+    /// mirror has not copied yet are missing.
+    fn sums(
+        &self,
+        base: &str,
+        series: &str,
+        versions: &[String],
+    ) -> Result<HashMap<String, String>, String> {
+        let mut sums = HashMap::new();
+        for version in versions {
+            let url = format!("{base}Blender{series}/blender-{version}.sha256");
+            if let Some(text) = self.text_if_present(&url)? {
+                sums.extend(parse_sums(&text));
+            }
+        }
+        Ok(sums)
+    }
+}
+
+fn folder_url(base: &str) -> String {
+    format!("{}/", base.trim().trim_end_matches('/'))
+}
+
+/// Whether every other source publishes `sha256` for `file_name`. A missing
+/// checksum leaves the build for a later run; a different one is an error.
+fn confirmed(
+    file_name: &str,
+    sha256: &str,
+    others: &[HashMap<String, String>],
+) -> Result<bool, String> {
+    for other in others {
+        match other.get(file_name) {
+            None => return Ok(false),
+            Some(other) if other != sha256 => {
+                return Err(format!(
+                    "the mirrors publish different SHA-256 values for {file_name}; \
+                     refusing it"
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(true)
 }
 
 impl ReleaseSource for HttpReleases {
     fn builds(&self) -> Result<Vec<Build>, String> {
+        // A wrong address fails here, not as builds that never confirm.
+        for base in &self.confirm {
+            self.text(base)?;
+        }
         let mut builds = Vec::new();
         for series in series_folders(&self.text(&self.base)?) {
             if compare_versions(&series, &self.min_version).is_lt() {
@@ -62,16 +129,21 @@ impl ReleaseSource for HttpReleases {
             }
             let folder = format!("{}Blender{series}/", self.base);
             let listing = self.text(&folder)?;
-            let mut sums = HashMap::new();
-            for version in sum_files(&listing) {
-                let text = self.text(&format!("{folder}blender-{version}.sha256"))?;
-                sums.extend(parse_sums(&text));
-            }
+            let versions = sum_files(&listing);
+            let sums = self.sums(&self.base, &series, &versions)?;
+            let others = self
+                .confirm
+                .iter()
+                .map(|base| self.sums(base, &series, &versions))
+                .collect::<Result<Vec<_>, _>>()?;
             for (file_name, version, os) in build_files(&listing) {
                 // A build without a published checksum cannot be checked.
                 let Some(sha256) = sums.get(&file_name) else {
                     continue;
                 };
+                if !confirmed(&file_name, sha256, &others)? {
+                    continue;
+                }
                 builds.push(Build {
                     version,
                     os,
@@ -220,6 +292,16 @@ mod tests {
             .map(|(_, version, _)| version)
             .collect();
         assert_eq!(versions, ["5.3.0"]);
+    }
+
+    #[test]
+    fn other_mirrors_must_publish_the_same_checksum() {
+        let sums = |hash: &str| HashMap::from([("b.zip".to_owned(), hash.to_owned())]);
+        assert!(confirmed("b.zip", "aa", &[]).unwrap());
+        assert!(confirmed("b.zip", "aa", &[sums("aa"), sums("aa")]).unwrap());
+        assert!(!confirmed("b.zip", "aa", &[sums("aa"), HashMap::new()]).unwrap());
+        let error = confirmed("b.zip", "aa", &[sums("aa"), sums("bb")]).unwrap_err();
+        assert!(error.contains("different SHA-256"), "{error}");
     }
 
     #[test]

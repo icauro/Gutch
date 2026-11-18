@@ -59,8 +59,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OVH_S3_SECRET_ACCESS_KEY }}
           DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
           MAX_NEW: ${{ inputs.max-new || 4 }}
+        # download.blender.org refuses GitHub's runners, so builds come from
+        # an official mirror, and two mirrors run by others must publish the
+        # same checksums.
         run: >
           .builds/compiler-cache/cargo/release/launcher-publisher publish
+          --releases-url https://mirrors.dotsrc.org/blender/release/
+          --confirm-url https://ftp.nluug.nl/pub/graphics/blender/release/
+          --confirm-url https://ftp.halifax.rwth-aachen.de/blender/release/
           --work-dir "$RUNNER_TEMP/publish-work"
           --max-new "$MAX_NEW"
           $DRY_RUN
