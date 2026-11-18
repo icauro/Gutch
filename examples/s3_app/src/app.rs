@@ -13,9 +13,9 @@ use gutch::api::{
 };
 
 use crate::cloudflare::{self, Account, R2SignIn};
-use crate::ops::{Remote, check_bucket, explain};
+use crate::ops::Remote;
 use crate::provider::{self, Provider, R2_JURISDICTIONS};
-use crate::store::{S3Settings, S3Store};
+use gutch_s3_store::{S3Settings, S3Store, check_bucket, explain};
 
 type S3Remote = Remote<S3Store>;
 
@@ -160,6 +160,7 @@ impl App {
                 path_style: saved.path_style,
                 access_key_id: variable("AWS_ACCESS_KEY_ID").unwrap_or(saved.access_key_id),
                 secret_access_key: variable("AWS_SECRET_ACCESS_KEY").unwrap_or_default(),
+                public_read: false,
             },
             r2: R2 {
                 token: variable("CLOUDFLARE_API_TOKEN").unwrap_or_default(),

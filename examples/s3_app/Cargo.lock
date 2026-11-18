@@ -1708,13 +1708,22 @@ dependencies = [
  "dirs",
  "eframe",
  "gutch",
+ "gutch-s3-store",
  "reqwest",
  "rfd",
- "rusty-s3",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "gutch-s3-store"
+version = "0.1.0"
+dependencies = [
+ "gutch",
+ "reqwest",
+ "rusty-s3",
 ]
 
 [[package]]

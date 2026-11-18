@@ -13,9 +13,9 @@ publish = false
 dirs = "7.0.0"
 eframe = { version = "0.37.0", features = ["persistence"] }
 gutch = { path = "../..", default-features = false }
+gutch-s3-store = { path = "../s3_store" }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
 rfd = "0.18.0"
-rusty-s3 = "0.11.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"

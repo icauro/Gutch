@@ -1,75 +1,6 @@
-use std::collections::BTreeMap;
-use std::sync::Mutex;
+use gutch_s3_store::MemoryStore;
 
 use super::*;
-
-/// Stands in for the bucket.
-#[derive(Default)]
-struct MemoryStore {
-    objects: Mutex<BTreeMap<String, Vec<u8>>>,
-}
-
-impl RemoteObjectStore for MemoryStore {
-    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self.objects.lock().unwrap().get(key).cloned())
-    }
-
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<()> {
-        self.objects
-            .lock()
-            .unwrap()
-            .insert(key.to_owned(), bytes.to_vec());
-        Ok(())
-    }
-
-    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<bool> {
-        let mut objects = self.objects.lock().unwrap();
-        if objects.contains_key(key) {
-            return Ok(false);
-        }
-        objects.insert(key.to_owned(), bytes.to_vec());
-        Ok(true)
-    }
-
-    fn delete(&self, key: &str) -> Result<()> {
-        self.objects.lock().unwrap().remove(key);
-        Ok(())
-    }
-
-    fn list(&self, prefix: &str) -> Result<Vec<String>> {
-        let objects = self.objects.lock().unwrap();
-        Ok(objects
-            .keys()
-            .filter(|key| {
-                key.strip_prefix(prefix)
-                    .is_some_and(|rest| !rest.contains('/'))
-            })
-            .cloned()
-            .collect())
-    }
-}
-
-/// Two app instances with their own caches share one store, like two
-/// machines sharing a bucket.
-struct SharedStore(std::sync::Arc<MemoryStore>);
-
-impl RemoteObjectStore for SharedStore {
-    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        self.0.get(key)
-    }
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<()> {
-        self.0.put(key, bytes)
-    }
-    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<bool> {
-        self.0.put_if_absent(key, bytes)
-    }
-    fn delete(&self, key: &str) -> Result<()> {
-        self.0.delete(key)
-    }
-    fn list(&self, prefix: &str) -> Result<Vec<String>> {
-        self.0.list(prefix)
-    }
-}
 
 fn write(path: &Path, text: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -79,9 +10,9 @@ fn write(path: &Path, text: &str) {
 #[test]
 fn capture_on_one_machine_install_and_repair_on_another() {
     let temp = tempfile::tempdir().unwrap();
-    let bucket = std::sync::Arc::new(MemoryStore::default());
-    let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
-    let second = Remote::new(SharedStore(bucket), temp.path().join("cache2"));
+    let bucket = MemoryStore::default();
+    let first = Remote::new(bucket.clone(), temp.path().join("cache1"));
+    let second = Remote::new(bucket, temp.path().join("cache2"));
 
     let repo_id = first
         .create_repo("team", "game", None, OperationControl::default())
@@ -171,9 +102,9 @@ fn capture_on_one_machine_install_and_repair_on_another() {
 #[test]
 fn create_repo_refuses_a_taken_name_and_leaves_no_copy() {
     let temp = tempfile::tempdir().unwrap();
-    let bucket = std::sync::Arc::new(MemoryStore::default());
-    let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
-    let second = Remote::new(SharedStore(bucket), temp.path().join("cache2"));
+    let bucket = MemoryStore::default();
+    let first = Remote::new(bucket.clone(), temp.path().join("cache1"));
+    let second = Remote::new(bucket, temp.path().join("cache2"));
     first
         .create_repo("team", "game", None, OperationControl::default())
         .unwrap();
@@ -204,9 +135,9 @@ fn capture_rejects_malformed_tags_before_touching_the_remote() {
 #[test]
 fn browsing_a_snapshot_downloads_only_that_snapshot() {
     let temp = tempfile::tempdir().unwrap();
-    let bucket = std::sync::Arc::new(MemoryStore::default());
-    let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
-    let second = Remote::new(SharedStore(bucket), temp.path().join("cache2"));
+    let bucket = MemoryStore::default();
+    let first = Remote::new(bucket.clone(), temp.path().join("cache1"));
+    let second = Remote::new(bucket, temp.path().join("cache2"));
     let repo_id = first
         .create_repo("team", "game", None, OperationControl::default())
         .unwrap();
@@ -243,54 +174,6 @@ fn browsing_a_snapshot_downloads_only_that_snapshot() {
     assert!(local.read_file(&other, "data/a.txt").is_err());
 }
 
-#[test]
-fn the_bucket_check_passes_and_leaves_nothing_behind() {
-    let store = MemoryStore::default();
-    let message = check_bucket(&store).unwrap();
-    assert!(message.starts_with("connection works"), "{message}");
-    assert!(store.objects.lock().unwrap().is_empty());
-}
-
-/// A bucket that ignores `If-None-Match`.
-#[derive(Default)]
-struct UnconditionalStore(MemoryStore);
-
-impl RemoteObjectStore for UnconditionalStore {
-    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        self.0.get(key)
-    }
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<()> {
-        self.0.put(key, bytes)
-    }
-    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<bool> {
-        self.0.put(key, bytes).map(|()| true)
-    }
-    fn delete(&self, key: &str) -> Result<()> {
-        self.0.delete(key)
-    }
-    fn list(&self, prefix: &str) -> Result<Vec<String>> {
-        self.0.list(prefix)
-    }
-}
-
-#[test]
-fn the_bucket_check_reports_missing_conditional_writes() {
-    let store = UnconditionalStore::default();
-    let error = check_bucket(&store).unwrap_err().to_string();
-    assert!(error.contains("ignores conditional writes"), "{error}");
-    assert!(store.0.objects.lock().unwrap().is_empty());
-}
-
-#[test]
-fn errors_get_a_plain_cause() {
-    let explained = explain("S3: could not list: 404 Not Found NoSuchBucket");
-    assert!(
-        explained.ends_with("the bucket does not exist."),
-        "{explained}"
-    );
-    assert_eq!(explain("something else"), "something else");
-}
-
 fn count_files(dir: &Path) -> usize {
     let Ok(entries) = fs::read_dir(dir) else {
         return 0;
@@ -307,9 +190,9 @@ fn count_files(dir: &Path) -> usize {
 #[test]
 fn an_encrypted_repository_opens_only_with_its_password() {
     let temp = tempfile::tempdir().unwrap();
-    let bucket = std::sync::Arc::new(MemoryStore::default());
-    let first = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache1"));
-    let second = Remote::new(SharedStore(bucket.clone()), temp.path().join("cache2"));
+    let bucket = MemoryStore::default();
+    let first = Remote::new(bucket.clone(), temp.path().join("cache1"));
+    let second = Remote::new(bucket.clone(), temp.path().join("cache2"));
     let password = RepoCredential::Password("correct horse".into());
 
     let repo_id = first
@@ -330,7 +213,7 @@ fn an_encrypted_repository_opens_only_with_its_password() {
             OperationControl::default(),
         )
         .unwrap();
-    let stored = bucket.objects.lock().unwrap().clone();
+    let stored = bucket.objects();
     assert!(
         stored.values().all(|bytes| !bytes
             .windows(17)

@@ -8,7 +8,6 @@ mod app;
 mod cloudflare;
 mod ops;
 mod provider;
-mod store;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {

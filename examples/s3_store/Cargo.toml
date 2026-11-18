@@ -1,0 +1,18 @@
+[package]
+name = "gutch-s3-store"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "MIT"
+publish = false
+
+# A separate workspace, like the examples that use it.
+[workspace]
+
+[dependencies]
+gutch = { path = "../..", default-features = false }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "rustls"] }
+rusty-s3 = "0.11.0"
+
+[lints.cargo]
+unused_dependencies = "deny"
