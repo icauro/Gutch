@@ -35,7 +35,7 @@ and capture can refuse file names that would break on the systems you ship to.
 | A package manager or version switcher | Several versions side by side, with shared content stored once |
 | A build archive | Every old build back exactly as it was, sharing storage with the rest |
 | Distribution from your own server or cloud storage | A Rust library with a small storage interface; [`examples/s3_app`](examples/s3_app) is a complete S3 app |
-| System backups | A poor fit: no retention schedules, and owners, timestamps, extended attributes, hard links and permissions beyond the executable and read-only flags are not kept |
+| Backups where only file contents matter, not owners, timestamps, extended attributes or hard links | Fast, checked restores of any version, with each piece of content stored once; old versions are removed by you, not by a retention schedule |
 
 Gutch is a library first, and `gutch-cli` is a thin layer over it.
 Repositories sync with a server your application provides, so the
