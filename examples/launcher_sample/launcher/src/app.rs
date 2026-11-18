@@ -1,12 +1,13 @@
 //! The window. Downloads and disk work run on a worker thread; the window
 //! reads progress and the result from a channel.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 
 use eframe::egui;
-use gutch::api::{CancelFlag, OperationControl, ProgressEvent};
+use gutch::api::{CancelFlag, InstallationIssues, OperationControl, ProgressEvent};
 use launcher_catalog::{Catalog, CatalogEntry, Os};
 
 use crate::library::{self, DEFAULT_BUCKET_URL, Installed, Library, Result, State};
@@ -23,6 +24,16 @@ enum Change {
     Move(PathBuf, PathBuf),
     /// The install at this path is gone.
     Remove(PathBuf),
+    /// A repair's check found these issues; the repair itself comes next.
+    Checked(Installed, InstallationIssues),
+}
+
+/// A repair waiting to start: what the check found, and whether to remove
+/// the files that are not part of the build.
+struct PendingRepair {
+    installed: Installed,
+    issues: InstallationIssues,
+    remove_extra: bool,
 }
 
 struct Done {
@@ -63,6 +74,10 @@ pub struct App {
     status_is_error: bool,
     /// The install waiting for the user to confirm its removal.
     confirm_uninstall: Option<Installed>,
+    /// A repair that found extra files and waits for the user's choice.
+    ask_extra_files: Option<PendingRepair>,
+    /// A repair the user agreed to, started on the next frame.
+    start_repair: Option<PendingRepair>,
     show_about: bool,
 }
 
@@ -89,6 +104,8 @@ impl App {
             status,
             status_is_error,
             confirm_uninstall: None,
+            ask_extra_files: None,
+            start_repair: None,
             show_about: false,
         }
     }
@@ -179,6 +196,19 @@ impl App {
                 }
             }
             Change::Remove(path) => installs.retain(|installed| installed.path != path),
+            Change::Checked(installed, issues) => {
+                let pending = PendingRepair {
+                    installed,
+                    issues,
+                    remove_extra: false,
+                };
+                if pending.issues.extra_file_count() > 0 {
+                    self.ask_extra_files = Some(pending);
+                } else {
+                    self.start_repair = Some(pending);
+                }
+                return;
+            }
         }
         installs.sort_by(|left, right| {
             launcher_catalog::compare_versions(&right.version, &left.version)
@@ -332,20 +362,29 @@ impl App {
                 },
             ),
             "Repair" => {
-                let catalog = self.catalog.clone().unwrap_or_default();
                 self.spawn(
                     ctx,
                     "Repair",
                     Subject::Install(installed.path.clone()),
                     None,
                     move |library, control| {
+                        let issues = library.verify(&installed, control)?;
+                        let clean = issues.matches_snapshot() && issues.extra_file_count() == 0;
                         Ok(Done {
                             message: format!(
                                 "{}: {}",
                                 installed.version,
-                                library.repair(&catalog, &installed, control)?
+                                if clean {
+                                    "nothing to repair"
+                                } else {
+                                    "checked"
+                                }
                             ),
-                            change: Change::None,
+                            change: if clean {
+                                Change::None
+                            } else {
+                                Change::Checked(installed, issues)
+                            },
                         })
                     },
                 );
@@ -525,6 +564,106 @@ impl App {
         }
     }
 
+    /// Restores the files a check found damaged.
+    fn repair(&mut self, ctx: &egui::Context, pending: PendingRepair) {
+        let catalog = self.catalog.clone().unwrap_or_default();
+        let subject = Subject::Install(pending.installed.path.clone());
+        self.spawn(ctx, "Repair", subject, None, move |library, control| {
+            let PendingRepair {
+                installed,
+                issues,
+                remove_extra,
+            } = pending;
+            let message = library.repair(&catalog, &installed, &issues, remove_extra, control)?;
+            Ok(Done {
+                message: format!("{}: {message}", installed.version),
+                change: Change::None,
+            })
+        });
+    }
+
+    /// Asks whether a repair keeps the files that are not part of the build.
+    fn extra_files_dialog(&mut self, ctx: &egui::Context) {
+        let Some(pending) = &self.ask_extra_files else {
+            return;
+        };
+        let paths: Vec<&str> = pending
+            .issues
+            .extra_files
+            .iter()
+            .map(|issue| issue.path.as_str())
+            .collect();
+        let groups = extra_groups(&paths);
+        let total: usize = groups.iter().map(|(_, number)| number).sum();
+        let damaged = pending.issues.missing_file_count() + pending.issues.corrupt_file_count();
+        let mut answer = None;
+        egui::Window::new("Extra files")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_max_width(420.0);
+                ui.label(format!(
+                    "{} in this {} folder {} not part of the published build, \
+                     such as files you added or files Blender saved there.",
+                    count(total, "file"),
+                    pending.installed.version,
+                    if total == 1 { "is" } else { "are" },
+                ));
+                ui.add_space(4.0);
+                for (place, number) in groups.iter().take(4) {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("• {place}"));
+                        ui.weak(format!("({number})"));
+                    });
+                }
+                if groups.len() > 4 {
+                    ui.weak(format!("and {} more folders", groups.len() - 4));
+                }
+                ui.add_space(4.0);
+                ui.weak(if damaged > 0 {
+                    format!(
+                        "Either way, the repair restores {} that are missing or changed.",
+                        count(damaged, "file")
+                    )
+                } else {
+                    "No build files are missing or changed.".to_owned()
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Keep them").clicked() {
+                        answer = Some(Some(false));
+                    }
+                    if ui.button("Remove them").clicked() {
+                        answer = Some(Some(true));
+                    }
+                    if ui.button("Cancel").clicked() {
+                        answer = Some(None);
+                    }
+                });
+            });
+        let Some(choice) = answer else {
+            return;
+        };
+        let pending = self.ask_extra_files.take();
+        match (pending, choice) {
+            (Some(pending), Some(false)) if damaged == 0 => {
+                self.report(Ok(format!(
+                    "Repair: {}: nothing to repair; extra files kept",
+                    pending.installed.version
+                )));
+            }
+            (Some(pending), Some(remove_extra)) => self.repair(
+                ctx,
+                PendingRepair {
+                    remove_extra,
+                    ..pending
+                },
+            ),
+            _ => {}
+        }
+    }
+
     fn about_dialog(&mut self, ctx: &egui::Context) {
         egui::Window::new("About")
             .open(&mut self.show_about)
@@ -576,8 +715,13 @@ impl eframe::App for App {
             self.refresh(ui.ctx());
         }
         self.receive_updates();
+        if let Some(pending) = self.start_repair.take() {
+            self.repair(ui.ctx(), pending);
+        }
         // One job at a time keeps the cache and the state simple.
-        let idle = self.job.is_none() && self.confirm_uninstall.is_none();
+        let idle = self.job.is_none()
+            && self.confirm_uninstall.is_none()
+            && self.ask_extra_files.is_none();
         egui::Panel::top("top").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if ui.add_enabled(idle, egui::Button::new("Refresh")).clicked() {
@@ -598,6 +742,7 @@ impl eframe::App for App {
         });
         let ctx = ui.ctx().clone();
         self.uninstall_dialog(&ctx);
+        self.extra_files_dialog(&ctx);
         self.about_dialog(&ctx);
     }
 }
@@ -631,6 +776,42 @@ fn tag(ui: &mut egui::Ui, text: &str, color: egui::Color32) -> egui::Response {
         .response
 }
 
+/// "1 file", "3 files".
+fn count(number: usize, noun: &str) -> String {
+    if number == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{number} {noun}s")
+    }
+}
+
+/// Extra files by where they are, most first. Python caches, which Blender
+/// writes when it runs, are one group wherever they are. A new folder is
+/// left out when the files in it are counted.
+fn extra_groups(paths: &[&str]) -> Vec<(String, usize)> {
+    let folders: HashSet<&str> = paths
+        .iter()
+        .filter_map(|path| path.rsplit_once('/').map(|(folder, _)| folder))
+        .collect();
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for path in paths.iter().filter(|path| !folders.contains(*path)) {
+        let place = if path.split('/').any(|part| part == "__pycache__") {
+            "Python caches Blender made".to_owned()
+        } else {
+            match path.rsplit_once('/') {
+                Some((folder, _)) => format!("in {folder}"),
+                None => "in the main folder".to_owned(),
+            }
+        };
+        match groups.iter_mut().find(|(known, _)| *known == place) {
+            Some((_, number)) => *number += 1,
+            None => groups.push((place, 1)),
+        }
+    }
+    groups.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    groups
+}
+
 /// The release series, such as `5.2` for `5.2.4`.
 fn series(version: &str) -> String {
     version.split('.').take(2).collect::<Vec<_>>().join(".")
@@ -642,4 +823,31 @@ fn release_notes(version: &str) -> String {
         "https://www.blender.org/download/releases/{}/",
         series(version).replace('.', "-")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extra_files_group_by_place_with_python_caches_together() {
+        let groups = extra_groups(&[
+            "5.3/python/lib/__pycache__",
+            "5.3/python/lib/__pycache__/a.pyc",
+            "5.3/python/lib/__pycache__/b.pyc",
+            "5.3/scripts/__pycache__/c.pyc",
+            "notes.txt",
+            "config",
+            "config/userpref.blend",
+            "config/startup.blend",
+        ]);
+        assert_eq!(
+            groups,
+            [
+                ("Python caches Blender made".to_owned(), 3),
+                ("in config".to_owned(), 2),
+                ("in the main folder".to_owned(), 1),
+            ]
+        );
+    }
 }

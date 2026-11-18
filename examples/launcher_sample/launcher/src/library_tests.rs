@@ -229,8 +229,9 @@ fn install_verify_repair_and_uninstall() {
     let issues = library.verify(&installed, Default::default()).unwrap();
     assert_eq!(issues.missing_file_count(), 1);
     assert_eq!(issues.corrupt_file_count(), 1);
+    assert_eq!(issues.extra_file_count(), 1);
     let message = library
-        .repair(&catalog, &installed, Default::default())
+        .repair(&catalog, &installed, &issues, false, Default::default())
         .unwrap();
     assert_eq!(message, "restored 2 files");
     assert_eq!(
@@ -238,6 +239,14 @@ fn install_verify_repair_and_uninstall() {
         noise(1, 300_000)
     );
     assert_eq!(fs::read(folder.join("notes.txt")).unwrap(), b"mine");
+
+    // Removing the extra file is the user's choice.
+    let issues = library.verify(&installed, Default::default()).unwrap();
+    let message = library
+        .repair(&catalog, &installed, &issues, true, Default::default())
+        .unwrap();
+    assert_eq!(message, "removed 1 file not in the build");
+    assert!(!folder.join("notes.txt").exists());
 
     library.uninstall(&installed, Default::default()).unwrap();
     assert!(!folder.exists());
@@ -305,7 +314,10 @@ fn a_second_version_downloads_only_its_new_content() {
     let issues = library.verify(&new, Default::default()).unwrap();
     assert_eq!(issues.missing_file_count() + issues.corrupt_file_count(), 0);
     fs::remove_file(new.path.join("lib/shared.dll")).unwrap();
-    library.repair(&catalog, &new, Default::default()).unwrap();
+    let issues = library.verify(&new, Default::default()).unwrap();
+    library
+        .repair(&catalog, &new, &issues, false, Default::default())
+        .unwrap();
     assert_eq!(
         fs::read(new.path.join("lib/shared.dll")).unwrap(),
         noise(2, 900_000)

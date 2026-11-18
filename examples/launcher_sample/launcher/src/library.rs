@@ -207,25 +207,27 @@ impl Library {
         .issues)
     }
 
-    /// Restores missing and changed files; files the user added stay. The
-    /// bundles a repair needs are downloaded first while the version is
-    /// still published.
+    /// Restores the missing and changed files that `issues`, from
+    /// [`Self::verify`], found. Files that are not part of the build are
+    /// removed only with `remove_extra`. The bundles a repair needs are
+    /// downloaded first while the version is still published.
     pub fn repair(
         &self,
         catalog: &Catalog,
         installed: &Installed,
+        issues: &InstallationIssues,
+        remove_extra: bool,
         control: OperationControl,
     ) -> Result<String> {
-        let issues = self.verify(installed, control.clone())?;
         let damaged = issues.missing_file_count() + issues.corrupt_file_count();
-        if damaged == 0 {
+        if damaged == 0 && !(remove_extra && issues.extra_file_count() > 0) {
             return Ok("nothing to repair".into());
         }
         let published = catalog
             .versions
             .iter()
             .any(|entry| entry.snapshot_id == installed.snapshot_id);
-        if published {
+        if published && damaged > 0 {
             fetch_snapshot(&self.fetch_request(catalog, &installed.snapshot_id, control.clone()))
                 .map_err(|error| error.to_string())?;
         }
@@ -233,7 +235,7 @@ impl Library {
             repo_root: self.cache(),
             snapshot_id: installed.snapshot_id.clone(),
             destination_dir: installed.path.clone(),
-            remove_extra_files: false,
+            remove_extra_files: remove_extra,
             control,
             ..Default::default()
         })
@@ -244,10 +246,16 @@ impl Library {
                 format!("{error}; this version is no longer published, so reinstall another")
             }
         })?;
-        Ok(format!(
-            "restored {} files",
-            repaired.missing_file_count + repaired.corrupt_file_count
-        ))
+        let restored = repaired.missing_file_count + repaired.corrupt_file_count;
+        let removed = repaired.removed_extra_file_count;
+        let mut done = Vec::new();
+        if restored > 0 {
+            done.push(format!("restored {}", files(restored)));
+        }
+        if removed > 0 {
+            done.push(format!("removed {} not in the build", files(removed)));
+        }
+        Ok(done.join(", "))
     }
 
     /// Removes the folder and the snapshot's cached bundles that no other
@@ -364,6 +372,15 @@ pub fn launch(installed: &Installed) -> Result<()> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("cannot start {}: {error}", program.display()))
+}
+
+/// "1 file", "2 files".
+fn files(count: usize) -> String {
+    if count == 1 {
+        "1 file".into()
+    } else {
+        format!("{count} files")
+    }
 }
 
 /// Opens `folder` in the system's file manager.
