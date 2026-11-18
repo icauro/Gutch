@@ -37,7 +37,7 @@ enum Command {
         #[arg(long, default_value = "publish-work")]
         work_dir: PathBuf,
         /// Ignore series older than this.
-        #[arg(long, default_value = "4.2")]
+        #[arg(long, default_value = "5.0")]
         min_version: String,
         /// Keep the newest patch release of this many series.
         #[arg(long, default_value_t = 8)]

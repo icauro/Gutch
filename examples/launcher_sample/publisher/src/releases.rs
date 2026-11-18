@@ -25,7 +25,7 @@ pub struct HttpReleases {
 }
 
 impl HttpReleases {
-    /// Series older than `min_version` (such as `4.2`) are not read.
+    /// Series older than `min_version` (such as `5.0`) are not read.
     pub fn new(base: &str, min_version: &str) -> Result<Self, String> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(30))
@@ -197,6 +197,29 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn only_stable_versions_count() {
+        assert!(is_version("5.2.4"));
+        assert!(is_version("5.3"));
+        for unstable in [
+            "5.3.0-rc1",
+            "5.3.0-beta",
+            "5.3.0-alpha",
+            "5.3rc",
+            "",
+            "5..1",
+        ] {
+            assert!(!is_version(unstable), "{unstable}");
+        }
+        let listing = r#"<a href="blender-5.3.0-rc1-windows-x64.zip">x</a>
+<a href="blender-5.3.0-windows-x64.zip">x</a>"#;
+        let versions: Vec<_> = build_files(listing)
+            .into_iter()
+            .map(|(_, version, _)| version)
+            .collect();
+        assert_eq!(versions, ["5.3.0"]);
     }
 
     #[test]
