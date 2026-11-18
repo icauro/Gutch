@@ -67,9 +67,9 @@ closely as that tool allows.
   <a href="_docs/assets/install_profile.svg"><img src="_docs/assets/install_profile.svg" width="100%" alt="Perfetto timeline of one Gutch install: 12 workers unpack, check and write bundles side by side until the install is done"></a>
 </p>
 
-Gutch installs Blender 5.1 for Windows (977 MB in 6,368 files, stored as
-380 MB) in 0.65 s, checking every file before the folder goes live. Copying
-the same folder uncompressed with robocopy takes 0.77 s.
+In this example, Gutch installs Blender 5.1 for Windows (977 MB in 6,368
+files, stored as 380 MB) in 0.65 s, checking every file before the folder
+goes live. Copying the same folder uncompressed with robocopy takes 0.77 s.
 
 The timeline above shows why. Unpacking and checking take very little time;
 almost all of it goes to writing files, so the disk sets the speed. With the
