@@ -31,10 +31,17 @@ and capture can refuse file names that would break on the systems you ship to.
 
 [![Gutch benchmark comparisons](https://raw.githubusercontent.com/icauro/Gutch-Benchmarks/main/_docs/reports/comparison.svg)](https://github.com/icauro/Gutch-Benchmarks)
 
-Against Restic, Kopia, Borg, Rustic and Plakar, Gutch installs 2.2–4.6×
-faster and repairs 2.4–8× faster (29× against Plakar). Its store ranges from
-3.7% smaller to 0.2% larger. It captures faster than all of them except
-Kopia, which is about 1.2× quicker.
+Reconstruct comes first. It is the command that runs every time a user
+installs, updates or repairs, so it is what Gutch is built around. Against
+Restic, Kopia, Borg, Rustic and Plakar, a fresh install is 2.2–4.6× faster
+and a repair 2.4–8× faster (29× against Plakar).
+
+Capture runs once per version, so it gets less attention, but it is still
+quick: chunks are hashed with BLAKE3, and content the repository already
+holds is skipped before it is compressed.
+Gutch captures faster than all of them except Kopia, which is about 1.2×
+quicker. The repository it builds ranges from 3.7% smaller to 0.2% larger
+than theirs.
 
 Each pair runs on one machine with chunk sizes, compression, encryption and
 worker counts matched as closely as each tool allows, and every restored file
