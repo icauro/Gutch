@@ -111,6 +111,7 @@ fn pull_keeps_a_healthy_equivalent_layout_but_replaces_missing_artifacts() {
                     jobs: Some(1),
                     ..Default::default()
                 },
+                reuse_remote_bundles: false,
                 control: Default::default(),
             },
         )

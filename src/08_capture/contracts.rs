@@ -35,6 +35,11 @@ pub struct SnapshotCaptureRequest {
     pub compression_level: Option<i32>,
     pub storage_mode: ArtifactStorageMode,
     pub runtime_hints: RuntimeResourceHints,
+    /// Treat chunks as stored when the chunk index lists their bundle but this
+    /// copy lacks the bundle file, because the bound remote holds it. For a
+    /// copy pulled with metadata only; push then checks the remote for each
+    /// such bundle before it uploads anything.
+    pub reuse_remote_bundles: bool,
     pub control: OperationControl,
 }
 

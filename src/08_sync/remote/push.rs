@@ -436,11 +436,15 @@ pub fn push_repo(
             )?;
             control.checkpoint()?;
             let required_bundle_ids = required_local_bundle_ids(&repo_paths, &status)?;
-            // Fail before any upload so the remote never records an unbacked snapshot.
+            // Fail before any upload so the remote never records an unbacked
+            // snapshot. A copy pulled with metadata only lacks the files of
+            // bundles the remote already holds.
             for bundle_id in &required_bundle_ids {
-                if !bundle_path(&repo_paths, bundle_id)?.is_file() {
+                if !bundle_path(&repo_paths, bundle_id)?.is_file()
+                    && !provider.bundle_exists(&repository, bundle_id)?
+                {
                     return Err(Error::artifact(format!(
-                        "bundle '{bundle_id}' is required by a local snapshot but missing; run repo verify before pushing"
+                        "bundle '{bundle_id}' is required by a local snapshot but missing here and on the remote; run repo verify before pushing"
                     )));
                 }
             }

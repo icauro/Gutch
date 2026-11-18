@@ -123,6 +123,7 @@ fn assert_api_and_cli_capture_equivalent(
             jobs: Some(1),
             ..Default::default()
         },
+        reuse_remote_bundles: false,
         control: Default::default(),
     })
     .unwrap();

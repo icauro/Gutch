@@ -118,6 +118,7 @@ fn test_capture(
         compression_level: None,
         storage_mode: ArtifactStorageMode::Bundled,
         runtime_hints: RuntimeResourceHints::default(),
+        reuse_remote_bundles: false,
         control,
     })
     .unwrap()
@@ -189,6 +190,7 @@ fn switching_to_jc_rechunks_unchanged_files_in_a_new_snapshot() {
         compression_level: None,
         storage_mode: ArtifactStorageMode::Bundled,
         runtime_hints: Default::default(),
+        reuse_remote_bundles: false,
         control: Default::default(),
     })
     .unwrap();
@@ -281,6 +283,7 @@ fn cancelled_capture_retains_first_snapshot() {
         compression_level: None,
         storage_mode: ArtifactStorageMode::Bundled,
         runtime_hints: RuntimeResourceHints::default(),
+        reuse_remote_bundles: false,
         control: cancelled,
     });
     assert!(failed.is_err());
@@ -351,6 +354,7 @@ fn same_id_different_tags_returns_metadata_conflict() {
         compression_level: None,
         storage_mode: ArtifactStorageMode::Bundled,
         runtime_hints: RuntimeResourceHints::default(),
+        reuse_remote_bundles: false,
         control: OperationControl::default(),
     });
     let Err(crate::Error::SnapshotMetadataConflict {
@@ -550,6 +554,7 @@ fn tampered_blueprint_returns_integrity_conflict() {
         compression_level: None,
         storage_mode: ArtifactStorageMode::Bundled,
         runtime_hints: RuntimeResourceHints::default(),
+        reuse_remote_bundles: false,
         control: OperationControl::default(),
     });
     assert!(
@@ -669,6 +674,7 @@ fn capture_bundle_counts_include_each_referenced_bundle_once() {
                 compression_level: None,
                 storage_mode: mode,
                 runtime_hints: RuntimeResourceHints::default(),
+                reuse_remote_bundles: false,
                 control: Default::default(),
             })
             .unwrap()
@@ -738,6 +744,7 @@ fn batch_capture_reuses_chunks_from_earlier_sources_in_the_batch() {
         compression_level: None,
         storage_mode: ArtifactStorageMode::Bundled,
         runtime_hints: RuntimeResourceHints::default(),
+        reuse_remote_bundles: false,
         control: OperationControl::default(),
     };
 

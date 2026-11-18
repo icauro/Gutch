@@ -24,6 +24,9 @@ pub struct CaptureReuseState {
     /// Encoded byte estimates for chunks with usable local artifacts.
     /// Artifact locations remain authoritative in chunk_index.
     pub available_chunk_sizes: HashMap<ChunkHash, u64>,
+    /// Indexed bundles missing from this copy count as stored, because the
+    /// bound remote holds them.
+    pub reuse_remote_bundles: bool,
 }
 
 impl Default for CaptureReuseState {
@@ -32,6 +35,7 @@ impl Default for CaptureReuseState {
             bundle_ids: HashSet::new(),
             chunk_index: empty_chunk_index(),
             available_chunk_sizes: HashMap::new(),
+            reuse_remote_bundles: false,
         }
     }
 }
@@ -40,13 +44,19 @@ impl Default for CaptureReuseState {
 ///
 /// The scan is read-only. Results are merged after the parallel work in the
 /// same sorted order as the sequential implementation so duplicate index
-/// entries and previous-manifest candidates remain deterministic.
+/// entries and previous-manifest candidates remain deterministic. With
+/// `reuse_remote_bundles`, every bundle the chunk index lists counts as
+/// available, whether or not this copy holds its file.
 pub fn load_capture_reuse_state(
     paths: &RepoPaths,
     pool: &rayon::ThreadPool,
     control: &OperationControl,
+    reuse_remote_bundles: bool,
 ) -> Result<CaptureReuseState> {
-    let mut state = CaptureReuseState::default();
+    let mut state = CaptureReuseState {
+        reuse_remote_bundles,
+        ..Default::default()
+    };
     let chunk_index = load_chunk_index(paths)?;
 
     let _bundle_ids_span =
@@ -72,8 +82,22 @@ pub fn load_capture_reuse_state(
     let _locations_span = control.profile_span(
         "capture.prepare_source.load_existing_store_state.check_available_chunk_sizes",
     );
+    let indexed_bundle_ids;
+    let available_bundle_ids = if reuse_remote_bundles {
+        indexed_bundle_ids = state
+            .chunk_index
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.storage_mode == ArtifactStorageMode::Bundled)
+            .map(|(_, entry)| entry.bundle_id.to_string())
+            .chain(state.bundle_ids.iter().cloned())
+            .collect::<HashSet<_>>();
+        &indexed_bundle_ids
+    } else {
+        &state.bundle_ids
+    };
     state.available_chunk_sizes =
-        available_chunk_sizes(&state.chunk_index, paths, pool, &state.bundle_ids)?;
+        available_chunk_sizes(&state.chunk_index, paths, pool, available_bundle_ids)?;
     drop(_locations_span);
 
     Ok(state)

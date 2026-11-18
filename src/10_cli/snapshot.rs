@@ -171,6 +171,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
         discover_from,
         repo,
         tags,
+        reuse_remote_bundles,
         build_profile,
         runtime,
         confirm,
@@ -196,6 +197,7 @@ fn capture(args: CaptureArgs, profile: &Profile) -> crate::Result<()> {
             compression_level: build_profile.compression_level,
             storage_mode: build_profile.storage_mode,
             runtime_hints: runtime.hints(),
+            reuse_remote_bundles,
             control: control_with_profile(profile).with_progress(CliProgressSink::new()),
         })
         .collect::<Vec<_>>();

@@ -31,6 +31,7 @@ fn fixture() -> (tempfile::TempDir, InstallationReconstructRequest) {
             jobs: Some(2),
             ..Default::default()
         },
+        reuse_remote_bundles: false,
         control: Default::default(),
     })
     .unwrap();

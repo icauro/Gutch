@@ -75,6 +75,10 @@ pub(crate) struct CaptureArgs {
     /// Snapshot tag, as KEY=VALUE; repeatable.
     #[arg(long = "tag", value_name = "KEY=VALUE")]
     pub(crate) tags: Vec<String>,
+    /// Reuse content whose bundles only the bound remote holds, as in a copy
+    /// pulled with --metadata-only.
+    #[arg(long)]
+    pub(crate) reuse_remote_bundles: bool,
     #[command(flatten)]
     pub(crate) build_profile: ArtifactBuildProfileArgs,
     #[command(flatten)]

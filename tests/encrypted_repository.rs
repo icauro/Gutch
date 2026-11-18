@@ -29,6 +29,7 @@ fn capture(
             jobs: Some(2),
             ..Default::default()
         },
+        reuse_remote_bundles: false,
         control: Default::default(),
     })
     .map(|capture| capture.snapshot_id)

@@ -233,6 +233,15 @@ impl RemoteRepoWriter for MemoryProvider {
 
 /// Captures `content` as a bundled snapshot of a new repo at `repo`.
 fn capture(repo: &Path, source: &Path, content: &[u8]) -> String {
+    capture_reusing(repo, source, content, false)
+}
+
+fn capture_reusing(
+    repo: &Path,
+    source: &Path,
+    content: &[u8],
+    reuse_remote_bundles: bool,
+) -> String {
     std::fs::create_dir_all(source).unwrap();
     std::fs::write(source.join("file"), content).unwrap();
     let paths = RepoPaths::from_repo_root(repo);
@@ -253,6 +262,7 @@ fn capture(repo: &Path, source: &Path, content: &[u8]) -> String {
             jobs: Some(1),
             ..Default::default()
         },
+        reuse_remote_bundles,
         control: Default::default(),
     })
     .unwrap()
@@ -711,4 +721,52 @@ fn fetching_one_file_downloads_only_the_bundles_holding_it() {
         error.to_string().contains("has no file 'missing'"),
         "{error}"
     );
+}
+
+#[test]
+fn a_metadata_only_copy_can_capture_and_push_new_snapshots() {
+    let root = tempfile::tempdir().unwrap();
+    let origin = root.path().join("origin");
+    capture(&origin, &root.path().join("first"), &[1; 64 * 1024]);
+    bind(&origin);
+    let provider = MemoryProvider::default();
+    push(&origin, &provider).unwrap();
+    let first_bundles = bundle_ids(&origin);
+
+    // A publisher keeps only metadata and the chunk index, never old bundles.
+    let publisher = root.path().join("publisher");
+    pull_repo(
+        &RepoPullRequest {
+            repo_root: publisher.clone(),
+            remote_repo_id: Some("memory".into()),
+            bundles: PullBundles::None,
+            ..Default::default()
+        },
+        &provider,
+    )
+    .unwrap();
+    assert!(bundle_ids(&publisher).is_empty());
+    provider.take_requested_bundles();
+
+    // The new snapshot repeats the first file and adds another.
+    let second_source = root.path().join("second");
+    std::fs::create_dir_all(&second_source).unwrap();
+    std::fs::write(second_source.join("other"), [2; 64 * 1024]).unwrap();
+    let second = capture_reusing(&publisher, &second_source, &[1; 64 * 1024], true);
+    let new_bundles = bundle_ids(&publisher);
+    assert!(!new_bundles.is_empty());
+    assert!(new_bundles.iter().all(|id| !first_bundles.contains(id)));
+
+    let pushed = push(&publisher, &provider).unwrap();
+    assert_eq!(pushed.bundle_uploaded_count, new_bundles.len());
+    assert!(provider.take_requested_bundles().is_empty());
+    // A copy of the first snapshot's bundles stays on the remote.
+    let full = root.path().join("full");
+    pull(&full, &provider, false);
+    let mut expected: Vec<String> = first_bundles.iter().chain(&new_bundles).cloned().collect();
+    expected.sort();
+    assert_eq!(bundle_ids(&full), expected);
+    let local_ids =
+        crate::repo::inventory::list_repo_snapshot_ids(&RepoPaths::from_repo_root(&full)).unwrap();
+    assert!(local_ids.contains(&second));
 }

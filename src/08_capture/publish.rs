@@ -178,7 +178,8 @@ pub(super) fn publish_snapshot_artifacts(
     drop(_chunk_index_write_span);
     let mut required_bundle_count = 0;
     for artifact in required_artifacts(&result.snapshot_manifest, &reuse_state.chunk_index)? {
-        if !artifact.local_path(repo_paths)?.is_file() {
+        let held_remotely = reuse_state.reuse_remote_bundles && artifact.is_bundle();
+        if !held_remotely && !artifact.local_path(repo_paths)?.is_file() {
             return Err(crate::Error::repo(format!(
                 "capture is missing required artifact '{}'",
                 artifact.id()

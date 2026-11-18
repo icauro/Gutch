@@ -54,7 +54,9 @@ pub(crate) fn capture_planned_snapshots(
     while let Some(first) = requests.next() {
         let mut group = vec![first];
         while let Some(next) = requests.next_if(|next| {
-            next.repo_root == group[0].repo_root && next.runtime_hints == group[0].runtime_hints
+            next.repo_root == group[0].repo_root
+                && next.runtime_hints == group[0].runtime_hints
+                && next.reuse_remote_bundles == group[0].reuse_remote_bundles
         }) {
             group.push(next);
         }
@@ -77,7 +79,12 @@ fn capture_repository_group(
         let repo_paths = RepoPaths::open(&repo_root)?;
         let _existing_state_span =
             control.profile_span("capture.prepare_source.load_existing_store_state");
-        let mut reuse_state = load_capture_reuse_state(&repo_paths, &build_pool, &control)?;
+        let mut reuse_state = load_capture_reuse_state(
+            &repo_paths,
+            &build_pool,
+            &control,
+            group[0].reuse_remote_bundles,
+        )?;
         drop(_existing_state_span);
 
         let mut results = Vec::with_capacity(group.len());
