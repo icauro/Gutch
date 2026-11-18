@@ -68,15 +68,18 @@ def text_width(content: str, size: float, weight: int) -> float:
 
 
 def tags(x, y, labels, size):
-    """A row of rounded tags, each sized to its label; returns the markup and the row's right edge."""
-    parts, height = [], size + 12
-    for label in labels:
-        width = text_width(label, size, 600) + size + 6
-        parts.append(f'<rect x="{x:.1f}" y="{y}" width="{width:.1f}" height="{height}" rx="{height / 2}" fill="#12263a" '
-                     f'stroke="{DEEP}" stroke-width="1"/>'
-                     + text(f"{x + (size + 6) / 2:.1f}", y + height / 2 + size * 0.36, size, MINT, label, 600))
-        x += width + 6
-    return "".join(parts), x - 6
+    """A row of labels set as plain text, split by small teal dots, centered in a band `size + 12` tall from `y`.
+
+    Returns the markup and the row's right edge."""
+    parts, baseline, space = [], y + (size + 12) / 2 + size * 0.36, size * 0.9
+    for index, label in enumerate(labels):
+        if index:
+            parts.append(f'<circle cx="{x + space / 2:.1f}" cy="{baseline - size * 0.34:.1f}" r="{size * 0.12:.1f}" '
+                         f'fill="{TEAL}"/>')
+            x += space
+        parts.append(text(f"{x:.1f}", f"{baseline:.1f}", size, "#cbd5e1", label, 600))
+        x += text_width(label, size, 600)
+    return "".join(parts), x
 
 
 def monitor(x, y):
