@@ -154,6 +154,7 @@ pub use crate::repo::verify::verify_repo;
 pub use crate::repo::verify::{RepoVerifyMode, RepoVerifyRequest, RepoVerifyResult};
 pub use crate::repo_handle::Repo;
 pub use crate::sync::fetch::fetch_snapshot;
+pub use crate::sync::fetch::fetch_snapshot_metadata;
 pub use crate::sync::fetch_types::SnapshotFetchRequest;
 pub use crate::sync::fetch_types::SnapshotFetchResult;
 pub use crate::sync::remote::ObjectStoreRemote;

@@ -17,6 +17,7 @@ use crate::installation::fetch::fetch_and_reconstruct_installation;
 use crate::progress::OperationControl;
 use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch::fetch_snapshot;
+use crate::sync::fetch::fetch_snapshot_metadata;
 use crate::sync::fetch_types::SnapshotFetchRequest;
 use crate::transfer::http::is_retryable_status;
 use crate::transfer::http::read_bounded_response;
@@ -98,16 +99,24 @@ impl FetchArgs {
     }
 }
 
-pub(crate) fn fetch(command: FetchArgs, profile: &Profile) -> crate::Result<()> {
+pub(crate) fn fetch(
+    command: FetchArgs,
+    metadata_only: bool,
+    profile: &Profile,
+) -> crate::Result<()> {
     let progress = CliProgressSink::new();
-    let result = fetch_snapshot(
-        &command.into_request(control_with_profile(profile).with_progress(progress))?,
-    )?;
+    let request = command.into_request(control_with_profile(profile).with_progress(progress))?;
+    let result = if metadata_only {
+        fetch_snapshot_metadata(&request)?
+    } else {
+        fetch_snapshot(&request)?
+    };
 
     let fetch = SnapshotFetchStats::new(&result);
     write_stats_json_output(
         &serde_json::json!({
             "command": "snapshot fetch",
+            "metadata_only": metadata_only,
             "repo_root": result.repo_root.display().to_string(),
             "snapshot_id": result.snapshot_id,
             "fetch": fetch,

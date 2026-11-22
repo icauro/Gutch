@@ -11,7 +11,7 @@ use crate::installation::staging::prepare_installation_destination;
 use crate::repo::coordination::write_with_control;
 use crate::runtime::RuntimeResourceHints;
 use crate::sync::fetch::{
-    build_fetch_result, prepare_snapshot_fetch, publish_fetched_snapshot,
+    ArtifactPlanning, build_fetch_result, prepare_snapshot_fetch, publish_fetched_snapshot,
     select_pending_artifact_downloads,
 };
 use crate::sync::fetch_types::{SnapshotFetchRequest, SnapshotFetchResult};
@@ -59,6 +59,7 @@ pub fn fetch_and_reconstruct_installation(
                 &download_client,
                 &progress,
                 &transfer_progress,
+                ArtifactPlanning::Download,
             )?;
             let _promotion_lock = prepare_installation_destination(
                 &prepared.snapshot_manifest,

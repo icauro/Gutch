@@ -78,6 +78,7 @@ SCENARIOS = [
     Scenario("delivery.invalid_metadata_preserves_cache", "local"),
     Scenario("delivery.failed_downloads_preserve_installation", "local"),
     Scenario("delivery.interrupted_download_can_retry", "local"),
+    Scenario("delivery.metadata_only_fetch_skips_bundles", "local"),
     Scenario("capture.concurrent_runs_are_isolated", "local"),
     Scenario("library.examples_run", "local"),
     Scenario("delivery.s3_fetch_reconstruct_and_repair", "s3"),

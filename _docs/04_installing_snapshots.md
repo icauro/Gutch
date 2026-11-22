@@ -66,7 +66,11 @@ time by default; `--transfer-concurrency N` changes that, and
 the files are written.
 
 To download a snapshot into the repository without installing it, use
-`snapshot fetch` with the same options.
+`snapshot fetch` with the same options. `snapshot fetch --metadata-only`
+downloads only the snapshot's metadata, blueprint and the chunk index, no
+bundles. That is enough to verify an installation of the snapshot, or to
+reuse its files when updating it to another snapshot; repairing it still
+needs a full fetch. The library function is `fetch_snapshot_metadata`.
 
 ## Verify
 

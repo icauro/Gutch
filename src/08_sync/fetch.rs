@@ -75,8 +75,13 @@ pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchRes
         let progress = request.control.progress().clone();
         let download_client = build_download_client()?;
         let transfer_progress = Arc::new(FetchTransferProgress::default());
-        let prepared =
-            prepare_snapshot_fetch(request, &download_client, &progress, &transfer_progress)?;
+        let prepared = prepare_snapshot_fetch(
+            request,
+            &download_client,
+            &progress,
+            &transfer_progress,
+            ArtifactPlanning::Download,
+        )?;
         let required_artifacts = &prepared.required_artifacts;
         let pending_artifact_downloads = select_pending_artifact_downloads(
             &prepared.pending_artifact_downloads,
@@ -125,6 +130,70 @@ pub fn fetch_snapshot(request: &SnapshotFetchRequest) -> Result<SnapshotFetchRes
     })
 }
 
+/// Downloads a snapshot's metadata, blueprint and the chunk index, but no
+/// bundles, as `repo pull --metadata-only` does for a remote repository. The
+/// snapshot can then be listed, verified against an installation, or named
+/// as the reuse source of a later fetch. Reconstructing or repairing from it
+/// reports its bundles missing until a full fetch downloads them.
+///
+/// `artifacts` and `artifact_url_provider` are not used; the provider is
+/// never called.
+pub fn fetch_snapshot_metadata(request: &SnapshotFetchRequest) -> Result<SnapshotFetchResult> {
+    request.control.checkpoint()?;
+    fs::create_dir_all(&request.repo_root)?;
+    write_with_control(&request.repo_root, &request.control.clone(), || {
+        request.control.checkpoint()?;
+        let _operation_span = request.control.profile_span("transfer.fetch_metadata");
+        let progress = request.control.progress().clone();
+        let download_client = build_download_client()?;
+        let transfer_progress = Arc::new(FetchTransferProgress::default());
+        let prepared = prepare_snapshot_fetch(
+            request,
+            &download_client,
+            &progress,
+            &transfer_progress,
+            ArtifactPlanning::Skip,
+        )?;
+        publish_fetched_snapshot(&prepared, &request.control)?;
+        transfer_progress.finish();
+        emit_progress(
+            &progress,
+            ProgressEvent {
+                transferred_bytes: transfer_progress.transferred_bytes(),
+                total_bytes: transfer_progress.total_bytes(),
+                detail: Some(request.snapshot_id.clone()),
+                ..ProgressEvent::finished(OperationKind::Fetch, "Snapshot metadata fetched", 1, 1)
+            },
+        );
+        let count_bundles = |artifacts: &HashSet<ArtifactRef>| {
+            artifacts
+                .iter()
+                .filter(|artifact| artifact.is_bundle())
+                .count()
+        };
+        Ok(SnapshotFetchResult {
+            repo_root: request.repo_root.clone(),
+            snapshot_id: request.snapshot_id.clone(),
+            required_bundle_count: count_bundles(&prepared.required_artifacts),
+            downloaded_bundle_count: 0,
+            skipped_existing_bundle_count: count_bundles(&prepared.existing_artifacts),
+            required_artifact_count: prepared.required_artifacts.len(),
+            downloaded_artifact_count: 0,
+            skipped_existing_artifact_count: prepared.existing_artifacts.len(),
+            transfer_policy: request.transfer_policy,
+            transfer_stats: transfer_progress.stats(request.transfer_policy),
+        })
+    })
+}
+
+/// Whether a fetch plans artifact downloads after reading the metadata.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArtifactPlanning {
+    Download,
+    /// Metadata only: no artifact URLs are resolved.
+    Skip,
+}
+
 pub(crate) fn publish_fetched_snapshot(
     prepared: &PreparedSnapshotFetch,
     control: &OperationControl,
@@ -141,6 +210,7 @@ pub(crate) fn prepare_snapshot_fetch(
     download_client: &DownloadClient,
     progress: &Option<Arc<dyn ProgressSink>>,
     transfer_progress: &Arc<FetchTransferProgress>,
+    planning: ArtifactPlanning,
 ) -> Result<PreparedSnapshotFetch> {
     request.control.checkpoint()?;
     let _prepare_span = request.control.profile_span("transfer.prepare");
@@ -215,14 +285,19 @@ pub(crate) fn prepare_snapshot_fetch(
         .iter()
         .map(|artifact| artifact.id().to_string())
         .collect::<HashSet<_>>();
-    let artifact_urls =
-        fetch_artifact_urls(request, &required_artifact_ids, &existing_artifact_ids)?;
-    let pending_artifact_downloads = build_pending_artifact_downloads(
-        &required_artifacts,
-        &existing_artifacts,
-        &artifact_urls,
-        &repo_paths,
-    )?;
+    let pending_artifact_downloads = match planning {
+        ArtifactPlanning::Skip => Vec::new(),
+        ArtifactPlanning::Download => {
+            let artifact_urls =
+                fetch_artifact_urls(request, &required_artifact_ids, &existing_artifact_ids)?;
+            build_pending_artifact_downloads(
+                &required_artifacts,
+                &existing_artifacts,
+                &artifact_urls,
+                &repo_paths,
+            )?
+        }
+    };
 
     Ok(PreparedSnapshotFetch {
         repo_paths,

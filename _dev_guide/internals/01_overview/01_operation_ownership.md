@@ -17,6 +17,7 @@ owners.
 | Repo status and advisory tag references | Private Gutch repo engine, exposed through `gutch::api` | Render the returned status and references |
 | Verify Gutch repo artifacts | Private Gutch repo engine, exposed as `gutch::api::verify_repo` | Supply the repo path, snapshot selection, and verification mode |
 | Fetch snapshot artifacts | Private `repo/` acquisition workflow, exposed as `gutch::api::fetch_snapshot` | Resolve authorized artifact sources and provide progress/cancellation |
+| Fetch snapshot metadata only | Same `sync` fetch preparation without artifact planning, exposed as `gutch::api::fetch_snapshot_metadata` | Supply metadata URLs; artifact sources are ignored |
 | Fetch and reconstruct a destination | Private `installation/` workflow, exposed as `gutch::api::fetch_and_reconstruct_installation` | Supply authorized sources and destination/staging paths |
 | Verify a reconstructed destination | Private `installation/` engine, exposed as `gutch::api::verify_installation`; CLI `gutch installation verify` | Supply the repo path, destination, mode, and runtime hints |
 | Reconstruct and promote an install | Private `installation/` engine, exposed as `gutch::api::reconstruct_installation` | Select the destination/staging paths and commit app metadata only after success |

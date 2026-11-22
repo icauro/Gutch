@@ -42,7 +42,15 @@ pub(crate) enum SnapshotCommands {
         to: String,
     },
     /// Download snapshot data and artifacts into a repository without reconstructing files.
-    Fetch(FetchArgs),
+    Fetch {
+        #[command(flatten)]
+        fetch: FetchArgs,
+        /// Download the snapshot metadata and chunk index but no bundles, such
+        /// as to verify an installation or reuse its files in a later fetch.
+        /// A later fetch without it downloads the bundles.
+        #[arg(long)]
+        metadata_only: bool,
+    },
     /// Delete a snapshot and the artifacts only it uses.
     Delete {
         /// Repository directory.

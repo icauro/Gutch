@@ -136,7 +136,10 @@ pub(crate) fn run(command: SnapshotCommands, profile: &Profile) -> crate::Result
             confirm,
             profile,
         ),
-        SnapshotCommands::Fetch(arguments) => snapshot_transfer::fetch(arguments, profile),
+        SnapshotCommands::Fetch {
+            fetch,
+            metadata_only,
+        } => snapshot_transfer::fetch(fetch, metadata_only, profile),
         SnapshotCommands::Measure { source, tags } => measure(&source, &tags),
     }
 }
