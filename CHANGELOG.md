@@ -3,6 +3,17 @@
 Gutch is not yet at 1.0, so any release can break the library API, the
 command line or the repository format.
 
+## 0.2.1 (2026-11-22)
+
+### New
+
+- `fetch_snapshot_metadata` and `snapshot fetch --metadata-only` download a
+  snapshot's metadata, blueprint and the repository's chunk index from URLs,
+  without bundles. An installed copy of the snapshot can then be verified, and
+  an update from it reuses its files, without downloading its content first.
+  Before, only `repo pull` could fetch metadata alone, which needs a remote
+  that lists folders.
+
 ## 0.2.0 (2026-11-18)
 
 The first release on crates.io, as the crates `gutch` and `gutch-cli`.
